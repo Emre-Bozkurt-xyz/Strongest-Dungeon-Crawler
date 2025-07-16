@@ -38,9 +38,13 @@ function SerDes.increment(Identifier: string, timeout: number?): number
 end
 
 function SerDes.decrement()
-	if not RunService:IsServer() or SerInt <= 0 then return end
+	if not RunService:IsServer() or SerInt <= 0 then
+		return
+	end
 	local Identifier = Event:GetAttribute(`{SerInt}`)
-	if not Identifier then return end
+	if not Identifier then
+		return
+	end
 	Event:SetAttribute(`{Identifier}`, nil)
 	Event:SetAttribute(`{SerInt}`, nil)
 	SerInt -= 1

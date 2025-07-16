@@ -8,7 +8,6 @@ export type ModifierConfig = {
 	value: number,
 	type: "flat" | "percent",
 	condition: ((stats: any) -> boolean)?,
-	description: string,
 	source_id: string,
 }
 
@@ -18,17 +17,18 @@ function StatModifier.new(config: ModifierConfig)
 		value = config.value,
 		type = config.type,
 		condition = config.condition,
-		description = config.description,
+		description = "",
 		source_id = config.source_id,
 		isActive = true,
+		modifierType = "StatModifier", -- Identify modifier type for serialization
 	}, StatModifier)
 
 	return self
 end
 
 -- Calculate the modifier value dynamically
-function StatModifier:calculateValue(allStats: any): number
-	local returnValue = if self.type == "flat" then 0 else 1
+function StatModifier:apply(lastValue: number, allStats: any): number
+	local returnValue = lastValue
 
 	if not self.isActive then
 		return returnValue
@@ -40,8 +40,11 @@ function StatModifier:calculateValue(allStats: any): number
 	end
 
 	-- Fixed value modifier
-	if self.value then
-		return self.value
+	if self.value and self.type == "flat" then
+		returnValue += self.value
+	-- Percentage modifier
+	elseif self.value and self.type == "percent" then
+		returnValue += returnValue * self.value
 	end
 
 	return returnValue

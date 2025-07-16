@@ -1,8 +1,4 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TS = game:GetService("TweenService")
-local warp = require(ReplicatedStorage.Packages.warp)
-
-local healthChangedEvent = warp.Client("HealthChanged")
 
 local HealthBarController = {}
 HealthBarController.__index = HealthBarController
@@ -10,17 +6,11 @@ HealthBarController.__index = HealthBarController
 function HealthBarController.new(Parent: Instance)
 	local self = setmetatable({}, HealthBarController)
 
-	print("HealthBarController initialized")
-
 	-- Initialize health bar UI elements
 	self.healthBar = Parent:WaitForChild("HealthBar")
 	self.fillBar = self.healthBar:WaitForChild("ProgressBar"):WaitForChild("FillPanel")
 	self.healthLabel = self.healthBar:WaitForChild("HealthLabel")
 	self.maxHealthLabel = self.healthBar:WaitForChild("MaxHealthLabel")
-
-	healthChangedEvent:Connect(function(health, maxHealth)
-		self:handleHealthChanged(health, maxHealth)
-	end)
 
 	return self
 end

@@ -1,8 +1,4 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TS = game:GetService("TweenService")
-local warp = require(ReplicatedStorage.Packages.warp)
-
-local staminaChangedEvent = warp.Client("StaminaChanged")
 
 local StaminaBarController = {}
 StaminaBarController.__index = StaminaBarController
@@ -17,10 +13,6 @@ function StaminaBarController.new(Parent: Instance)
 	self.centerCircle = self.staminaBar:WaitForChild("Center")
 
 	self.lastRotation = 0
-
-	staminaChangedEvent:Connect(function(stam, maxStam)
-		self:handleStaminaChanged(stam, maxStam)
-	end)
 
 	return self
 end

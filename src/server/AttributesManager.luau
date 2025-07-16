@@ -4,13 +4,15 @@
 
 local Players = game:GetService("Players")
 
+local StatsManager = require(script.Parent.StatsManager)
 local Warp = require(game.ReplicatedStorage.Packages.warp)
 local AttributesConfig = require(game.ReplicatedStorage.Shared.AttributesConfig)
+local AttributeTypes = require(game.ReplicatedStorage.Shared.AttributeTypes)
 
-type AttributeType = AttributesConfig.AttributeType
-type AttributeData = AttributesConfig.AttributeData
-type PlayerAttributes = AttributesConfig.PlayerAttributes
-type AttributeModifier = AttributesConfig.AttributeModifier
+-- Import types from central location
+type PlayerAttributes = AttributeTypes.PlayerAttributes
+type AttributeType = AttributeTypes.AttributeType
+type AttributeModifier = AttributeTypes.AttributeModifier
 
 local AttributesManager = {}
 local playerAttributes: { [Player]: PlayerAttributes } = {}
@@ -19,33 +21,77 @@ local playerAttributes: { [Player]: PlayerAttributes } = {}
 local attributesUpdateEvent = Warp.Server("AttributesUpdate")
 local attributesRequestEvent = Warp.Server("AttributesRequest")
 
--- TESTING
-local healthChangedEvent = Warp.Server("HealthChanged")
-local staminaChangedEvent = Warp.Server("StaminaChanged")
-local manaChangedEvent = Warp.Server("ManaChanged")
+local attributesChangedSignal = Warp.Signal("AttributesChanged")
+
+-- Serialize attributes for network transmission
+function AttributesManager.serializeAttributes(attributes: PlayerAttributes)
+	local serialized = {} :: any
+
+	for attributeName, attribute in pairs(attributes) do
+		serialized[attributeName] = {
+			base = attribute:getBaseValue(),
+			current = attribute:getValue(),
+			modifiers = attribute:getModifierBreakdown(),
+		}
+	end
+
+	return serialized
+end
+
+-- Add a modifier to a player's attribute
+function AttributesManager.addModifier(player: Player, attributeType: AttributeType, modifier: AttributeModifier)
+	if not playerAttributes[player] then
+		warn(`Attempted to add modifier for player {player.Name} who has no attributes initialized`)
+		return false
+	end
+
+	local attribute = (playerAttributes[player] :: any)[attributeType]
+	if not attribute then
+		warn(`Attribute {attributeType} not found for player {player.Name}`)
+		return false
+	end
+
+	attribute:addModifier(modifier)
+
+	-- Notify the client of the change
+	attributesChangedSignal:Fire(player, playerAttributes[player])
+
+	print(`Added modifier '{modifier.source_id}' to {player.Name}'s {attributeType}`)
+	return true
+end
+
+-- Remove a modifier from a player's attribute
+function AttributesManager.removeModifier(player: Player, attributeType: AttributeType, source_id: string)
+	if not playerAttributes[player] then
+		warn(`Attempted to remove modifier for player {player.Name} who has no attributes initialized`)
+		return false
+	end
+
+	local attribute = (playerAttributes[player] :: any)[attributeType]
+	if not attribute then
+		warn(`Attribute {attributeType} not found for player {player.Name}`)
+		return false
+	end
+
+	local removed = attribute:removeModifier(source_id)
+
+	if removed then
+		-- Notify the client of the change
+		attributesChangedSignal:Fire(player, playerAttributes[player])
+		print(`Removed modifier '{source_id}' from {player.Name}'s {attributeType}`)
+	end
+
+	return removed
+end
 
 -- Initialize attributes for a new player
 local function initializePlayerAttributes(player: Player)
 	playerAttributes[player] = AttributesConfig.createDefaultAttributes()
 
-	-- Send initial attributes to the player
-	attributesUpdateEvent:Fire(true, player, playerAttributes[player])
+	-- Send initial attributes to the player (serialize for network)
+	attributesChangedSignal:Fire(player, playerAttributes[player])
 
 	print(`Initialized attributes for player: {player.Name}`)
-
-	-- TESTING: Send initial health, stamina, and mana
-	task.spawn(function()
-		while true do
-			local healthMax = math.random(50, 200)
-			healthChangedEvent:Fire(true, player, math.random(10, healthMax), healthMax)
-
-			local manaMax = math.random(100, 250)
-			manaChangedEvent:Fire(true, player, math.random(10, manaMax), manaMax)
-
-			staminaChangedEvent:Fire(true, player, math.random(10, 100), 100)
-			task.wait(3)
-		end
-	end)
 end
 
 -- Clean up when player leaves
@@ -62,18 +108,21 @@ function AttributesManager.setAttribute(player: Player, attributeType: Attribute
 	end
 
 	local validatedValue = AttributesConfig.validateAttributeValue(newValue)
-	local attribute = playerAttributes[player][attributeType]
+	local attribute = (playerAttributes[player] :: any)[attributeType]
 
-	-- Recalculate current value
-	attribute.base = validatedValue
+	if not attribute then
+		warn(`Attribute {attributeType} not found for player {player.Name}`)
+		return false
+	end
+
+	-- Set the base value using the class method
+	attribute:setBaseValue(validatedValue)
 
 	-- Notify the client of the change
-	attributesUpdateEvent:Fire(true, player, playerAttributes[player])
+	attributesChangedSignal:Fire(player, playerAttributes[player])
 
 	print(
-		`Updated {player.Name}'s {attributeType} to {attribute.base + AttributesConfig.getAdditiveModifiers(attribute)} (base: {attribute.base}, modifiers: {AttributesConfig.getAdditiveModifiers(
-			attribute
-		)})`
+		`Updated {player.Name}'s {attributeType} to {attribute:getValue()} (base: {attribute:getBaseValue()}, modifiers: {attribute:getModifierTotal()})`
 	)
 	return true
 end
@@ -85,20 +134,39 @@ function AttributesManager.addToAttribute(player: Player, attributeType: Attribu
 		return false
 	end
 
-	local attribute = playerAttributes[player][attributeType]
-	local currentValue = attribute.base
-	local newValue = currentValue + amount
+	local attribute = (playerAttributes[player] :: any)[attributeType]
+	if not attribute then
+		warn(`Attribute {attributeType} not found for player {player.Name}`)
+		return false
+	end
 
-	return AttributesManager.setAttribute(player, attributeType, newValue)
+	-- Use the class method to add to base value
+	attribute:addToBaseValue(amount)
+
+	-- Notify the client of the change
+	attributesChangedSignal:Fire(player, playerAttributes[player])
+
+	print(`Added {amount} to {player.Name}'s {attributeType}. New value: {attribute:getValue()}`)
+	return true
 end
 
--- Get a player's current attribute value
-function AttributesManager.getAttribute(player: Player, attributeType: AttributeType): AttributeData?
+-- Get a player's attribute object
+function AttributesManager.getAttribute(player: Player, attributeType: AttributeType)
 	if not playerAttributes[player] then
 		return nil
 	end
 
-	return playerAttributes[player][attributeType]
+	return (playerAttributes[player] :: any)[attributeType]
+end
+
+-- Get a player's current attribute value
+function AttributesManager.getAttributeValue(player: Player, attributeType: AttributeType): number?
+	if not playerAttributes[player] then
+		return nil
+	end
+
+	local attribute = (playerAttributes[player] :: any)[attributeType]
+	return attribute and attribute:getValue() or nil
 end
 
 -- Get all attributes for a player
@@ -114,26 +182,66 @@ function AttributesManager.resetAttributes(player: Player)
 	end
 
 	playerAttributes[player] = AttributesConfig.createDefaultAttributes()
-	attributesUpdateEvent:Fire(true, player, playerAttributes[player])
+	attributesChangedSignal:Fire(player, playerAttributes[player])
 
 	print(`Reset attributes for player: {player.Name}`)
 	return true
 end
 
+-- Apply all attribute scaling effects to a player's attributes
+function AttributesManager.applyAllScaling(player: Player)
+	if not playerAttributes[player] then
+		warn(`Cannot apply scaling for player {player.Name} - missing attributes`)
+		return
+	end
+
+	for _, attributeMilestone in pairs(AttributesConfig.AttributeMilestones) do
+		local attribute = AttributesManager.getAttribute(player, attributeMilestone.attribute)
+		if not attribute then
+			warn(`Attribute {attributeMilestone.attribute} not found for player {player.Name}`)
+			continue
+		end
+
+		local intelligenceValue = attribute:getValue()
+
+		-- Apply the scaling formula defined in the milestone
+		attributeMilestone.applyScaling(player, StatsManager, intelligenceValue)
+	end
+
+	print(`Applied attribute scaling for {player.Name}`)
+end
+
 -- Handle client requests for attributes
 local function handleAttributesRequest(player: Player)
 	if playerAttributes[player] then
-		attributesUpdateEvent:Fire(true, player, playerAttributes[player])
+		attributesChangedSignal:Fire(player, playerAttributes[player])
 	else
 		initializePlayerAttributes(player)
 	end
 end
 
+-- Handle attribute changes
+local function handleAttributesChanged(player: Player, attributes: PlayerAttributes)
+	if not playerAttributes[player] then
+		warn(`Attempted to handle attribute change for player {player.Name} who has no attributes initialized`)
+		return
+	end
+
+	-- Apply all scaling effects
+	AttributesManager.applyAllScaling(player)
+
+	-- Notify the client of the updated attributes
+	attributesUpdateEvent:Fire(true, player, AttributesManager.serializeAttributes(attributes))
+end
+
 -- Connect events
 attributesRequestEvent:Connect(handleAttributesRequest)
+attributesChangedSignal:Connect(handleAttributesChanged)
 
 -- Connect player events
 Players.PlayerAdded:Connect(initializePlayerAttributes)
 Players.PlayerRemoving:Connect(cleanupPlayerAttributes)
+
+print("AttributesManager initialized")
 
 return AttributesManager

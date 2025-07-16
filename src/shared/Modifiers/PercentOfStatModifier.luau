@@ -1,12 +1,9 @@
 -- Example of how a class-based modifier system could look
 
 local StatModifier = require(game.ReplicatedStorage.Shared.Modifiers.StatModifier)
+local Types = require(game.ReplicatedStorage.Shared.StatTypes)
 
-local StatsConfig = require(game.ReplicatedStorage.Shared.StatsConfig)
-local AttributesConfig = require(game.ReplicatedStorage.Shared.AttributesConfig)
-
-type StatType = StatsConfig.StatType
-type AttributeType = AttributesConfig.AttributeType
+type StatType = Types.StatType
 
 local PercentOfStatModifier = {}
 PercentOfStatModifier.__index = PercentOfStatModifier
@@ -17,7 +14,7 @@ export type PercentOfModifierConfig = {
 	condition: ((stats: any) -> boolean)?,
 	description: string,
 	source_id: string,
-	targetStat: StatType | AttributeType, -- The stat this modifier is a percentage of
+	targetStat: StatType, -- The stat this modifier is a percentage of
 }
 
 -- Create a new modifier
@@ -32,37 +29,32 @@ function PercentOfStatModifier.new(config: PercentOfModifierConfig)
 	setmetatable(self, PercentOfStatModifier)
 
 	self.targetStat = config.targetStat
+	self.modifierType = "PercentOfStatModifier" -- Identify modifier type for serialization
 
 	return self
 end
 
 -- Calculate the modifier value dynamically
-function PercentOfStatModifier:calculateValue(allStats: any): number
+function PercentOfStatModifier:apply(lastValue: number, allStats: any): number
 	if not self.isActive then
-		return 0
+		return lastValue
 	end
 
 	-- Check condition if it exists
 	if self.condition and not self.condition(allStats) then
-		return 0
+		return lastValue
 	end
 
 	-- Get the target stat value
-	local targetStatValue = 0
 	if allStats and allStats[self.targetStat] then
 		local targetStat = allStats[self.targetStat]
 		-- Check if it's a stat object with getValue method or a simple table
 		if type(targetStat) == "table" and targetStat.getValue then
-			targetStatValue = targetStat:getValue(allStats)
-		elseif type(targetStat) == "table" and targetStat.base then
-			targetStatValue = targetStat.base
-		elseif type(targetStat) == "number" then
-			targetStatValue = targetStat
+			return lastValue + (targetStat:getValue(allStats) * self.value)
 		end
 	end
 
-	-- Calculate percentage of the target stat
-	return targetStatValue * self.value
+	return lastValue
 end
 
 return PercentOfStatModifier

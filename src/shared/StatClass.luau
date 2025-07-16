@@ -1,7 +1,5 @@
 -- Example of how a class-based stat system could look
 
-local StatModifier = require(game.ReplicatedStorage.Shared.Modifiers.StatModifier)
-
 local Stat = {}
 Stat.__index = Stat
 
@@ -15,6 +13,7 @@ export type StatConfig = {
 
 function Stat.new(config: StatConfig)
 	local self = setmetatable({
+		statType = "static", -- Identify this as a static stat
 		name = config.name,
 		baseValue = config.baseValue,
 		minValue = config.minValue or 0,
@@ -46,6 +45,18 @@ function Stat:removeModifier(source_id: string): boolean
 	return false
 end
 
+function Stat:updateModifier(source_id: string, newValue: number): boolean
+	for _, modifier in ipairs(self.modifiers) do
+		if modifier.source_id == source_id then
+			modifier:modifyValue(newValue)
+			self:_markDirty()
+			return true
+		end
+	end
+	warn(`Modifier '{source_id}' not found in {self.name}`)
+	return false
+end
+
 -- Get all modifiers from a specific source
 function Stat:getModifiersFromSource(source_id: string)
 	local result = {}
@@ -63,31 +74,15 @@ function Stat:getValue(allStats: any?): number
 		return self._cachedValue
 	end
 
-	-- Sort modifiers by priority (higher priority applied last)
-	local sortedModifiers = {}
-	for _, modifier in ipairs(self.modifiers) do
-		table.insert(sortedModifiers, modifier)
-	end
-	table.sort(sortedModifiers, function(a, b)
-		return (a.priority or 0) < (b.priority or 0)
-	end)
-
 	-- Start with base value
 	local finalValue = self.baseValue
 
-	-- Apply flat modifiers first
-	for _, modifier in ipairs(sortedModifiers) do
-		local modValue = modifier:calculateValue(finalValue, allStats)
-		if modifier.value then -- Flat modifier
-			finalValue = finalValue + modValue
-		end
-	end
-
-	-- Then apply percentage modifiers
-	for _, modifier in ipairs(sortedModifiers) do
-		if modifier.percentage then -- Percentage modifier
-			local modValue = modifier:calculateValue(finalValue, allStats)
-			finalValue = finalValue + modValue
+	-- Apply modifiers using their apply method
+	for _, modifier in ipairs(self.modifiers) do
+		if modifier.apply then
+			finalValue = modifier:apply(finalValue, allStats)
+		else
+			warn(`Modifier from {modifier.source_id} does not have an apply method`)
 		end
 	end
 
@@ -124,10 +119,15 @@ function Stat:getModifierBreakdown(): { { name: string, value: number, type: str
 
 	for _, modifier in ipairs(self.modifiers) do
 		if modifier.isActive then
+			-- Calculate the actual contribution of this modifier
+			local baseValue = self.baseValue
+			local modifiedValue = modifier:apply(baseValue, nil)
+			local contribution = modifiedValue - baseValue
+
 			table.insert(breakdown, {
-				name = modifier.description,
-				value = modifier:calculateValue(self.baseValue, nil),
-				type = modifier.value and "flat" or "percentage",
+				name = modifier.description or modifier.source_id,
+				value = contribution,
+				type = modifier.type or "unknown",
 				source = modifier.source_id,
 			})
 		end
@@ -140,41 +140,5 @@ end
 function Stat:_markDirty()
 	self._isDirty = true
 end
-
--- Examples of usage:
-
---[[
--- Create a health stat
-local health = Stat.new({
-	baseValue = 100,
-	minValue = 0,
-	maxValue = 9999,
-	name = "Health",
-	description = "Player's life force"
-})
-
--- Add modifiers
-local constitution = StatModifier.new({
-	sourceStatType = "Constitution",
-	percentage = 10,
-	description = "Constitution bonus (+10% per CON)",
-	source_id = "constitution_bonus"
-})
-
-local helmet = StatModifier.new({
-	value = 25,
-	description = "Iron Helmet (+25 HP)",
-	source_id = "iron_helmet"
-})
-
-health:addModifier(constitution)
-health:addModifier(helmet)
-
--- Get final value
-local finalHealth = health:getValue(allPlayerStats)
-
--- Remove equipment
-health:removeModifier("iron_helmet")
---]]
 
 return Stat

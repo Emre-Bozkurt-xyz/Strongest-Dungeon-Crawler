@@ -15,7 +15,7 @@ function HealthBarController.new(Parent: Instance)
 	return self
 end
 
-function HealthBarController:handleHealthChanged(health, maxHealth)
+function HealthBarController:updateHealth(health, maxHealth)
 	health = math.clamp(health, 0, maxHealth)
 	local fillAmount = health / maxHealth
 
@@ -27,8 +27,8 @@ function HealthBarController:handleHealthChanged(health, maxHealth)
 	):Play()
 
 	-- Update health labels
-	self.healthLabel.Text = tostring(health)
-	self.maxHealthLabel.Text = "/" .. tostring(maxHealth)
+	self.healthLabel.Text = tostring(math.floor(health))
+	self.maxHealthLabel.Text = "/" .. tostring(math.floor(maxHealth))
 end
 
 return HealthBarController

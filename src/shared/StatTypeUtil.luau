@@ -159,6 +159,9 @@ function StatTypeUtil.deserializeStats(serialized: any): Types.PlayerStats
 	local StatModifier = require(game.ReplicatedStorage.Shared.Modifiers.StatModifier)
 	local PercentOfStatModifier = require(game.ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
 
+	-- Store current values for pool stats to restore AFTER modifiers
+	local poolCurrentValues = {}
+
 	-- First pass: Create all stat instances with basic properties
 	for statName, data in pairs(serialized) do
 		if data.statType == "pool" then
@@ -172,15 +175,15 @@ function StatTypeUtil.deserializeStats(serialized: any): Types.PlayerStats
 				startAtMax = false, -- We'll set current value manually
 			})
 
-			-- Restore pool-specific state
-			poolStat:setCurrentValue(data.currentValue)
+			-- Store current value for later restoration (after modifiers are added)
+			poolCurrentValues[statName] = data.currentValue
 			poolStat.reservations = data.reservations or {}
 
-			-- Restore cache state
-			poolStat._cachedValue = data._cachedValue
-			poolStat._cachedMaxValue = data._cachedMaxValue
-			poolStat._isDirty = data._isDirty
-			poolStat._maxIsDirty = data._maxIsDirty
+			-- DON'T restore cache state - let it recalculate fresh on client
+			-- poolStat._cachedValue = data._cachedValue
+			-- poolStat._cachedMaxValue = data._cachedMaxValue
+			-- poolStat._isDirty = data._isDirty
+			-- poolStat._maxIsDirty = data._maxIsDirty
 
 			stats[statName] = poolStat
 		else
@@ -193,9 +196,9 @@ function StatTypeUtil.deserializeStats(serialized: any): Types.PlayerStats
 				description = data.description,
 			})
 
-			-- Restore cache state
-			staticStat._cachedValue = data._cachedValue
-			staticStat._isDirty = data._isDirty
+			-- DON'T restore cache state - let it recalculate fresh on client
+			-- staticStat._cachedValue = data._cachedValue
+			-- staticStat._isDirty = data._isDirty
 
 			stats[statName] = staticStat
 		end
@@ -239,7 +242,156 @@ function StatTypeUtil.deserializeStats(serialized: any): Types.PlayerStats
 		end
 	end
 
+	-- Third pass: Restore current values for pool stats (now that all modifiers are in place)
+	for statName, currentValue in pairs(poolCurrentValues) do
+		local poolStat = stats[statName]
+		if poolStat then
+			-- Now that modifiers are restored, set current value with correct maximum
+			poolStat:setCurrentValue(currentValue, stats)
+		end
+	end
+
 	return stats :: Types.PlayerStats
+end
+
+-- =========================================
+-- DELTA UPDATE SYSTEM (More Efficient)
+-- =========================================
+
+-- Types of delta updates
+StatTypeUtil.DeltaTypes = {
+	MODIFIER_ADDED = "modifier_added",
+	MODIFIER_REMOVED = "modifier_removed",
+	MODIFIER_UPDATED = "modifier_updated",
+	CURRENT_VALUE_CHANGED = "current_value_changed",
+	BASE_VALUE_CHANGED = "base_value_changed",
+	RESERVATION_ADDED = "reservation_added",
+	RESERVATION_REMOVED = "reservation_removed",
+	FULL_SYNC = "full_sync", -- Fallback for initial sync or major changes
+}
+
+-- Create a delta update for a specific change
+function StatTypeUtil.createDelta(deltaType: string, statName: string, data: any)
+	return {
+		type = deltaType,
+		stat = statName,
+		timestamp = tick(),
+		data = data,
+	}
+end
+
+-- Create modifier delta
+function StatTypeUtil.createModifierDelta(deltaType: string, statName: string, modifierObj: any)
+	return StatTypeUtil.createDelta(deltaType, statName, {
+		source_id = modifierObj.source_id,
+		value = modifierObj.value,
+		type = modifierObj.type,
+		description = modifierObj.description,
+		isActive = modifierObj.isActive,
+		modifierType = modifierObj.modifierType or "StatModifier",
+		targetStat = modifierObj.targetStat, -- For PercentOfStatModifier
+	})
+end
+
+-- Create current value delta
+function StatTypeUtil.createCurrentValueDelta(statName: string, newValue: number, maxValue: number?)
+	return StatTypeUtil.createDelta(StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, statName, {
+		currentValue = newValue,
+		maxValue = maxValue, -- Include max for UI percentage calculations
+	})
+end
+
+-- Create base value delta
+function StatTypeUtil.createBaseValueDelta(statName: string, newBaseValue: number)
+	return StatTypeUtil.createDelta(StatTypeUtil.DeltaTypes.BASE_VALUE_CHANGED, statName, {
+		baseValue = newBaseValue,
+	})
+end
+
+-- Batch multiple deltas together
+function StatTypeUtil.createBatchedDeltas(deltas: { any })
+	return {
+		type = "batch",
+		timestamp = tick(),
+		deltas = deltas,
+	}
+end
+
+-- Apply a delta to existing client stats (avoids recreation)
+function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): boolean
+	local stat = clientStats[delta.stat]
+	if not stat then
+		warn(`Delta update for unknown stat: {delta.stat}`)
+		return false
+	end
+
+	if delta.type == StatTypeUtil.DeltaTypes.MODIFIER_ADDED then
+		-- Import modifier classes
+		local StatModifier = require(game.ReplicatedStorage.Shared.Modifiers.StatModifier)
+		local PercentOfStatModifier = require(game.ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
+
+		local modifierData = delta.data
+		local modifier
+
+		-- Create appropriate modifier type
+		if modifierData.modifierType == "PercentOfStatModifier" then
+			modifier = PercentOfStatModifier.new({
+				value = modifierData.value,
+				condition = nil,
+				description = modifierData.description or "",
+				source_id = modifierData.source_id,
+				targetStat = modifierData.targetStat,
+			})
+		else
+			modifier = StatModifier.new({
+				value = modifierData.value,
+				type = modifierData.type,
+				source_id = modifierData.source_id,
+			})
+		end
+
+		modifier.description = modifierData.description
+		modifier.isActive = modifierData.isActive
+
+		-- Add modifier to existing stat (no recreation needed)
+		stat:addModifier(modifier)
+	elseif delta.type == StatTypeUtil.DeltaTypes.MODIFIER_REMOVED then
+		stat:removeModifier(delta.data.source_id)
+	elseif delta.type == StatTypeUtil.DeltaTypes.MODIFIER_UPDATED then
+		stat:updateModifier(delta.data.source_id, delta.data.value)
+	elseif delta.type == StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED then
+		if StatTypeUtil.isPoolStat(stat) then
+			stat:setCurrentValue(delta.data.currentValue, clientStats)
+		end
+	elseif delta.type == StatTypeUtil.DeltaTypes.BASE_VALUE_CHANGED then
+		stat:setBaseValue(delta.data.baseValue)
+	elseif delta.type == StatTypeUtil.DeltaTypes.RESERVATION_ADDED then
+		if StatTypeUtil.isPoolStat(stat) then
+			stat:addReservation(delta.data)
+		end
+	elseif delta.type == StatTypeUtil.DeltaTypes.RESERVATION_REMOVED then
+		if StatTypeUtil.isPoolStat(stat) then
+			stat:removeReservation(delta.data.source_id)
+		end
+	else
+		warn(`Unknown delta type: {delta.type}`)
+		return false
+	end
+
+	return true
+end
+
+-- Apply a batch of deltas
+function StatTypeUtil.applyBatchedDeltas(clientStats: Types.PlayerStats, batchedUpdate: any): number
+	local successCount = 0
+
+	for _, delta in ipairs(batchedUpdate.deltas) do
+		if StatTypeUtil.applyDelta(clientStats, delta) then
+			successCount += 1
+		end
+	end
+
+	return successCount
 end
 
 -- Usage examples:
@@ -247,17 +399,17 @@ end
 local playerStat = StatsManager.getStat(player, "Health")
 
 if StatTypeUtil.isPoolStat(playerStat) then
-	print("This is a pool stat")
-	print("Current:", playerStat:getCurrentValue())
-	print("Max:", playerStat:getMaxValue())
+	-- This is a pool stat
+	-- Current: playerStat:getCurrentValue()
+	-- Max: playerStat:getMaxValue()
 else
-	print("This is a static stat")
-	print("Value:", playerStat:getValue())
+	-- This is a static stat
+	-- Value: playerStat:getValue()
 end
 
 -- Or using stat name
 if StatTypeUtil.isPoolName("Health") then
-	print("Health is a pool type")
+	-- Health is a pool type
 end
 ]]
 

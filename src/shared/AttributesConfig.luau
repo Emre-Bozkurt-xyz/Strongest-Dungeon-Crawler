@@ -52,31 +52,31 @@ AttributesConfig.ScalingFormulas = {
 	Intelligence = {
 		MagicDamageFromValue = function(intelligenceValue: number): number
 			-- Staged scaling: First 10 points at 1.5x, next 10 at 2.0x, rest at 2.5x
-			local totalDamage = 0
+			local total = 0
 			local remainingPoints = intelligenceValue
 
 			-- Stage 1: First 10 points at 1.5x rate
 			if remainingPoints > 0 then
 				local pointsInThisStage = math.min(remainingPoints, 10)
-				totalDamage += pointsInThisStage * 1.5
+				total += pointsInThisStage * 1.5
 				remainingPoints -= pointsInThisStage
 			end
 
 			-- Stage 2: Next 10 points (11-20) at 2.0x rate
 			if remainingPoints > 0 then
 				local pointsInThisStage = math.min(remainingPoints, 10)
-				totalDamage += pointsInThisStage * 2.0
+				total += pointsInThisStage * 2.0
 				remainingPoints -= pointsInThisStage
 			end
 
 			-- Stage 3: Remaining points (21+) at 2.5x rate
 			if remainingPoints > 0 then
-				totalDamage += remainingPoints * 2.5
+				total += remainingPoints * 2.5
 			end
 
-			return totalDamage
+			return total
 		end,
-		ManaPerPoint = function(intelligenceValue: number): number
+		ManaFromValue = function(intelligenceValue: number): number
 			-- Every point of Intelligence gives +5 Mana
 			return intelligenceValue * 5
 		end,
@@ -112,7 +112,7 @@ AttributesConfig.AttributeMilestones = {
 	{
 		attribute = AttributeTypes.Attributes.Intelligence,
 		applyScaling = function(player: Player, StatsManager: any, intelligenceValue: number)
-			local newValue = AttributesConfig.ScalingFormulas.Intelligence.ManaPerPoint(intelligenceValue)
+			local newValue = AttributesConfig.ScalingFormulas.Intelligence.ManaFromValue(intelligenceValue)
 			if StatsManager.hasModifier(player, StatTypes.PoolStats.Mana, "IntelligenceScaling") then
 				StatsManager.updateModifier(player, StatTypes.PoolStats.Mana, "IntelligenceScaling", newValue)
 			else
@@ -122,7 +122,7 @@ AttributesConfig.AttributeMilestones = {
 					StatModifier.new({
 						source_id = "IntelligenceScaling",
 						type = "flat",
-						value = intelligenceValue * newValue,
+						value = newValue,
 						description = "Increased Mana from Intelligence",
 					})
 				)

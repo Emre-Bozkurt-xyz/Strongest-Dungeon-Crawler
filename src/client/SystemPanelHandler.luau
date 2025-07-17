@@ -17,7 +17,7 @@ function SystemPanelHandler.new()
 	local self = setmetatable({}, SystemPanelHandler)
 
 	-- Initialize any properties or connections here
-	self.systemPanel = ReplicatedStorage.Shared.SystemPanel:Clone()
+	self.systemPanel = ReplicatedStorage.Assets.SystemPanel:Clone()
 	-- Example: Connect a button click event
 	local statusPanel = self.systemPanel:FindFirstChild("StatusPanel", true)
 	if statusPanel then

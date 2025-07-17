@@ -17,7 +17,7 @@ function StaminaBarController.new(Parent: Instance)
 	return self
 end
 
-function StaminaBarController:handleStaminaChanged(stam, maxStam)
+function StaminaBarController:updateStamina(stam, maxStam)
 	local rotation = math.floor(math.clamp(stam / maxStam * 360, 0, 360))
 
 	local rightTimeRatio = 1

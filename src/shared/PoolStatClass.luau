@@ -97,9 +97,9 @@ function PoolStat:getPercentage(allStats: any?): number
 	return ((self.currentValue :: number) / max) * 100
 end
 
--- Set current value (clamped to 0 and max)
+-- Set current value (clamped to 0 and max available after reservations)
 function PoolStat:setCurrentValue(value: number, allStats: any?): number
-	local max = self:getMaxAvailableValue(allStats)
+	local max = self:getMaxAvailableValue(allStats) -- Respect reservations
 	self.currentValue = math.clamp(value, 0, max)
 	return self.currentValue
 end
@@ -116,7 +116,7 @@ end
 
 -- Fill to max
 function PoolStat:fillToMax(allStats: any?)
-	self.currentValue = self:getMaxValue(allStats)
+	self.currentValue = self:getValue(allStats)
 end
 
 -- Check if empty
@@ -126,7 +126,7 @@ end
 
 -- Check if full
 function PoolStat:isFull(allStats: any?): boolean
-	return (self.currentValue :: number) >= self:getMaxValue(allStats)
+	return (self.currentValue :: number) >= self:getValue(allStats)
 end
 
 -- Add a reservation
@@ -217,6 +217,17 @@ function PoolStat:getModifierBreakdown()
 		modifiers = breakdown,
 		reservations = reservationBreakdown,
 	}
+end
+
+-- Override invalidateCache for pool stats
+function PoolStat:invalidateCache()
+	self._isDirty = true
+	self._maxIsDirty = true
+end
+
+-- Get maximum value (alias for getValue for compatibility)
+function PoolStat:getMaxValue(allStats: any?): number
+	return self:getValue(allStats)
 end
 
 return PoolStat

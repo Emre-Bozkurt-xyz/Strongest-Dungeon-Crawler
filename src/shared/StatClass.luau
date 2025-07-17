@@ -141,4 +141,9 @@ function Stat:_markDirty()
 	self._isDirty = true
 end
 
+-- Force cache invalidation (useful when external systems modify this stat)
+function Stat:invalidateCache()
+	self:_markDirty()
+end
+
 return Stat

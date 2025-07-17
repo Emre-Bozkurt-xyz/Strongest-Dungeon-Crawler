@@ -118,6 +118,9 @@ function AttributesManager.setAttribute(player: Player, attributeType: Attribute
 	-- Set the base value using the class method
 	attribute:setBaseValue(validatedValue)
 
+	-- Reapply all scaling since attribute values changed
+	AttributesManager.applyAllScaling(player)
+
 	-- Notify the client of the change
 	attributesChangedSignal:Fire(player, playerAttributes[player])
 
@@ -142,6 +145,9 @@ function AttributesManager.addToAttribute(player: Player, attributeType: Attribu
 
 	-- Use the class method to add to base value
 	attribute:addToBaseValue(amount)
+
+	-- Reapply all scaling since attribute values changed
+	AttributesManager.applyAllScaling(player)
 
 	-- Notify the client of the change
 	attributesChangedSignal:Fire(player, playerAttributes[player])
@@ -195,6 +201,9 @@ function AttributesManager.applyAllScaling(player: Player)
 		return
 	end
 
+	-- Enable batching to prevent individual client updates
+	StatsManager.enableBatching(player)
+
 	for _, attributeMilestone in pairs(AttributesConfig.AttributeMilestones) do
 		local attribute = AttributesManager.getAttribute(player, attributeMilestone.attribute)
 		if not attribute then
@@ -207,6 +216,9 @@ function AttributesManager.applyAllScaling(player: Player)
 		-- Apply the scaling formula defined in the milestone
 		attributeMilestone.applyScaling(player, StatsManager, intelligenceValue)
 	end
+
+	-- Disable batching and send final update
+	StatsManager.disableBatching(player)
 
 	print(`Applied attribute scaling for {player.Name}`)
 end

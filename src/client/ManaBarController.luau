@@ -15,7 +15,7 @@ function ManaBarController.new(Parent: Instance)
 	return self
 end
 
-function ManaBarController:handleManaChanged(mana, maxMana)
+function ManaBarController:updateMana(mana, maxMana)
 	mana = math.clamp(mana, 0, maxMana)
 	local fillAmount = mana / maxMana
 
@@ -27,8 +27,8 @@ function ManaBarController:handleManaChanged(mana, maxMana)
 	):Play()
 
 	-- Update mana labels
-	self.manaLabel.Text = tostring(mana)
-	self.maxManaLabel.Text = "/" .. tostring(maxMana)
+	self.manaLabel.Text = tostring(math.floor(mana))
+	self.maxManaLabel.Text = "/" .. tostring(math.floor(maxMana))
 end
 
 return ManaBarController

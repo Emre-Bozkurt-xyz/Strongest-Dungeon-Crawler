@@ -83,18 +83,26 @@ local attributesHandler = {
 			if delta.type == "full_sync" and delta.data then
 				-- Replace with the new attribute data
 				newData = delta.data
-			elseif delta.target == "availableAP" then
-				newData.availableAP = delta.data.value or delta.data
-			elseif delta.target and newData[delta.target] then
-				-- Update specific attribute
-				if delta.data.base ~= nil then
-					newData[delta.target].base = delta.data.base
+			elseif delta.type == "attribute_increased" and delta.target then
+				-- Handle attribute increases (from spending attribute points)
+				if newData[delta.target] then
+					newData[delta.target].base = delta.data.newBase
+					newData[delta.target].current = delta.data.newTotal
+					newData[delta.target].bonus = delta.data.modifierTotal
 				end
-				if delta.data.bonus ~= nil then
-					newData[delta.target].bonus = delta.data.bonus
+				newData.availableAP = delta.data.availablePoints
+			elseif (delta.type == "attribute_set" or delta.type == "attribute_added") and delta.target then
+				-- Handle direct attribute setting or adding
+				if newData[delta.target] then
+					newData[delta.target].base = delta.data.newBase
+					newData[delta.target].current = delta.data.newTotal
+					newData[delta.target].bonus = delta.data.modifierTotal
 				end
-				if delta.data.current ~= nil then
-					newData[delta.target].current = delta.data.current
+			elseif (delta.type == "modifier_added" or delta.type == "modifier_removed") and delta.target then
+				-- Handle modifier additions/removals (only update totals, not base)
+				if newData[delta.target] then
+					newData[delta.target].current = delta.data.newTotal
+					newData[delta.target].bonus = delta.data.modifierTotal
 				end
 			end
 
@@ -146,7 +154,8 @@ end
 
 -- Get current attributes data from ClientNetworkManager
 function AttributesClient.getCurrentData()
-	return ClientNetworkManager.getSystemData("attributes")
+	local systemData = ClientNetworkManager.getSystemData("attributes")
+	return systemData
 end
 
 -- Get formatted attributes for UI display

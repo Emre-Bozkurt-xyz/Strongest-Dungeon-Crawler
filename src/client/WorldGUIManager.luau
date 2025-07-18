@@ -28,40 +28,21 @@ type WorldGUIManagerType = {
 	destroy: (self: WorldGUIManagerType) -> (),
 	_getIdealPanelPosition: (self: WorldGUIManagerType, customOffset: Vector3?) -> Vector3,
 	_getIdealPanelRotation: (self: WorldGUIManagerType, panelPosition: Vector3) -> CFrame,
-	_updatePanelPosition: (self: WorldGUIManagerType, config: PanelConfig) -> (),
+	_updatePanelPosition: (self: WorldGUIManagerType, config: PanelConfig, deltaTime: number) -> (),
+	_isPlayerLookingAtPanel: (self: WorldGUIManagerType, config: PanelConfig) -> (boolean, number),
+	_isPlayerWithinDistanceBoundaries: (self: WorldGUIManagerType, config: PanelConfig) -> (boolean, number),
 	_startUpdateLoop: (self: WorldGUIManagerType) -> (),
-	_createSmoothCamPart: (self: WorldGUIManagerType) -> (),
 	getGUIPosition: (self: WorldGUIManagerType) -> Vector3,
 }
 
 -- Configuration
-local GUI_OFFSET = Vector3.new(0, 1.5, -3.5) -- Left, Up, Forward from player
-local TARGET_UPDATE_FREQUENCY = 1 / 15 -- Calculate new targets 15 times per second
-local PANEL_DISTANCE = 3.5 -- Distance from camera where panel should be positioned
-local MAX_ANGLE_FROM_LOOK = 45 -- Max degrees panel can be from look direction before repositioning
-local ANGLE_HYSTERESIS = 15 -- Extra angle buffer to prevent oscillation (degrees)
-local DISTANCE_HYSTERESIS = 0.5 -- Extra buffer to prevent oscillation (studs)
-
--- Smooth movement parameters (inspired by the smooth camera approach)
-local TWEEN_TIME_NORMAL = 0.4 -- Faster normal movement speed
-local TWEEN_TIME_REPOSITIONING = 0.6 -- Faster repositioning
-local EASING_STYLE = Enum.EasingStyle.Quart -- Smooth easing
-local EASING_DIRECTION = Enum.EasingDirection.Out -- Ease out for natural feel
-
--- Calculate min/max distances based on GUI_OFFSET magnitude with hysteresis
-local PREFERRED_DISTANCE = GUI_OFFSET.Magnitude
-local MIN_PLAYER_DISTANCE = PREFERRED_DISTANCE - 0.8 -- Tighter minimum distance
-local MAX_PLAYER_DISTANCE = PREFERRED_DISTANCE + 1
--- Hysteresis bounds (tighter range for stopping repositioning - harder to trigger again)
-local MIN_PLAYER_DISTANCE_HYSTERESIS = MIN_PLAYER_DISTANCE + DISTANCE_HYSTERESIS -- Closer to center
-local MAX_PLAYER_DISTANCE_HYSTERESIS = MAX_PLAYER_DISTANCE - DISTANCE_HYSTERESIS -- Closer to center
-
-print(
-	`🔧 Distance bounds: Normal [{MIN_PLAYER_DISTANCE} - {MAX_PLAYER_DISTANCE}], Hysteresis [{MIN_PLAYER_DISTANCE_HYSTERESIS} - {MAX_PLAYER_DISTANCE_HYSTERESIS}]`
-)
-
--- Angle hysteresis bounds
-local MAX_ANGLE_FROM_LOOK_HYSTERESIS = MAX_ANGLE_FROM_LOOK - ANGLE_HYSTERESIS -- Tighter bound for stopping repositioning
+local GUI_OFFSET = Vector3.new(0, 1.5, -3.5)
+local LOOK_TOLERANCE = 5 -- Degrees of tolerance beyond panel edges before rotation starts
+local MAX_DISTANCE = 4 -- Maximum distance from optimal position
+local MIN_DISTANCE = 1.5 -- Minimum distance from optimal position
+local BASE_LERP_SPEED = 4.0 -- Base lerp speed when far from boundaries
+local MIN_LERP_SPEED = 0.5 -- Minimum lerp speed when close to boundaries
+local ANGLE_TRANSITION_RANGE = 15 -- Degrees beyond tolerance where speed transitions occur
 
 type PanelConfig = {
 	name: string,
@@ -69,6 +50,8 @@ type PanelConfig = {
 	offset: Vector3?, -- Optional custom offset from default position
 	faceCamera: boolean?, -- Whether panel should face the camera (default true)
 	followPlayer: boolean?, -- Whether panel should follow player (default true)
+	playerWasLooking: boolean?, -- Track if player was looking at panel
+	playerWasWithinDistance: boolean?, -- Track if player was within distance boundaries
 }
 
 local WorldGUIManager_Instance = nil
@@ -85,24 +68,8 @@ function WorldGUIManager.new()
 	self.camera = Workspace.CurrentCamera
 	self.panels = {} :: { [string]: PanelConfig }
 	self.heartbeatConnection = nil :: RBXScriptConnection?
-	self.idealPanelPosition = nil :: Vector3? -- Current ideal position for the panel
-	self.isRepositioning = false -- Track if we're currently in repositioning mode
-	self.lastTargetUpdateTime = 0
-	self.cachedTargetPosition = nil :: Vector3?
-	self.cachedTargetRotation = nil :: CFrame?
-	self.smoothCamPart = nil :: BasePart?
-	self.lastAngleBetween = nil :: number?
-	self.currentTween = nil :: Tween?
 
-	self:_createSmoothCamPart()
 	self:_startUpdateLoop()
-
-	-- Handle character respawning
-	self.player.CharacterAdded:Connect(function()
-		wait(1) -- Wait for character to fully load
-		self:_createSmoothCamPart()
-		print("🔄 Recreated smooth camera part for new character")
-	end)
 
 	return self
 end
@@ -118,11 +85,13 @@ function WorldGUIManager:registerPanel(config: PanelConfig)
 	config.faceCamera = config.faceCamera ~= false -- Default true
 	config.followPlayer = config.followPlayer ~= false -- Default true
 	config.offset = config.offset or Vector3.new(0, 0, 0)
+	config.playerWasLooking = false
+	config.playerWasWithinDistance = false
 
 	self.panels[config.name] = config
 
-	-- Initial positioning
-	self:_updatePanelPosition(config)
+	-- Initial positioning (use 1/60 as default deltaTime for initial setup)
+	self:_updatePanelPosition(config, 1 / 60)
 
 	print(`🌐 WorldGUIManager: Registered panel '{config.name}'`)
 end
@@ -135,234 +104,190 @@ function WorldGUIManager:unregisterPanel(name: string)
 	end
 end
 
--- Create a smooth camera part for buttery movement (inspired by smooth camera systems)
-function WorldGUIManager:_createSmoothCamPart()
-	-- Clean up existing smooth cam part
-	if self.smoothCamPart then
-		self.smoothCamPart:Destroy()
-	end
-
-	local character = self.player.Character
-	if not character then
-		return
-	end
-
-	-- Create invisible part for smooth movement
-	local smoothCam = Instance.new("Part")
-	smoothCam.Name = "WorldGUI_SmoothCam"
-	smoothCam.Transparency = 1
-	smoothCam.Anchored = true
-	smoothCam.CanCollide = false
-	smoothCam.Size = Vector3.new(0.1, 0.1, 0.1)
-	smoothCam.Parent = character
-
-	self.smoothCamPart = smoothCam
-
-	-- Set initial position
-	local rootPart = character:FindFirstChild("HumanoidRootPart")
-	if rootPart and self.smoothCamPart then
-		local initialPosition = (rootPart.CFrame * CFrame.new(GUI_OFFSET)).Position
-		self.smoothCamPart.Position = initialPosition
-	end
-
-	print("🎥 Created smooth camera part for buttery GUI movement")
-end
-
--- Get the ideal position for a panel relative to player
-function WorldGUIManager:_getIdealPanelPosition(customOffset: Vector3?): Vector3
-	local character = self.player.Character
-	if not character or not character:FindFirstChild("HumanoidRootPart") then
-		return Vector3.new(0, 0, 0)
-	end
-
-	local rootPart = character.HumanoidRootPart :: BasePart
-	local cameraPosition = self.camera.CFrame.Position :: Vector3
-	local cameraLookDirection = self.camera.CFrame.LookVector :: Vector3
-
-	-- Calculate the default panel position (where it would naturally be)
-	local playerCFrame = rootPart.CFrame
-	local defaultPanelPosition = (playerCFrame * CFrame.new(GUI_OFFSET)).Position
-
-	-- Set initial ideal position if not set
-	if not self.idealPanelPosition then
-		self.idealPanelPosition = defaultPanelPosition
-		print("🎯 WorldGUIManager: Initial panel position set")
-		return defaultPanelPosition
-	end
-
-	-- Calculate angle between look direction and current panel position
-	local cameraToPanel = (self.idealPanelPosition - cameraPosition).Unit
-	local horizontalLookDirection = Vector3.new(cameraLookDirection.X, 0, cameraLookDirection.Z).Unit
-	local horizontalCameraToPanel = Vector3.new(cameraToPanel.X, 0, cameraToPanel.Z).Unit
-
-	local angleBetween = math.deg(math.acos(math.clamp(horizontalLookDirection:Dot(horizontalCameraToPanel), -1, 1)))
-
-	-- Calculate distance between panel and player
-	local playerPosition = rootPart.Position
-	local panelToPlayerDistance = (self.idealPanelPosition - playerPosition).Magnitude
-
-	-- Use hysteresis for distance checking to prevent oscillation
-	local distanceOutOfBounds
-	if self.isRepositioning then
-		-- We're already repositioning - use wider hysteresis bounds to stop repositioning
-		distanceOutOfBounds = panelToPlayerDistance < MIN_PLAYER_DISTANCE_HYSTERESIS
-			or panelToPlayerDistance > MAX_PLAYER_DISTANCE_HYSTERESIS
-	else
-		-- We're not repositioning - use normal bounds to start repositioning
-		distanceOutOfBounds = panelToPlayerDistance < MIN_PLAYER_DISTANCE or panelToPlayerDistance > MAX_PLAYER_DISTANCE
-	end
-
-	-- Use hysteresis for angle checking to prevent oscillation
-	local angleOutOfBounds
-	if self.isRepositioning then
-		-- We're already repositioning - check if player is looking towards panel
-		local isLookingTowardsPanel = false
-		if self.lastAngleBetween then
-			-- If angle is decreasing, player is looking towards panel
-			local lastAngle: number = self.lastAngleBetween
-			isLookingTowardsPanel = angleBetween < lastAngle - 2 -- 2 degree buffer
-		end
-
-		if isLookingTowardsPanel then
-			-- Player is actively looking towards panel - stop repositioning immediately
-			angleOutOfBounds = false
-			print(`👀 Player looking towards panel - stopping repositioning (angle: {math.floor(angleBetween)}°)`)
-		else
-			-- Use wider hysteresis bound to stop repositioning
-			angleOutOfBounds = angleBetween > MAX_ANGLE_FROM_LOOK_HYSTERESIS
-		end
-	else
-		-- We're not repositioning - use normal bound to start repositioning
-		angleOutOfBounds = angleBetween > MAX_ANGLE_FROM_LOOK
-	end
-
-	-- Store current angle for next frame comparison
-	self.lastAngleBetween = angleBetween
-
-	-- Check if panel needs repositioning (either angle or distance out of bounds)
-	local needsRepositioning = angleOutOfBounds or distanceOutOfBounds
-
-	if needsRepositioning then
-		if not self.isRepositioning then
-			print(
-				`🔄 Starting repositioning (angle: {math.floor(angleBetween)}°/{MAX_ANGLE_FROM_LOOK}°, distance: {math.floor(
-					panelToPlayerDistance
-				)}/{PREFERRED_DISTANCE} studs)`
-			)
-		end
-		self.isRepositioning = true
-
-		if angleOutOfBounds then
-			-- Panel is outside acceptable view angle - move to boundary
-			local cross = horizontalLookDirection:Cross(horizontalCameraToPanel)
-			local angleSign = cross.Y > 0 and 1 or -1 -- Which side of look direction
-
-			-- Create rotation to the max allowed angle
-			local maxAngleRad = math.rad(MAX_ANGLE_FROM_LOOK)
-			local rotationCFrame = CFrame.fromAxisAngle(Vector3.new(0, 1, 0), angleSign * maxAngleRad)
-			local boundaryDirection = rotationCFrame * horizontalLookDirection
-
-			-- Position panel at the boundary, but at player's current Y level + offset
-			local newHorizontalPosition = cameraPosition + (boundaryDirection * PANEL_DISTANCE)
-			local playerY = rootPart.Position.Y + GUI_OFFSET.Y
-			self.idealPanelPosition = Vector3.new(newHorizontalPosition.X, playerY, newHorizontalPosition.Z)
-
-			print(`📍 Panel repositioned to view boundary (angle was {math.floor(angleBetween)}°)`)
-		elseif distanceOutOfBounds then
-			-- Panel is too far/close to player - move to default position
-			self.idealPanelPosition = defaultPanelPosition
-			print(`📏 Panel repositioned due to distance (was {math.floor(panelToPlayerDistance)} studs from player)`)
-		end
-	else
-		-- No repositioning needed - stop repositioning mode
-		if self.isRepositioning then
-			print(
-				`✅ Repositioning stopped (angle: {math.floor(angleBetween)}°/{MAX_ANGLE_FROM_LOOK_HYSTERESIS}°, distance: {math.floor(
-					panelToPlayerDistance
-				)} studs)`
-			)
-		end
-		self.isRepositioning = false
-	end
-	-- If angle <= MAX_ANGLE_FROM_LOOK, keep the panel where it is (don't move it)
-
-	-- Apply custom offset if provided
-	local finalPosition = self.idealPanelPosition
-	if customOffset then
-		finalPosition = finalPosition + customOffset
-	end
-
-	return finalPosition
-end
-
 -- Get the ideal rotation for a panel to face the camera
 function WorldGUIManager:_getIdealPanelRotation(panelPosition: Vector3): CFrame
 	local cameraPosition = self.camera.CFrame.Position :: Vector3
 
-	-- Make panel face the camera
-	local lookDirection = (cameraPosition - panelPosition).Unit
+	-- Make panel face the camera - use lookAt properly
+	return CFrame.lookAt(panelPosition, cameraPosition, Vector3.new(0, 1, 0))
+end
 
-	-- Create CFrame that faces the camera with up vector pointing up
-	return CFrame.lookAt(panelPosition, panelPosition + lookDirection, Vector3.new(0, 1, 0))
+-- Check if player is looking at the panel (within tolerance) and return lerp speed modifier
+function WorldGUIManager:_isPlayerLookingAtPanel(config: PanelConfig): (boolean, number)
+	if not config.part or not self.camera then
+		return false, BASE_LERP_SPEED
+	end
+
+	local cameraPosition = self.camera.CFrame.Position
+	local cameraLookDirection = self.camera.CFrame.LookVector
+
+	-- Get panel bounds (left and right edges)
+	local panelCFrame = config.part.CFrame
+	local panelSize = config.part.Size
+
+	-- Calculate left and right edge positions in world space
+	local leftEdge = panelCFrame * Vector3.new(-panelSize.X / 2, 0, 0)
+	local rightEdge = panelCFrame * Vector3.new(panelSize.X / 2, 0, 0)
+
+	-- Calculate angles to left and right edges
+	local cameraToLeftEdge = (leftEdge - cameraPosition).Unit
+	local cameraToRightEdge = (rightEdge - cameraPosition).Unit
+
+	-- Project onto horizontal plane for angle calculation
+	local horizontalLookDirection = Vector3.new(cameraLookDirection.X, 0, cameraLookDirection.Z).Unit
+	local horizontalToLeftEdge = Vector3.new(cameraToLeftEdge.X, 0, cameraToLeftEdge.Z).Unit
+	local horizontalToRightEdge = Vector3.new(cameraToRightEdge.X, 0, cameraToRightEdge.Z).Unit
+
+	-- Calculate signed angles using cross product to determine left/right
+	local function getSignedAngle(from: Vector3, to: Vector3): number
+		local dot = math.clamp(from:Dot(to), -1, 1)
+		local angle = math.deg(math.acos(dot))
+		local cross = from:Cross(to)
+		return cross.Y > 0 and angle or -angle
+	end
+
+	local angleToLeftEdge = getSignedAngle(horizontalLookDirection, horizontalToLeftEdge)
+	local angleToRightEdge = getSignedAngle(horizontalLookDirection, horizontalToRightEdge)
+
+	-- Calculate how far past the edge + tolerance we are looking
+	local leftOvershoot = math.max(0, angleToLeftEdge - LOOK_TOLERANCE)
+	local rightOvershoot = math.max(0, -angleToRightEdge - LOOK_TOLERANCE)
+
+	-- Use the maximum overshoot to determine speed
+	local maxOvershoot = math.max(leftOvershoot, rightOvershoot)
+
+	-- Calculate lerp speed based on overshoot
+	local lerpSpeed: number
+	if maxOvershoot <= ANGLE_TRANSITION_RANGE then
+		-- Linear falloff from MIN_LERP_SPEED to BASE_LERP_SPEED
+		local normalizedOvershoot = maxOvershoot / ANGLE_TRANSITION_RANGE
+		lerpSpeed = MIN_LERP_SPEED + (BASE_LERP_SPEED - MIN_LERP_SPEED) * normalizedOvershoot
+	else
+		-- Full speed when far from edges
+		lerpSpeed = BASE_LERP_SPEED
+	end
+
+	-- Player is looking at panel if:
+	-- - Looking past left edge (negative angle to left edge)
+	-- - Looking past right edge (positive angle to right edge)
+	-- - Both conditions are true simultaneously
+	local lookingPastLeftEdge = false
+	local lookingPastRightEdge = false
+
+	if config.playerWasLooking then
+		lookingPastLeftEdge = angleToLeftEdge > LOOK_TOLERANCE
+		lookingPastRightEdge = angleToRightEdge < -LOOK_TOLERANCE
+	else
+		lookingPastLeftEdge = angleToLeftEdge > 0
+		lookingPastRightEdge = angleToRightEdge < 0
+	end
+
+	-- Player is looking at panel if they're NOT looking past both edges
+	local isLooking = not (lookingPastLeftEdge or lookingPastRightEdge)
+
+	return isLooking, lerpSpeed
+end
+
+function WorldGUIManager:_isPlayerWithinDistanceBoundaries(config: PanelConfig): (boolean, number)
+	if not config.part or not self.player.Character then
+		return false, BASE_LERP_SPEED
+	end
+
+	local playerRootPart = self.player.Character:FindFirstChild("HumanoidRootPart")
+	if not playerRootPart then
+		return false, BASE_LERP_SPEED
+	end
+
+	-- Check if panel is in front of or behind the player
+	local playerPosition = playerRootPart.Position
+	local playerForward = playerRootPart.CFrame.LookVector
+	local panelPosition = config.part.Position
+
+	-- Vector from player to panel
+	local playerToPanel = (panelPosition - playerPosition)
+	local distanceToPlayer = playerToPanel.Magnitude
+
+	-- Project onto player's forward direction to see if panel is in front or behind
+	local forwardDot = playerToPanel.Unit:Dot(playerForward)
+	local isInFront = forwardDot > 0
+
+	-- Always use full speed for distance-based movements
+	local lerpSpeed = BASE_LERP_SPEED
+
+	-- Calculate if within boundaries (with hysteresis)
+	local withinBoundaries = false
+	if config.playerWasWithinDistance then
+		-- If player was within distance last time, check if still within boundaries
+		-- Panel should be in front and within distance range
+		withinBoundaries = isInFront and distanceToPlayer <= MAX_DISTANCE and distanceToPlayer >= MIN_DISTANCE
+	else
+		-- If player was not within distance last time, check if now within boundaries
+		-- Use tighter boundaries to prevent jitter
+		withinBoundaries = isInFront
+			and distanceToPlayer <= MAX_DISTANCE - 0.5
+			and distanceToPlayer >= MIN_DISTANCE + 0.5
+	end
+
+	config.playerWasWithinDistance = withinBoundaries
+
+	return withinBoundaries, lerpSpeed
 end
 
 -- Update a single panel's position and rotation
-function WorldGUIManager:_updatePanelPosition(config: PanelConfig)
-	if not config.part or not config.part.Parent then
+function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: number)
+	if not config.part or not config.name then
+		warn(`WorldGUIManager: Panel '{config.name}' is missing part or name`)
 		return
 	end
 
-	local currentTime = tick()
+	-- Check current state and get lerp speed modifiers
+	local isLookingAtPanel, angleLerpSpeed = self:_isPlayerLookingAtPanel(config)
+	local isWithinDistance, _ = self:_isPlayerWithinDistanceBoundaries(config)
 
-	-- Update target positions at a slower rate
-	if not self.cachedTargetPosition or currentTime - self.lastTargetUpdateTime >= TARGET_UPDATE_FREQUENCY then
-		self.lastTargetUpdateTime = currentTime
-		self.cachedTargetPosition = self:_getIdealPanelPosition(config.offset)
-		if config.faceCamera and self.cachedTargetPosition then
-			self.cachedTargetRotation = self:_getIdealPanelRotation(self.cachedTargetPosition)
+	-- Update state variables for next frame
+	config.playerWasLooking = isLookingAtPanel
+	-- Note: playerWasWithinDistance is already updated inside _isPlayerWithinDistanceBoundaries
+
+	-- Skip rotation updates if player is looking at the panel AND within distance
+	if isLookingAtPanel and isWithinDistance then
+		return
+	end
+
+	-- Determine the reason for rotation and apply appropriate speed
+	local dynamicLerpSpeed: number
+	if not isLookingAtPanel and isWithinDistance then
+		-- Rotating because player looked away (angle boundary) - use slow speed
+		dynamicLerpSpeed = angleLerpSpeed
+	else
+		-- Rotating because player moved away (distance boundary) - use full speed
+		dynamicLerpSpeed = BASE_LERP_SPEED
+	end -- Calculate ideal rotation
+	local offset: Vector3 = config.offset or Vector3.new(0, 0, 0)
+
+	-- Adjust target position to be within the desired distance range from player
+	if self.player.Character then
+		local playerRootPart = self.player.Character:FindFirstChild("HumanoidRootPart")
+		if playerRootPart then
+			local playerPosition: Vector3 = playerRootPart.Position
+			local playerForward: Vector3 = playerRootPart.CFrame.LookVector
+
+			-- Target position should be at optimal distance in front of player
+			local optimalDistance = (MIN_DISTANCE + MAX_DISTANCE) / 2 -- Middle of the range
+			local targetPosition = playerPosition
+				+ playerForward * optimalDistance
+				+ Vector3.new(0, GUI_OFFSET.Y, 0)
+				+ offset
+
+			local panelRotation: CFrame = self:_getIdealPanelRotation(targetPosition)
+
+			-- Use delta time for frame-rate independent lerping with dynamic speed
+			local frameRateLerp = 1 - math.exp(-dynamicLerpSpeed * deltaTime)
+
+			config.part.CFrame = config.part.CFrame:Lerp(panelRotation, frameRateLerp)
 		end
 	end
 
-	-- Use smooth camera part approach for buttery movement
-	if config.followPlayer and self.cachedTargetPosition and self.smoothCamPart then
-		local targetPosition: Vector3 = self.cachedTargetPosition
-		local currentPosition: Vector3 = self.smoothCamPart.Position
-
-		-- Check if we need to move the smooth cam part - reduced threshold for more responsiveness
-		local distance = (targetPosition - currentPosition).Magnitude
-		if distance > 0.05 then -- Much smaller threshold for instant response
-			-- Stop any current tween to prevent conflicts
-			if self.currentTween then
-				self.currentTween:Cancel()
-			end
-
-			-- Choose tween time based on whether we're repositioning and distance
-			local tweenTime = self.isRepositioning and TWEEN_TIME_REPOSITIONING or TWEEN_TIME_NORMAL
-
-			-- Make it faster if we're getting too close to prevent walking through
-			if distance > 2 then -- Large distance change (like repositioning)
-				tweenTime = tweenTime * 0.7 -- Faster for large movements
-			end
-
-			-- Create smooth tween to new position
-			self.currentTween = TweenService:Create(
-				self.smoothCamPart,
-				TweenInfo.new(tweenTime, EASING_STYLE, EASING_DIRECTION),
-				{ Position = targetPosition }
-			)
-			self.currentTween:Play()
-		end
-
-		-- Panel follows the smooth cam part position
-		config.part.Position = self.smoothCamPart.Position
-	end
-
-	-- Simple lerp for rotation (smooth enough as-is)
-	if config.faceCamera and self.cachedTargetRotation then
-		local currentCFrame = config.part.CFrame
-		local newCFrame = currentCFrame:Lerp(self.cachedTargetRotation, 0.1)
-		config.part.CFrame = newCFrame
-	end
+	-- print(`🌐 WorldGUIManager: Updated panel '{config.name}' position and rotation`)
 end
 
 -- Main update loop
@@ -372,9 +297,9 @@ function WorldGUIManager:_startUpdateLoop()
 	end
 
 	-- Run every frame for smooth lerping
-	self.heartbeatConnection = RunService.Heartbeat:Connect(function()
+	self.heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime: number)
 		for _, config in pairs(self.panels) do
-			self:_updatePanelPosition(config)
+			self:_updatePanelPosition(config, deltaTime)
 		end
 	end)
 end

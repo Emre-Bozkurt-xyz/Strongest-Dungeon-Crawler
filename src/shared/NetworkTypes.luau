@@ -22,7 +22,7 @@ export type BatchedDeltas = {
 
 export type SystemHandler = {
 	deserialize: (data: any) -> any,
-	applyDelta: (currentData: any, delta: Delta) -> boolean,
+	applyDelta: (currentData: any, delta: Delta) -> (boolean, any),
 	serialize: (data: any) -> any,
 }
 

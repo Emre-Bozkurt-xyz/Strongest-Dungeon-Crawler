@@ -30,6 +30,17 @@ local Testing = require(script.Testing)
 -- Example function to test the system
 local function setupPlayerCommands(player: Player)
 	-- Wait a bit for the player to load
+	StatsManager.addModifier(
+		player,
+		StatTypes.StaticStats.ManaRegeneration,
+		PercentOfStatModifier.new({
+			value = 0.1, -- 10% of max mana
+			source_id = "mana_regen_test",
+			targetStat = StatTypes.PoolStats.Mana,
+			description = "Base mana regeneration",
+		})
+	)
+
 	wait(10)
 
 	print("Starting in 5s...")
@@ -43,17 +54,6 @@ local function setupPlayerCommands(player: Player)
 	-- small scale testing
 
 	print(`🧪 Server: Testing attribute operations for {player.Name}`)
-
-	StatsManager.addModifier(
-		player,
-		StatTypes.StaticStats.ManaRegeneration,
-		PercentOfStatModifier.new({
-			value = 0.1, -- 10% of max mana
-			source_id = "mana_regen_test",
-			targetStat = StatTypes.PoolStats.Mana,
-			description = "Base mana regeneration",
-		})
-	)
 
 	-- Test adding intelligence
 	AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Intelligence, 5)

@@ -4,34 +4,64 @@ AttributesUIController.__index = AttributesUIController
 function AttributesUIController.new(Parent: Instance)
 	local self = setmetatable({}, AttributesUIController)
 
+	self.attributeButtons = {}
+
 	-- Initialize mana bar UI elements
 	self.availableAPLabel =
 		Parent:WaitForChild("AvailablePointsPanel"):WaitForChild("ValuesPanel"):WaitForChild("APLabel")
 
-	self.strengthBaseLabel =
-		Parent:WaitForChild("StrengthPanel"):WaitForChild("ValuesPanel"):WaitForChild("BaseValueLabel")
-	self.strengthBonusLabel =
-		Parent:WaitForChild("StrengthPanel"):WaitForChild("ValuesPanel"):WaitForChild("BonusValueLabel")
+	local strengthFrame = Parent:WaitForChild("StrengthPanel")
+	self.strengthBaseLabel = strengthFrame:WaitForChild("ValuesPanel"):WaitForChild("BaseValueLabel")
+	self.strengthBonusLabel = strengthFrame:WaitForChild("ValuesPanel"):WaitForChild("BonusValueLabel")
 
-	self.intelligenceBaseLabel =
-		Parent:WaitForChild("IntelligencePanel"):WaitForChild("ValuesPanel"):WaitForChild("BaseValueLabel")
-	self.intelligenceBonusLabel =
-		Parent:WaitForChild("IntelligencePanel"):WaitForChild("ValuesPanel"):WaitForChild("BonusValueLabel")
+	self.attributeButtons.Strength = strengthFrame
 
-	self.dexterityBaseLabel =
-		Parent:WaitForChild("DexterityPanel"):WaitForChild("ValuesPanel"):WaitForChild("BaseValueLabel")
-	self.dexterityBonusLabel =
-		Parent:WaitForChild("DexterityPanel"):WaitForChild("ValuesPanel"):WaitForChild("BonusValueLabel")
+	local intelligenceFrame = Parent:WaitForChild("IntelligencePanel")
+	self.intelligenceBaseLabel = intelligenceFrame:WaitForChild("ValuesPanel"):WaitForChild("BaseValueLabel")
+	self.intelligenceBonusLabel = intelligenceFrame:WaitForChild("ValuesPanel"):WaitForChild("BonusValueLabel")
 
-	self.defenseBaseLabel =
-		Parent:WaitForChild("DefensePanel"):WaitForChild("ValuesPanel"):WaitForChild("BaseValueLabel")
-	self.defenseBonusLabel =
-		Parent:WaitForChild("DefensePanel"):WaitForChild("ValuesPanel"):WaitForChild("BonusValueLabel")
+	self.attributeButtons.Intelligence = intelligenceFrame
 
-	self.perceptionBaseLabel =
-		Parent:WaitForChild("PerceptionPanel"):WaitForChild("ValuesPanel"):WaitForChild("BaseValueLabel")
-	self.perceptionBonusLabel =
-		Parent:WaitForChild("PerceptionPanel"):WaitForChild("ValuesPanel"):WaitForChild("BonusValueLabel")
+	local dexterityFrame = Parent:WaitForChild("DexterityPanel")
+	self.dexterityBaseLabel = dexterityFrame:WaitForChild("ValuesPanel"):WaitForChild("BaseValueLabel")
+	self.dexterityBonusLabel = dexterityFrame:WaitForChild("ValuesPanel"):WaitForChild("BonusValueLabel")
+
+	self.attributeButtons.Dexterity = dexterityFrame
+
+	local defenseFrame = Parent:WaitForChild("DefensePanel")
+	self.defenseBaseLabel = defenseFrame:WaitForChild("ValuesPanel"):WaitForChild("BaseValueLabel")
+	self.defenseBonusLabel = defenseFrame:WaitForChild("ValuesPanel"):WaitForChild("BonusValueLabel")
+
+	self.attributeButtons.Defense = defenseFrame
+
+	local perceptionFrame = Parent:WaitForChild("PerceptionPanel")
+	self.perceptionBaseLabel = perceptionFrame:WaitForChild("ValuesPanel"):WaitForChild("BaseValueLabel")
+	self.perceptionBonusLabel = perceptionFrame:WaitForChild("ValuesPanel"):WaitForChild("BonusValueLabel")
+
+	self.attributeButtons.Perception = perceptionFrame
+
+	-- Set up click listeners for each attribute button
+	for attributeName, frame in pairs(self.attributeButtons) do
+		frame.MouseButton1Click:Connect(function()
+			print("Clicked on " .. attributeName)
+
+			-- Send delta to server to increase this attribute
+			local ClientNetworkManager = require(script.Parent.ClientNetworkManager)
+			local Players = game:GetService("Players")
+
+			local delta = {
+				system = "attributes",
+				type = "increase_attribute",
+				target = attributeName,
+				timestamp = os.time(),
+				data = {
+					playerId = Players.LocalPlayer.UserId,
+				},
+			}
+
+			ClientNetworkManager.sendDelta(delta)
+		end)
+	end
 
 	return self
 end

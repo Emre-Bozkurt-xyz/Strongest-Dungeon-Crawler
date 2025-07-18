@@ -5,7 +5,6 @@
 local Players = game:GetService("Players")
 
 local StatsManager = require(script.Parent.StatsManager)
-local Warp = require(game.ReplicatedStorage.Packages.warp)
 local AttributesConfig = require(game.ReplicatedStorage.Shared.AttributesConfig)
 local AttributeTypes = require(game.ReplicatedStorage.Shared.AttributeTypes)
 local NetworkManager = require(script.Parent.NetworkManager)
@@ -17,8 +16,6 @@ type AttributeModifier = AttributeTypes.AttributeModifier
 
 local AttributesManager = {}
 local playerAttributes: { [Player]: PlayerAttributes } = {}
-
-local attributesChangedSignal = Warp.Signal("AttributesChanged")
 
 -- Serialize attributes for network transmission
 function AttributesManager.serializeAttributes(attributes: PlayerAttributes)
@@ -49,25 +46,6 @@ function AttributesManager.serializeAttributes(attributes: PlayerAttributes)
 	return serialized
 end
 
--- Attributes System Handler for NetworkManager
-local attributesHandler = {
-	serialize = function(data: PlayerAttributes): any
-		return AttributesManager.serializeAttributes(data)
-	end,
-	deserialize = function(data: any): PlayerAttributes
-		-- For now, return the data as-is since we don't have client-side deserialization yet
-		return data
-	end,
-	applyDelta = function(_currentData: PlayerAttributes, _delta): boolean
-		-- For now, attributes don't use incremental deltas - they send full syncs
-		-- This can be enhanced later when you implement client-side attribute handling
-		return true
-	end,
-}
-
--- Register attributes system with NetworkManager
-NetworkManager.registerSystem("attributes", attributesHandler)
-
 -- Add a modifier to a player's attribute
 function AttributesManager.addModifier(player: Player, attributeType: AttributeType, modifier: AttributeModifier)
 	if not playerAttributes[player] then
@@ -83,8 +61,15 @@ function AttributesManager.addModifier(player: Player, attributeType: AttributeT
 
 	attribute:addModifier(modifier)
 
-	-- Notify the client of the change
-	attributesChangedSignal:Fire(player, playerAttributes[player])
+	-- Send targeted delta update
+	NetworkManager.sendDelta(
+		player,
+		NetworkManager.createDelta("attributes", "modifier_added", attributeType, {
+			modifier = modifier,
+			newTotal = attribute:getValue(),
+			modifierTotal = attribute:getModifierTotal(),
+		})
+	)
 
 	print(`Added modifier '{modifier.source_id}' to {player.Name}'s {attributeType}`)
 	return true
@@ -106,8 +91,15 @@ function AttributesManager.removeModifier(player: Player, attributeType: Attribu
 	local removed = attribute:removeModifier(source_id)
 
 	if removed then
-		-- Notify the client of the change
-		attributesChangedSignal:Fire(player, playerAttributes[player])
+		-- Send targeted delta update
+		NetworkManager.sendDelta(
+			player,
+			NetworkManager.createDelta("attributes", "modifier_removed", attributeType, {
+				source_id = source_id,
+				newTotal = attribute:getValue(),
+				modifierTotal = attribute:getModifierTotal(),
+			})
+		)
 		print(`Removed modifier '{source_id}' from {player.Name}'s {attributeType}`)
 	end
 
@@ -118,8 +110,8 @@ end
 local function initializePlayerAttributes(player: Player)
 	playerAttributes[player] = AttributesConfig.createDefaultAttributes()
 
-	-- Send initial attributes to the player (serialize for network)
-	attributesChangedSignal:Fire(player, playerAttributes[player])
+	-- Send initial full sync to player
+	NetworkManager.sendFullSync(player, "attributes", playerAttributes[player])
 
 	print(`Initialized attributes for player: {player.Name}`)
 end
@@ -151,8 +143,15 @@ function AttributesManager.setAttribute(player: Player, attributeType: Attribute
 	-- Reapply all scaling since attribute values changed
 	AttributesManager.applyAllScaling(player)
 
-	-- Notify the client of the change
-	attributesChangedSignal:Fire(player, playerAttributes[player])
+	-- Send targeted delta update
+	NetworkManager.sendDelta(
+		player,
+		NetworkManager.createDelta("attributes", "attribute_set", attributeType, {
+			newBase = validatedValue,
+			newTotal = attribute:getValue(),
+			modifierTotal = attribute:getModifierTotal(),
+		})
+	)
 
 	print(
 		`Updated {player.Name}'s {attributeType} to {attribute:getValue()} (base: {attribute:getBaseValue()}, modifiers: {attribute:getModifierTotal()})`
@@ -179,8 +178,16 @@ function AttributesManager.addToAttribute(player: Player, attributeType: Attribu
 	-- Reapply all scaling since attribute values changed
 	AttributesManager.applyAllScaling(player)
 
-	-- Notify the client of the change
-	attributesChangedSignal:Fire(player, playerAttributes[player])
+	-- Send targeted delta update
+	NetworkManager.sendDelta(
+		player,
+		NetworkManager.createDelta("attributes", "attribute_added", attributeType, {
+			amount = amount,
+			newBase = attribute:getBaseValue(),
+			newTotal = attribute:getValue(),
+			modifierTotal = attribute:getModifierTotal(),
+		})
+	)
 
 	print(`Added {amount} to {player.Name}'s {attributeType}. New value: {attribute:getValue()}`)
 	return true
@@ -218,7 +225,9 @@ function AttributesManager.resetAttributes(player: Player)
 	end
 
 	playerAttributes[player] = AttributesConfig.createDefaultAttributes()
-	attributesChangedSignal:Fire(player, playerAttributes[player])
+
+	-- Send full sync since all attributes changed
+	NetworkManager.sendFullSync(player, "attributes", playerAttributes[player])
 
 	print(`Reset attributes for player: {player.Name}`)
 	return true
@@ -253,37 +262,23 @@ function AttributesManager.applyAllScaling(player: Player)
 	print(`Applied attribute scaling for {player.Name}`)
 end
 
--- Handle attribute changes
-local function handleAttributesChanged(player: Player, attributes: PlayerAttributes)
-	if not playerAttributes[player] then
-		warn(`Attempted to handle attribute change for player {player.Name} who has no attributes initialized`)
-		return
-	end
-
-	-- Apply all scaling effects
-	AttributesManager.applyAllScaling(player)
-
-	-- Send attributes via NetworkManager
-	NetworkManager.sendFullSync(player, "attributes", attributes)
-end
-
--- Handle attributes data requests from clients
-local function handleAttributesRequest(player: Player)
-	if playerAttributes[player] then
-		NetworkManager.sendFullSync(player, "attributes", playerAttributes[player])
-	else
-		initializePlayerAttributes(player)
-	end
-end
-
--- Listen for attributes requests via NetworkManager
-local attributesRequestSignal = Warp.Signal("attributesRequest")
-attributesRequestSignal:Connect(handleAttributesRequest)
-attributesChangedSignal:Connect(handleAttributesChanged)
-
 -- Connect player events
 Players.PlayerAdded:Connect(initializePlayerAttributes)
 Players.PlayerRemoving:Connect(cleanupPlayerAttributes)
+
+-- Listen for attributes data requests from clients
+local warp = require(game.ReplicatedStorage.Packages.warp)
+local attributesRequestSignal = warp.Signal("attributesRequest")
+attributesRequestSignal:Connect(function(player: Player)
+	if not playerAttributes[player] then
+		warn(`Attributes request for {player.Name} but no attributes initialized`)
+		return
+	end
+
+	-- Send full sync of current attributes
+	NetworkManager.sendFullSync(player, "attributes", playerAttributes[player])
+	print(`📤 AttributesManager: Sent full sync to {player.Name}`)
+end)
 
 print("AttributesManager initialized")
 
@@ -360,8 +355,19 @@ function AttributesManager.spendAttributePoint(player: Player, attributeType: At
 	attribute:setBaseValue(newBase)
 	playerAttributes[player].availableAttributePoints = availablePoints - 1
 
-	-- Send updated attributes to client
-	NetworkManager.sendFullSync(player, "attributes", playerAttributes[player])
+	-- Reapply all scaling since attribute values changed
+	AttributesManager.applyAllScaling(player)
+
+	-- Send targeted delta update
+	NetworkManager.sendDelta(
+		player,
+		NetworkManager.createDelta("attributes", "attribute_increased", attributeType, {
+			newBase = newBase,
+			newTotal = attribute:getValue(),
+			modifierTotal = attribute:getModifierTotal(),
+			availablePoints = availablePoints - 1,
+		})
+	)
 
 	print(
 		`{player.Name} spent 1 point on {attributeType}. New base: {newBase}, Available points: {availablePoints - 1}`
@@ -391,5 +397,38 @@ end
 function AttributesManager.giveTestAttributePoints(player: Player, points: number)
 	return AttributesManager.addAvailableAttributePoints(player, points or 10)
 end
+
+-- Attributes System Handler for NetworkManager
+local attributesHandler = {
+	serialize = function(data: PlayerAttributes): any
+		return AttributesManager.serializeAttributes(data)
+	end,
+	deserialize = function(data: any): PlayerAttributes
+		-- For now, return the data as-is since we don't have client-side deserialization yet
+		return data
+	end,
+	applyDelta = function(_currentData, delta)
+		-- Handle client requests to modify attributes
+		if delta.type == "increase_attribute" then
+			local player = Players:GetPlayerByUserId(delta.data.playerId)
+			if not player then
+				warn("AttributesManager: Player not found for increase_attribute delta")
+				return false, _currentData
+			end
+
+			local attributeType = delta.target :: string
+
+			-- Use the existing spendAttributePoint function which handles all the logic
+			local success = AttributesManager.spendAttributePoint(player, attributeType :: any)
+			return success, playerAttributes[player]
+		end
+
+		-- For other types, return true (no-op for now)
+		return true, _currentData
+	end,
+}
+
+-- Register attributes system with NetworkManager
+NetworkManager.registerSystem("attributes", attributesHandler)
 
 return AttributesManager

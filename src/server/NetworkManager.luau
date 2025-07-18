@@ -15,7 +15,7 @@ export type SystemHandler = NetworkTypes.SystemHandler
 local NetworkManager = {}
 
 -- Debug configuration
-local DEBUG = true -- Set to false to disable debug logging
+local DEBUG = false -- Set to false to disable debug logging
 
 -- Player-specific state
 local playerBatching: { [Player]: { [string]: boolean } } = {} -- Track batching per system per player
@@ -127,16 +127,39 @@ function NetworkManager.sendFullSync(player: Player, system: string, data: any)
 end
 
 -- Handle system data requests from clients
-local function handleNetworkRequest(player: Player, system: string)
-	-- Each system should handle its own request logic
-	-- For now, we'll emit a signal that systems can listen to
-	if DEBUG then
-		print(`📥 NetworkManager: {player.Name} requested {system} data`)
-	end
+local function handleNetworkRequest(player: Player, isRequest: boolean, data: any)
+	if isRequest then
+		-- This is a data request
+		local system = data :: string
 
-	-- Systems can listen to this and respond with sendFullSync
-	local requestSignal = warp.Signal(`{system}Request`)
-	requestSignal:Fire(player)
+		if DEBUG then
+			print(`📥 NetworkManager: {player.Name} requested {system} data`)
+		end
+
+		-- Systems can listen to this and respond with sendFullSync
+		local requestSignal = warp.Signal(`{system}Request`)
+		requestSignal:Fire(player)
+	else
+		-- This is a delta from the client
+		local delta = data :: any
+
+		if DEBUG then
+			print(`📤 NetworkManager: {player.Name} sent {delta.type} delta for {delta.system}.{delta.target}`)
+		end
+
+		-- Get the handler for this system
+		local handler = systemHandlers[delta.system]
+		if not handler then
+			warn(`NetworkManager: No handler for system '{delta.system}'`)
+			return
+		end
+
+		-- Apply the delta using the system's handler
+		local success = handler.applyDelta(nil, delta)
+		if DEBUG then
+			print(`📊 NetworkManager: Delta application ${success and "succeeded" or "failed"} for {player.Name}`)
+		end
+	end
 end
 
 -- Initialize player networking state

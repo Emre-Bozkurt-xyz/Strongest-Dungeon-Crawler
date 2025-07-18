@@ -40,8 +40,29 @@ function SystemPanelHandler.new()
 		followPlayer = true,
 	})
 
-	-- Listen for updates from the centralized system
-	local function checkSystemUpdates()
+	-- Listen for updates from the centralized system via signals instead of polling
+	local warp = require(game.ReplicatedStorage.Packages.warp)
+
+	-- Listen for stats updates
+	local statsUpdatedSignal = warp.Signal("statsUpdated")
+	statsUpdatedSignal:Connect(function(statsData)
+		if statsData then
+			self:updateStats(statsData)
+		end
+	end)
+
+	-- Listen for attributes updates
+	local attributesUpdatedSignal = warp.Signal("attributesUpdated")
+	attributesUpdatedSignal:Connect(function(_attributesData)
+		-- Don't use the signal parameter, get fresh formatted data instead
+		local attributeData = AttributesClient.getFormattedAttributes()
+		if attributeData then
+			self:updateAttributes(attributeData)
+		end
+	end)
+
+	-- Initial update to get current data
+	local function initialUpdate()
 		-- Update stats
 		local statsData = StatsClient.getFormattedStats()
 		if statsData then
@@ -55,13 +76,9 @@ function SystemPanelHandler.new()
 		end
 	end
 
-	-- Check for system updates periodically (every 0.1 seconds)
-	task.spawn(function()
-		while true do
-			checkSystemUpdates()
-			task.wait(0.1)
-		end
-	end)
+	-- Do initial update after a short delay
+	task.wait(0.1)
+	initialUpdate()
 
 	return self
 end
@@ -108,8 +125,8 @@ function SystemPanelHandler:displayPanel()
 	end
 
 	-- Optionally use WorldGUIManager visibility controls
-	--local worldGUIManager = WorldGUIManager.getInstance()
-	--worldGUIManager:setPanelVisibility("SystemPanel", true, 0.5)
+	local worldGUIManager = WorldGUIManager.getInstance()
+	worldGUIManager:setPanelVisibility("SystemPanel", true, 0.5)
 end
 
 function SystemPanelHandler:hidePanel()

@@ -1,6 +1,4 @@
 --!strict
--- Client-side Network Manager for Delta-based Communication
--- Handles all server communication and delta application
 
 local Players = game:GetService("Players")
 local warp = require(game.ReplicatedStorage.Packages.warp)
@@ -15,7 +13,7 @@ type SystemHandler = NetworkTypes.SystemHandler
 local ClientNetworkManager = {}
 
 -- Debug configuration
-local DEBUG = true -- Set to false to disable debug logging
+local DEBUG = false -- Set to false to disable debug logging
 
 -- System data storage
 local systemData: { [string]: any } = {} -- Current data for each system
@@ -42,7 +40,9 @@ local function applyDeltaToSystem(delta: Delta, handler: SystemHandler): boolean
 
 		if delta.target == "ALL_DATA" and delta.data then
 			systemData[delta.system] = handler.deserialize(delta.data)
-			print(`🔄 ClientNetworkManager: Full sync applied for {delta.system}`)
+			if DEBUG then
+				print(`📦 ClientNetworkManager: Full sync applied for {delta.system}`)
+			end
 			return true
 		else
 			warn(`ClientNetworkManager: Invalid full sync structure for {delta.system}`)
@@ -56,7 +56,11 @@ local function applyDeltaToSystem(delta: Delta, handler: SystemHandler): boolean
 			return false
 		end
 
-		return handler.applyDelta(systemData[delta.system], delta)
+		local success, newData = handler.applyDelta(systemData[delta.system], delta)
+		if success and newData then
+			systemData[delta.system] = newData
+		end
+		return success
 	end
 end
 
@@ -69,8 +73,18 @@ end
 
 -- Request data for a specific system
 function ClientNetworkManager.requestSystemData(systemName: string)
-	networkRequestEvent:Fire(true, systemName)
-	print(`📥 ClientNetworkManager: Requested {systemName} data from server`)
+	networkRequestEvent:Fire(true, true, systemName)
+	if DEBUG then
+		print(`📥 ClientNetworkManager: Requested {systemName} data from server`)
+	end
+end
+
+-- Send a delta to the server
+function ClientNetworkManager.sendDelta(delta: Delta)
+	networkRequestEvent:Fire(false, false, delta)
+	if DEBUG then
+		print(`📤 ClientNetworkManager: Sent {delta.type} delta for {delta.system}.{delta.target}`)
+	end
 end
 
 -- Get current data for a system

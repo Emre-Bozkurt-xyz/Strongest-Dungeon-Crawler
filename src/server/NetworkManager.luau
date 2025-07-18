@@ -14,6 +14,9 @@ export type SystemHandler = NetworkTypes.SystemHandler
 
 local NetworkManager = {}
 
+-- Debug configuration
+local DEBUG = true -- Set to false to disable debug logging
+
 -- Player-specific state
 local playerBatching: { [Player]: { [string]: boolean } } = {} -- Track batching per system per player
 local pendingDeltas: { [Player]: { [string]: { Delta } } } = {} -- Queued deltas per system per player
@@ -38,7 +41,9 @@ end
 -- Register a system with the network manager
 function NetworkManager.registerSystem(systemName: string, handler: SystemHandler)
 	systemHandlers[systemName] = handler
-	print(`📡 NetworkManager: Registered system '{systemName}'`)
+	if DEBUG then
+		print(`📡 NetworkManager: Registered system '{systemName}'`)
+	end
 end
 
 -- Enable batching for a specific system for a player
@@ -53,7 +58,9 @@ function NetworkManager.enableBatching(player: Player, system: string)
 	playerBatching[player][system] = true
 	pendingDeltas[player][system] = {}
 
-	print(`📦 NetworkManager: Enabled batching for {player.Name}'s {system} system`)
+	if DEBUG then
+		print(`📦 NetworkManager: Enabled batching for {player.Name}'s {system} system`)
+	end
 end
 
 -- Disable batching and send all pending deltas for a system
@@ -75,7 +82,9 @@ function NetworkManager.disableBatching(player: Player, system: string)
 		}
 
 		networkDeltaEvent:Fire(true, player, batch)
-		print(`📤 NetworkManager: Sent batch of {#deltas} deltas for {player.Name}'s {system} system`)
+		if DEBUG then
+			print(`📤 NetworkManager: Sent batch of {#deltas} deltas for {player.Name}'s {system} system`)
+		end
 	end
 
 	-- Clear pending deltas
@@ -88,11 +97,15 @@ function NetworkManager.sendDelta(player: Player, delta: Delta)
 	if playerBatching[player] and playerBatching[player][delta.system] then
 		-- Add to pending deltas
 		table.insert(pendingDeltas[player][delta.system], delta)
-		print(`📦 NetworkManager: Queued {delta.type} delta for {player.Name}'s {delta.system}.{delta.target}`)
+		if DEBUG then
+			print(`📦 NetworkManager: Queued {delta.type} delta for {player.Name}'s {delta.system}.{delta.target}`)
+		end
 	else
 		-- Send immediately
 		networkDeltaEvent:Fire(true, player, delta)
-		print(`📤 NetworkManager: Sent {delta.type} delta for {player.Name}'s {delta.system}.{delta.target}`)
+		if DEBUG then
+			print(`📤 NetworkManager: Sent {delta.type} delta for {player.Name}'s {delta.system}.{delta.target}`)
+		end
 	end
 end
 
@@ -108,14 +121,18 @@ function NetworkManager.sendFullSync(player: Player, system: string, data: any)
 	local fullSyncDelta = NetworkManager.createDelta(system, "full_sync", "ALL_DATA", serializedData)
 
 	networkDeltaEvent:Fire(true, player, fullSyncDelta)
-	print(`🔄 NetworkManager: Sent full sync for {player.Name}'s {system} system`)
+	if DEBUG then
+		print(`🔄 NetworkManager: Sent full sync for {player.Name}'s {system} system`)
+	end
 end
 
 -- Handle system data requests from clients
 local function handleNetworkRequest(player: Player, system: string)
 	-- Each system should handle its own request logic
 	-- For now, we'll emit a signal that systems can listen to
-	print(`📥 NetworkManager: {player.Name} requested {system} data`)
+	if DEBUG then
+		print(`📥 NetworkManager: {player.Name} requested {system} data`)
+	end
 
 	-- Systems can listen to this and respond with sendFullSync
 	local requestSignal = warp.Signal(`{system}Request`)
@@ -126,14 +143,18 @@ end
 local function initializePlayerNetworking(player: Player)
 	playerBatching[player] = {}
 	pendingDeltas[player] = {}
-	print(`🔌 NetworkManager: Initialized networking for {player.Name}`)
+	if DEBUG then
+		print(`🔌 NetworkManager: Initialized networking for {player.Name}`)
+	end
 end
 
 -- Clean up player networking state
 local function cleanupPlayerNetworking(player: Player)
 	playerBatching[player] = nil
 	pendingDeltas[player] = nil
-	print(`🔌 NetworkManager: Cleaned up networking for {player.Name}`)
+	if DEBUG then
+		print(`🔌 NetworkManager: Cleaned up networking for {player.Name}`)
+	end
 end
 
 -- Utility: Enable batching for multiple systems
@@ -154,7 +175,24 @@ end
 function NetworkManager.enableGlobalBatching(_player: Player)
 	-- This would require a more complex system where we batch across all systems
 	-- For now, let's keep it simple with per-system batching
-	print(`🌐 NetworkManager: Global batching not yet implemented`)
+	if DEBUG then
+		print(`🌐 NetworkManager: Global batching not yet implemented`)
+	end
+end
+
+-- Toggle debug mode
+function NetworkManager.setDebug(enabled: boolean)
+	DEBUG = enabled
+	if DEBUG then
+		print("📡 NetworkManager: Debug mode enabled")
+	else
+		print("📡 NetworkManager: Debug mode disabled")
+	end
+end
+
+-- Get current debug state
+function NetworkManager.isDebugEnabled(): boolean
+	return DEBUG
 end
 
 -- Debug: Get current batching status

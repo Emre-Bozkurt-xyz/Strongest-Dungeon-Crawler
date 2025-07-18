@@ -77,8 +77,8 @@ AttributesConfig.ScalingFormulas = {
 			return total
 		end,
 		ManaFromValue = function(intelligenceValue: number): number
-			-- Every point of Intelligence gives +5 Mana
-			return intelligenceValue * 5
+			-- Every 5th point of Intelligence gives +5 Mana
+			return math.floor(intelligenceValue / 5) * 5
 		end,
 	},
 }
@@ -145,6 +145,9 @@ function AttributesConfig.createDefaultAttributes(): PlayerAttributes
 			description = config.description,
 		})
 	end
+
+	-- Initialize available attribute points (can be adjusted based on level later)
+	attributes.availableAttributePoints = 5 -- Starting points for new players
 
 	return attributes :: PlayerAttributes
 end

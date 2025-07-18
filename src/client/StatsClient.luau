@@ -1,107 +1,86 @@
 --!strict
--- Client-side attributes display and handling
+-- Client-side stats display and handling
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local warp = require(ReplicatedStorage.Packages.warp)
 local StatTypeUtil = require(ReplicatedStorage.Shared.StatTypeUtil)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
-local SystemPanelHandler = require(script.Parent.SystemPanelHandler)
+local ClientNetworkManager = require(script.Parent.ClientNetworkManager)
 
+-- Import shared types
+local NetworkTypes = require(game.ReplicatedStorage.Shared.NetworkTypes)
+type Delta = NetworkTypes.Delta
+
+-- Stats handler for ClientNetworkManager
+local statsHandler = {
+	deserialize = function(data: any): StatTypes.PlayerStats
+		return StatTypeUtil.deserializeStats(data)
+	end,
+	applyDelta = function(currentData: StatTypes.PlayerStats, delta: Delta): boolean
+		-- StatTypeUtil now handles both old and new delta formats
+		return StatTypeUtil.applyDelta(currentData, delta)
+	end,
+	serialize = function(data: StatTypes.PlayerStats): any
+		return StatTypeUtil.serializeStats(data)
+	end,
+}
+
+-- Initialize stats system
+local function initializeStats()
+	-- Register stats system with ClientNetworkManager
+	ClientNetworkManager.registerSystem("stats", statsHandler, {})
+
+	print("📊 StatsClient: Initialized with centralized NetworkManager")
+end
+
+-- Public API
 local StatsClient = {}
-StatsClient.__index = StatsClient
 
-local statsRequestEvent = warp.Client("StatsRequest")
-local statsDeltaEvent = warp.Client("StatsDelta") -- Delta update event
-
-local statsReceivedSignal = warp.Signal("StatsReceived")
-
-function StatsClient.new()
-	local self = setmetatable({}, StatsClient)
-
-	self.currentStats = {} :: StatTypes.PlayerStats
-	self.lastRequestTime = 0 -- Rate limiting for full sync requests
-
-	-- Initialize the system panel handler
-	self.systemPanelHandler = SystemPanelHandler.new()
-
-	-- Connect to delta update event (incremental updates)
-	statsDeltaEvent:Connect(function(deltaUpdate)
-		self:handleDeltaUpdate(deltaUpdate)
-	end)
-
-	print("StatsClient initialized")
-	return self
+-- Get current stats data from ClientNetworkManager
+function StatsClient.getCurrentStats(): StatTypes.PlayerStats?
+	return ClientNetworkManager.getSystemData("stats")
 end
 
-function StatsClient:displayStats()
-	self.systemPanelHandler:displayPanel()
-end
-
-function StatsClient:requestStatsUpdate()
-	-- Rate limit requests to prevent spam (1 second cooldown)
-	local currentTime = tick()
-	if currentTime - self.lastRequestTime < 1 then
-		return -- Skip request if within cooldown
-	end
-	self.lastRequestTime = currentTime
-
-	-- Request the server to send the latest stats
-	statsRequestEvent:Fire(true)
-	print("Requested full stats sync from server")
-end
-
-function StatsClient:handleDeltaUpdate(deltaUpdate: any)
-	-- Handle incremental updates to avoid recreating stat instances
-	if not deltaUpdate then
-		warn("Received nil delta update")
-		return
+-- Get formatted stats for UI display
+function StatsClient.getFormattedStats(): StatTypes.PlayerStats?
+	local rawData = ClientNetworkManager.getSystemData("stats")
+	if not rawData then
+		-- Request data if we don't have it yet
+		StatsClient.requestStatsUpdate()
+		return nil
 	end
 
-	local success = false
-
-	if deltaUpdate.type == "batch" then
-		-- Handle batched deltas
-		if not self.currentStats then
-			warn("Received batched delta update but no current stats - requesting full sync")
-			self:requestStatsUpdate()
-			return
-		end
-
-		local successCount = StatTypeUtil.applyBatchedDeltas(self.currentStats, deltaUpdate)
-		success = successCount > 0
-		print(`Applied {successCount}/{#deltaUpdate.deltas} delta updates`)
-	elseif deltaUpdate.type == "full_sync" then
-		-- Handle full sync - deserialize the complete stats
-		if deltaUpdate.stat == "ALL_STATS" and deltaUpdate.data then
-			self.currentStats = StatTypeUtil.deserializeStats(deltaUpdate.data)
-			success = true
-			print("Applied full sync update - stats initialized")
+	-- Check what type of data we're getting
+	if type(rawData) == "table" then
+		-- Check if it's already deserialized stats objects
+		if rawData.Health and type(rawData.Health) == "table" and rawData.Health.getValue then
+			return rawData
 		else
-			warn(
-				`Invalid full sync delta structure - stat: {deltaUpdate.stat or "nil"}, data: {deltaUpdate.data and "present" or "nil"}`
-			)
-		end
-	else
-		-- Handle single delta
-		if not self.currentStats then
-			warn("Received delta update but no current stats - requesting full sync")
-			self:requestStatsUpdate()
-			return
-		end
+			-- Try to deserialize it
+			local success, result = pcall(function()
+				return StatTypeUtil.deserializeStats(rawData)
+			end)
 
-		success = StatTypeUtil.applyDelta(self.currentStats, deltaUpdate)
-		if success then
-			print(`Applied delta: {deltaUpdate.type} for {deltaUpdate.stat}`)
+			if success then
+				return result
+			else
+				warn(`📊 StatsClient: Failed to deserialize stats: {result}`)
+				return nil
+			end
 		end
 	end
 
-	if success then
-		-- Notify UI that stats changed (but without recreating instances)
-		statsReceivedSignal:Fire(self.currentStats)
-	else
-		warn("Failed to apply delta update - requesting full sync")
-		self:requestStatsUpdate()
-	end
+	warn("📊 StatsClient: Invalid data type received:", type(rawData))
+	return nil
 end
+
+-- Request fresh stats data from server
+function StatsClient.requestStatsUpdate()
+	-- Request the server to send the latest stats via ClientNetworkManager
+	ClientNetworkManager.requestSystemData("stats")
+	print("📥 StatsClient: Requested stats from server")
+end
+
+-- Initialize when script loads
+initializeStats()
 
 return StatsClient

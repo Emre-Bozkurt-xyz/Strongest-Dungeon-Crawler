@@ -47,6 +47,7 @@ export type PlayerAttributes = {
 	Dexterity: typeof(Attribute.new({ baseValue = 0, name = "" })),
 	Intelligence: typeof(Attribute.new({ baseValue = 0, name = "" })),
 	Perception: typeof(Attribute.new({ baseValue = 0, name = "" })),
+	availableAttributePoints: number, -- Available points to spend on attributes
 }
 
 -- ========================================

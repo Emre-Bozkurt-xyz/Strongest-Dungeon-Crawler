@@ -319,18 +319,23 @@ end
 
 -- Apply a delta to existing client stats (avoids recreation)
 function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): boolean
-	local stat = clientStats[delta.stat]
+	-- Support both old format (delta.stat) and new NetworkManager format (delta.target)
+	local statName = delta.stat or delta.target
+	local stat = clientStats[statName]
 	if not stat then
-		warn(`Delta update for unknown stat: {delta.stat}`)
+		warn(`Delta update for unknown stat: {statName}`)
 		return false
 	end
+
+	-- For new NetworkManager format, extract data from delta.data
+	local deltaData = delta.data or delta -- Old format has data directly in delta
 
 	if delta.type == StatTypeUtil.DeltaTypes.MODIFIER_ADDED then
 		-- Import modifier classes
 		local StatModifier = require(game.ReplicatedStorage.Shared.Modifiers.StatModifier)
 		local PercentOfStatModifier = require(game.ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
 
-		local modifierData = delta.data
+		local modifierData = deltaData
 		local modifier
 
 		-- Create appropriate modifier type
@@ -356,22 +361,22 @@ function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): bo
 		-- Add modifier to existing stat (no recreation needed)
 		stat:addModifier(modifier)
 	elseif delta.type == StatTypeUtil.DeltaTypes.MODIFIER_REMOVED then
-		stat:removeModifier(delta.data.source_id)
+		stat:removeModifier(deltaData.source_id)
 	elseif delta.type == StatTypeUtil.DeltaTypes.MODIFIER_UPDATED then
-		stat:updateModifier(delta.data.source_id, delta.data.value)
+		stat:updateModifier(deltaData.source_id, deltaData.value)
 	elseif delta.type == StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED then
 		if StatTypeUtil.isPoolStat(stat) then
-			stat:setCurrentValue(delta.data.currentValue, clientStats)
+			stat:setCurrentValue(deltaData.currentValue, clientStats)
 		end
 	elseif delta.type == StatTypeUtil.DeltaTypes.BASE_VALUE_CHANGED then
-		stat:setBaseValue(delta.data.baseValue)
+		stat:setBaseValue(deltaData.baseValue)
 	elseif delta.type == StatTypeUtil.DeltaTypes.RESERVATION_ADDED then
 		if StatTypeUtil.isPoolStat(stat) then
-			stat:addReservation(delta.data)
+			stat:addReservation(deltaData)
 		end
 	elseif delta.type == StatTypeUtil.DeltaTypes.RESERVATION_REMOVED then
 		if StatTypeUtil.isPoolStat(stat) then
-			stat:removeReservation(delta.data.source_id)
+			stat:removeReservation(deltaData.source_id)
 		end
 	else
 		warn(`Unknown delta type: {delta.type}`)

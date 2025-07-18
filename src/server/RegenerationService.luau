@@ -1,4 +1,3 @@
---!strict
 -- Regeneration Service - Handles automatic regeneration for pool stats
 -- Ticks 30 times per second and applies smooth regeneration based on regen stats
 
@@ -6,9 +5,8 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
 local StatsManager = require(script.Parent.StatsManager)
+local NetworkManager = require(script.Parent.NetworkManager)
 local Types = require(game.ReplicatedStorage.Shared.StatTypes)
-local StatTypeUtil = require(game.ReplicatedStorage.Shared.StatTypeUtil)
-local Warp = require(game.ReplicatedStorage.Packages.warp)
 
 local RegenerationService = {}
 
@@ -22,9 +20,7 @@ local UPDATE_INTERVAL = 1 / UPDATE_RATE -- 0.5 seconds between client updates
 local activeConnection: RBXScriptConnection? = nil
 local isRunning = false
 local lastUpdateTime = 0
-
--- Warp event for sending delta updates
-local statsDeltaEvent = Warp.Server("StatsDelta") -- For efficient regeneration updates
+local lastSentValues = {} -- Track the last values sent to each player for each pool
 
 -- Pool stats and their associated regeneration stats
 local REGEN_MAPPING = {
@@ -38,10 +34,10 @@ local function regeneratePlayer(player: Player, deltaTime: number)
 	-- Get all player stats
 	local stats = StatsManager.getAllStats(player)
 	if not stats then
-		return false -- Player not initialized yet
+		return {} -- Player not initialized yet
 	end
 
-	local anyRegenApplied = false
+	local changedPools = {}
 
 	-- Process each pool stat
 	for poolType, regenStatType in pairs(REGEN_MAPPING) do
@@ -60,13 +56,13 @@ local function regeneratePlayer(player: Player, deltaTime: number)
 				local actualRegen = pool:addToCurrentValue(regenThisTick, stats)
 
 				if actualRegen > 0 then
-					anyRegenApplied = true
+					table.insert(changedPools, poolType)
 				end
 			end
 		end
 	end
 
-	return anyRegenApplied
+	return changedPools
 end
 
 -- Main regeneration tick function
@@ -74,38 +70,57 @@ local function onRegenerationTick()
 	local currentTime = tick()
 	local deltaTime = TICK_INTERVAL -- Fixed delta time for consistent regeneration
 
-	local playersWithUpdates = {}
-
-	-- Process all connected players
+	-- Process all connected players and apply regeneration
 	for _, player in pairs(Players:GetPlayers()) do
-		local hadRegen = regeneratePlayer(player, deltaTime)
-		if hadRegen then
-			table.insert(playersWithUpdates, player)
-		end
+		regeneratePlayer(player, deltaTime)
 	end
 
 	-- Send batched updates only every UPDATE_INTERVAL to reduce network spam
-	if currentTime - lastUpdateTime >= UPDATE_INTERVAL and #playersWithUpdates > 0 then
-		for _, player in pairs(playersWithUpdates) do
+	if currentTime - lastUpdateTime >= UPDATE_INTERVAL then
+		for _, player in pairs(Players:GetPlayers()) do
 			local stats = StatsManager.getAllStats(player)
 			if stats then
-				-- Create delta updates for each pool stat that regenerated
+				-- Initialize tracking for this player if needed
+				if not lastSentValues[player] then
+					lastSentValues[player] = {}
+				end
+
+				-- Check which pools have actually changed since last update
 				local deltas = {}
 
 				for poolType, _ in pairs(REGEN_MAPPING) do
 					local pool = stats[poolType]
 					if pool then
-						-- Send current value delta for this pool
-						local delta =
-							StatTypeUtil.createCurrentValueDelta(poolType, pool:getCurrentValue(), pool:getValue(stats))
-						table.insert(deltas, delta)
+						local currentValue = pool:getCurrentValue()
+						local lastValue = lastSentValues[player][poolType]
+
+						-- Only send delta if the value actually changed
+						if not lastValue or math.abs(currentValue - lastValue) > 0.01 then -- Small threshold for floating point precision
+							local delta = NetworkManager.createDelta("stats", "current_value_changed", poolType, {
+								currentValue = currentValue,
+								maxValue = pool:getValue(stats), -- Include max for UI percentage calculations
+							})
+							table.insert(deltas, delta)
+
+							-- Update the last sent value
+							lastSentValues[player][poolType] = currentValue
+						end
 					end
 				end
 
 				-- Send batched deltas instead of full stats
 				if #deltas > 0 then
-					local batchedUpdate = StatTypeUtil.createBatchedDeltas(deltas)
-					statsDeltaEvent:Fire(true, player, batchedUpdate)
+					-- Enable batching for efficient regeneration updates
+					StatsManager.enableBatching(player)
+
+					-- Apply all the regeneration deltas
+					for _, delta in ipairs(deltas) do
+						-- The delta contains the updated current value, just send it via NetworkManager
+						NetworkManager.sendDelta(player, delta)
+					end
+
+					-- Disable batching to send the batch
+					StatsManager.disableBatching(player)
 				end
 			end
 		end
@@ -192,7 +207,8 @@ end
 -- Manual regeneration for a specific player (useful for testing)
 function RegenerationService.regeneratePlayerManually(player: Player, deltaTime: number?)
 	local actualDeltaTime = deltaTime or TICK_INTERVAL
-	regeneratePlayer(player, actualDeltaTime)
+	local changedPools = regeneratePlayer(player, actualDeltaTime)
+	return changedPools
 end
 
 -- Get regeneration info for debugging
@@ -205,5 +221,12 @@ function RegenerationService.getDebugInfo(): { [string]: any }
 		regenMapping = REGEN_MAPPING,
 	}
 end
+
+-- Clean up tracking data when players leave
+Players.PlayerRemoving:Connect(function(player)
+	if lastSentValues[player] then
+		lastSentValues[player] = nil
+	end
+end)
 
 return RegenerationService

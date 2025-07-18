@@ -37,14 +37,19 @@ StatsConfig.DEFAULT_STATS = {
 	[Types.StaticStats.HealthRegeneration] = {
 		baseValue = 1,
 		minValue = 0,
-		maxValue = 999,
+		maxValue = 999999,
 		name = "Health Regeneration",
 	}, -- per second
-	[Types.StaticStats.ManaRegeneration] = { baseValue = 1, minValue = 0, maxValue = 999, name = "Mana Regeneration" }, -- per second
-	[Types.StaticStats.StaminaRegeneration] = {
-		baseValue = 1,
+	[Types.StaticStats.ManaRegeneration] = {
+		baseValue = 0,
 		minValue = 0,
-		maxValue = 999,
+		maxValue = 999999,
+		name = "Mana Regeneration",
+	}, -- per second
+	[Types.StaticStats.StaminaRegeneration] = {
+		baseValue = 5,
+		minValue = 0,
+		maxValue = 999999,
 		name = "Stamina Regeneration",
 	}, -- per second
 }

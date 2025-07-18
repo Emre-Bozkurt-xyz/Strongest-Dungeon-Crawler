@@ -14,6 +14,9 @@ type SystemHandler = NetworkTypes.SystemHandler
 
 local ClientNetworkManager = {}
 
+-- Debug configuration
+local DEBUG = true -- Set to false to disable debug logging
+
 -- System data storage
 local systemData: { [string]: any } = {} -- Current data for each system
 local systemHandlers: { [string]: SystemHandler } = {} -- Registered system handlers
@@ -101,7 +104,9 @@ local function handleNetworkDelta(deltaOrBatch: Delta | BatchedDeltas)
 		deltaStats.applied += successCount
 		deltaStats.failed += (#batch.deltas - successCount)
 
-		print(`📦 ClientNetworkManager: Applied {successCount}/{#batch.deltas} deltas for {batch.system}`)
+		if DEBUG then
+			print(`📦 ClientNetworkManager: Applied {successCount}/{#batch.deltas} deltas for {batch.system}`)
+		end
 
 		-- Emit system update signal
 		local updateSignal = warp.Signal(`{batch.system}Updated`)
@@ -119,7 +124,9 @@ local function handleNetworkDelta(deltaOrBatch: Delta | BatchedDeltas)
 
 		if applyDeltaToSystem(delta, handler) then
 			deltaStats.applied += 1
-			print(`📤 ClientNetworkManager: Applied {delta.type} delta for {delta.system}.{delta.target}`)
+			if DEBUG then
+				print(`📤 ClientNetworkManager: Applied {delta.type} delta for {delta.system}.{delta.target}`)
+			end
 
 			-- Emit system update signal
 			local updateSignal = warp.Signal(`{delta.system}Updated`)
@@ -174,6 +181,21 @@ local function onPlayerAdded()
 	end
 
 	print(`📱 ClientNetworkManager: Requested initial data for all systems`)
+end
+
+-- Toggle debug mode
+function ClientNetworkManager.setDebug(enabled: boolean)
+	DEBUG = enabled
+	if DEBUG then
+		print("📱 ClientNetworkManager: Debug mode enabled")
+	else
+		print("📱 ClientNetworkManager: Debug mode disabled")
+	end
+end
+
+-- Get current debug state
+function ClientNetworkManager.isDebugEnabled(): boolean
+	return DEBUG
 end
 
 if Players.LocalPlayer then

@@ -9,6 +9,7 @@ local Warp = require(game.ReplicatedStorage.Packages.warp)
 local StatsConfig = require(game.ReplicatedStorage.Shared.StatsConfig)
 local Types = require(game.ReplicatedStorage.Shared.StatTypes)
 local StatTypeUtil = require(ReplicatedStorage.Shared.StatTypeUtil)
+local NetworkManager = require(script.Parent.NetworkManager)
 
 -- Import types from central location
 type PlayerStats = Types.PlayerStats
@@ -19,59 +20,40 @@ type PoolType = Types.PoolType
 local StatsManager = {}
 local playerStats: { [Player]: PlayerStats } = {}
 
--- Batching system to prevent excessive client updates during scaling
-local batchingEnabled: { [Player]: boolean } = {}
+-- Stats System Handler for NetworkManager
+local statsHandler = {
+	serialize = function(data: PlayerStats): any
+		return StatTypeUtil.serializeStats(data)
+	end,
+	deserialize = function(data: any): PlayerStats
+		return StatTypeUtil.deserializeStats(data)
+	end,
+	applyDelta = function(currentData: PlayerStats, delta): boolean
+		return StatTypeUtil.applyDelta(currentData, delta)
+	end,
+}
 
--- Store pending deltas for batching
-local pendingDeltas: { [Player]: { any } } = {}
-
--- Warp events for networking
-local statsRequestEvent = Warp.Server("StatsRequest")
-local statsDeltaEvent = Warp.Server("StatsDelta") -- Primary communication method
+-- Register stats system with NetworkManager
+NetworkManager.registerSystem("stats", statsHandler)
 
 -- Initialize stats for a new player
 local function initializePlayerStats(player: Player)
 	playerStats[player] = StatsConfig.createDefaultStats()
 
-	-- Send initial full sync via delta system
-	local fullSyncDelta = StatTypeUtil.createDelta(
-		StatTypeUtil.DeltaTypes.FULL_SYNC,
-		"ALL_STATS",
-		StatTypeUtil.serializeStats(playerStats[player])
-	)
-	statsDeltaEvent:Fire(true, player, fullSyncDelta)
+	-- Send initial full sync via NetworkManager
+	NetworkManager.sendFullSync(player, "stats", playerStats[player])
 
 	print(`Initialized stats for player: {player.Name}`)
 end
 
 -- ========================================
--- DELTA UPDATE FUNCTIONS
+-- HELPER FUNCTIONS FOR DELTAS
 -- ========================================
 
--- Add a delta to pending batch (used during batching mode)
-local function addToPendingDeltas(player: Player, delta: any)
-	if not pendingDeltas[player] then
-		pendingDeltas[player] = {}
-	end
-	table.insert(pendingDeltas[player], delta)
-end
-
--- Send a single delta update to client
-local function sendDelta(player: Player, delta: any)
-	if not batchingEnabled[player] then
-		statsDeltaEvent:Fire(true, player, delta)
-	else
-		-- If batching is enabled, add to pending deltas
-		addToPendingDeltas(player, delta)
-	end
-end
-
--- Send multiple deltas as a batch
-local function sendBatchedDeltas(player: Player, deltas: { any })
-	if #deltas > 0 then
-		local batchedUpdate = StatTypeUtil.createBatchedDeltas(deltas)
-		statsDeltaEvent:Fire(true, player, batchedUpdate)
-	end
+-- Send a delta update to client via NetworkManager
+local function sendStatDelta(player: Player, deltaType: string, target: string, data: any)
+	local delta = NetworkManager.createDelta("stats", deltaType, target, data)
+	NetworkManager.sendDelta(player, delta)
 end
 
 -- ========================================
@@ -80,26 +62,17 @@ end
 
 -- Enable batching mode to prevent individual client updates during scaling
 function StatsManager.enableBatching(player: Player)
-	batchingEnabled[player] = true
-	pendingDeltas[player] = {} -- Clear any existing pending deltas
+	NetworkManager.enableBatching(player, "stats")
 end
 
 -- Disable batching and send accumulated deltas
 function StatsManager.disableBatching(player: Player)
-	batchingEnabled[player] = false
-
-	-- Send accumulated deltas as a batch
-	if pendingDeltas[player] and #pendingDeltas[player] > 0 then
-		sendBatchedDeltas(player, pendingDeltas[player])
-		pendingDeltas[player] = {} -- Clear after sending
-	end
+	NetworkManager.disableBatching(player, "stats")
 end
 
 -- Clean up when player leaves
 local function cleanupPlayerStats(player: Player)
 	playerStats[player] = nil
-	batchingEnabled[player] = nil
-	pendingDeltas[player] = nil
 	print(`Cleaned up stats for player: {player.Name}`)
 end
 
@@ -122,8 +95,7 @@ function StatsManager.setBaseStat(player: Player, statName: StatType, newValue: 
 	stat:setBaseValue(validatedValue)
 
 	-- Send base value delta update
-	local delta = StatTypeUtil.createBaseValueDelta(statName, validatedValue)
-	sendDelta(player, delta)
+	sendStatDelta(player, "base_value_changed", statName, { baseValue = validatedValue })
 
 	return true
 end
@@ -144,9 +116,10 @@ function StatsManager.addToPool(player: Player, poolName: PoolType, amount: numb
 
 	if added then
 		-- Send current value delta update
-		local delta =
-			StatTypeUtil.createCurrentValueDelta(poolName, pool:getCurrentValue(), pool:getValue(playerStats[player]))
-		sendDelta(player, delta)
+		sendStatDelta(player, "current_value_changed", poolName, {
+			currentValue = pool:getCurrentValue(),
+			maxValue = pool:getValue(playerStats[player]),
+		})
 	end
 
 	return added
@@ -168,9 +141,10 @@ function StatsManager.removeFromPool(player: Player, poolName: PoolType, amount:
 
 	if removed then
 		-- Send current value delta update
-		local delta =
-			StatTypeUtil.createCurrentValueDelta(poolName, pool:getCurrentValue(), pool:getValue(playerStats[player]))
-		sendDelta(player, delta)
+		sendStatDelta(player, "current_value_changed", poolName, {
+			currentValue = pool:getCurrentValue(),
+			maxValue = pool:getValue(playerStats[player]),
+		})
 	end
 
 	return removed
@@ -189,8 +163,7 @@ function StatsManager.addReservation(player: Player, poolName: PoolType, reserva
 	pool:addReservation(reservation)
 
 	-- Send reservation added delta
-	local delta = StatTypeUtil.createDelta(StatTypeUtil.DeltaTypes.RESERVATION_ADDED, poolName, reservation)
-	sendDelta(player, delta)
+	sendStatDelta(player, "reservation_added", poolName, reservation)
 
 	return true
 end
@@ -209,9 +182,7 @@ function StatsManager.removeReservation(player: Player, poolName: PoolType, sour
 
 	if removed then
 		-- Send reservation removed delta
-		local delta =
-			StatTypeUtil.createDelta(StatTypeUtil.DeltaTypes.RESERVATION_REMOVED, poolName, { source_id = source_id })
-		sendDelta(player, delta)
+		sendStatDelta(player, "reservation_removed", poolName, { source_id = source_id })
 	end
 
 	return removed
@@ -231,8 +202,7 @@ function StatsManager.addModifier(player: Player, statType: StatType, modifier)
 	StatsManager.invalidateAllCaches(player)
 
 	-- Send delta update instead of full stats
-	local delta = StatTypeUtil.createModifierDelta(StatTypeUtil.DeltaTypes.MODIFIER_ADDED, statType, modifier)
-	sendDelta(player, delta)
+	sendStatDelta(player, "modifier_added", statType, modifier)
 
 	return true
 end
@@ -252,10 +222,7 @@ function StatsManager.removeModifier(player: Player, statType: StatType, source_
 		StatsManager.invalidateAllCaches(player)
 
 		-- Send delta update instead of full stats
-		local delta = StatTypeUtil.createDelta(StatTypeUtil.DeltaTypes.MODIFIER_REMOVED, statType, {
-			source_id = source_id,
-		})
-		sendDelta(player, delta)
+		sendStatDelta(player, "modifier_removed", statType, { source_id = source_id })
 	end
 
 	return removed
@@ -279,11 +246,10 @@ function StatsManager.updateModifier(player: Player, statType: StatType, source_
 		StatsManager.invalidateAllCaches(player)
 
 		-- Send modifier updated delta
-		local delta = StatTypeUtil.createDelta(StatTypeUtil.DeltaTypes.MODIFIER_UPDATED, statType, {
+		sendStatDelta(player, "modifier_updated", statType, {
 			source_id = source_id,
 			value = newValue,
 		})
-		sendDelta(player, delta)
 		return true
 	end
 
@@ -357,13 +323,8 @@ function StatsManager.resetStats(player: Player)
 
 	playerStats[player] = StatsConfig.createDefaultStats()
 
-	-- Send full sync delta for reset
-	local fullSyncDelta = StatTypeUtil.createDelta(
-		StatTypeUtil.DeltaTypes.FULL_SYNC,
-		"ALL_STATS",
-		StatTypeUtil.serializeStats(playerStats[player])
-	)
-	statsDeltaEvent:Fire(true, player, fullSyncDelta)
+	-- Send full sync for reset
+	NetworkManager.sendFullSync(player, "stats", playerStats[player])
 
 	print(`Reset stats for player: {player.Name}`)
 	return true
@@ -372,24 +333,19 @@ end
 -- Handle client requests for stats
 local function handleStatsRequest(player: Player)
 	if playerStats[player] then
-		-- Send full sync delta for stat request
-		local fullSyncDelta = StatTypeUtil.createDelta(
-			StatTypeUtil.DeltaTypes.FULL_SYNC,
-			"ALL_STATS",
-			StatTypeUtil.serializeStats(playerStats[player])
-		)
-		statsDeltaEvent:Fire(true, player, fullSyncDelta)
+		NetworkManager.sendFullSync(player, "stats", playerStats[player])
 	else
 		initializePlayerStats(player)
 	end
 end
 
--- Connect events
-statsRequestEvent:Connect(handleStatsRequest)
+-- Listen for stats requests via NetworkManager
+local statsRequestSignal = Warp.Signal("statsRequest")
+statsRequestSignal:Connect(handleStatsRequest)
 
 -- Connect player events
 Players.PlayerAdded:Connect(initializePlayerStats)
 Players.PlayerRemoving:Connect(cleanupPlayerStats)
 
-print("StatsManager initialized")
+print("StatsManager initialized with NetworkManager")
 return StatsManager

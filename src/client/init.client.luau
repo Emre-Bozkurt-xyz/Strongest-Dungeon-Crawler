@@ -37,7 +37,7 @@ local function onCharacterAdded(character: Model)
 	print(`📷 Setting up first-person camera and GUI for {character.Name}`)
 
 	-- Set up first-person camera
-	setupFirstPersonCamera()
+	--setupFirstPersonCamera()
 
 	-- Initialize world GUI system
 	local _worldGUIManager = WorldGUIManager.getInstance()
@@ -48,7 +48,7 @@ local function onCharacterAdded(character: Model)
 
 	-- Create and display system panel (it will auto-register with WorldGUIManager)
 	local systemPanelHandler = SystemPanelHandler.new()
-	systemPanelHandler:displayPanel()
+	--systemPanelHandler:displayPanel()
 
 	print("📷 First-person camera and world GUI systems initialized")
 end

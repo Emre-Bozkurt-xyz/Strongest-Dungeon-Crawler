@@ -19,6 +19,19 @@
     },
 
     "StarterPlayer": {
+      "StarterCharacterScripts": {
+        "SkillReplicator": {
+          "$path": "src/starterchar/skillreplicator",
+          "FX": {
+            "$className": "ModuleScript",
+            "$path": "src/starterchar/skillreplicator/fx/FX.luau",
+            "Combat": {
+              "$className": "ModuleScript",
+              "$path": "src/starterchar/skillreplicator/fx/Combat.luau"
+            }
+          }
+        }
+      },
       "StarterPlayerScripts": {
         "Client": {
           "$path": "src/client"

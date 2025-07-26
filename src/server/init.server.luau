@@ -22,14 +22,34 @@ end
 -- Example: Set up some demo commands (you can remove these later)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SkillsManager = require(script.SkillsFramework.SkillsManager)
 local AttributeTypes = require(ReplicatedStorage.Shared.AttributeTypes)
 local PercentOfStatModifier = require(ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local Testing = require(script.Testing)
 
+local function removeBundles(character)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		error("Character has no humanoid.")
+	end
+
+	wait(0.9)
+
+	local descriptionClone = humanoid:GetAppliedDescription()
+	descriptionClone.Head = 0
+	descriptionClone.LeftArm = 0
+	descriptionClone.RightArm = 0
+	descriptionClone.LeftLeg = 0
+	descriptionClone.RightLeg = 0
+	descriptionClone.Torso = 0
+	humanoid:ApplyDescription(descriptionClone)
+end
+
 -- Example function to test the system
 local function setupPlayerCommands(player: Player)
-	-- Wait a bit for the player to load
+	SkillsManager.addSkill(player, "Punch")
+
 	StatsManager.addModifier(
 		player,
 		StatTypes.StaticStats.ManaRegeneration,
@@ -85,6 +105,9 @@ end
 
 -- Connect to new players for demo purposes
 Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(character)
+		removeBundles(character)
+	end)
 	spawn(function()
 		setupPlayerCommands(player)
 	end)

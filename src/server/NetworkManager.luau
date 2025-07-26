@@ -27,6 +27,9 @@ local networkDeltaEvent = warp.Server("NetworkDelta") -- Single event for all sy
 local networkRequestEvent = warp.Server("NetworkRequest") -- System data requests
 local _networkFullSyncEvent = warp.Server("NetworkFullSync") -- Full sync for systems (reserved for future use)
 
+-- Local signals
+local networkRequestSignal = warp.Signal("NetworkRequestSignal") -- Signal for system requests
+
 -- Create a delta
 function NetworkManager.createDelta(system: string, deltaType: string, target: string, data: DeltaData): Delta
 	return {
@@ -124,6 +127,19 @@ function NetworkManager.sendFullSync(player: Player, system: string, data: any)
 	if DEBUG then
 		print(`🔄 NetworkManager: Sent full sync for {player.Name}'s {system} system`)
 	end
+end
+
+function NetworkManager.invokeSignal(system: string, data: any)
+	if DEBUG then
+		print(`📥 NetworkManager: Request signal invoked for {system}`)
+	end
+	return networkRequestSignal:Invoke(system, data)
+end
+
+local function handleSignalInvoke(system: string, data: any)
+	local signal = warp.Signal(`{system}Signal`)
+
+	return signal:Invoke(system, data)
 end
 
 -- Handle system data requests from clients
@@ -238,6 +254,7 @@ end
 
 -- Connect events
 networkRequestEvent:Connect(handleNetworkRequest)
+local signalConnection = networkRequestSignal:Connect(handleSignalInvoke)
 
 -- Connect player events
 Players.PlayerAdded:Connect(initializePlayerNetworking)

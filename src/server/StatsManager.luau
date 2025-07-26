@@ -56,6 +56,21 @@ local function sendStatDelta(player: Player, deltaType: string, target: string, 
 	NetworkManager.sendDelta(player, delta)
 end
 
+-- Handle LOCAL player stats requests
+local function handleStatsSignalInvoke(_system: string, data: any): any
+	print("TEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEST")
+	local stats = {}
+	for requestedStat in ipairs(data.requestedStats or {}) do
+		local stat = playerStats[data.player][requestedStat]
+		if stat then
+			table.insert(stats, stat)
+		else
+			warn(`Stat {requestedStat} not found for player {data.player.Name}`)
+		end
+	end
+	return stats
+end
+
 -- ========================================
 -- BATCHING SYSTEM FOR SCALING OPERATIONS
 -- ========================================
@@ -342,6 +357,9 @@ end
 -- Listen for stats requests via NetworkManager
 local statsRequestSignal = Warp.Signal("statsRequest")
 statsRequestSignal:Connect(handleStatsRequest)
+
+local statsSignal = Warp.Signal("statsSignal")
+statsSignal:Connect(handleStatsSignalInvoke)
 
 -- Connect player events
 Players.PlayerAdded:Connect(initializePlayerStats)

@@ -328,7 +328,7 @@ function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): bo
 	end
 
 	-- For new NetworkManager format, extract data from delta.data
-	local deltaData = delta.data or delta -- Old format has data directly in delta
+	local deltaData = delta.data 
 
 	if delta.type == StatTypeUtil.DeltaTypes.MODIFIER_ADDED then
 		-- Import modifier classes

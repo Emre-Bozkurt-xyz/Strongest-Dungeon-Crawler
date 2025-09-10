@@ -48,7 +48,7 @@ local function onCharacterAdded(character: Model)
 
 	-- Create and display system panel (it will auto-register with WorldGUIManager)
 	local systemPanelHandler = SystemPanelHandler.new()
-	--systemPanelHandler:displayPanel()
+	systemPanelHandler:displayPanel()
 
 	print("📷 First-person camera and world GUI systems initialized")
 end

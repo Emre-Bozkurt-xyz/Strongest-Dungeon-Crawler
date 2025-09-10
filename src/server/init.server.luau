@@ -70,7 +70,7 @@ local function setupPlayerCommands(player: Player)
 	-- Apply attribute scaling after stats and attributes are initialized
 	AttributesManager.applyAllScaling(player)
 
-	--Testing.runAllTests(player)
+	Testing.runAllTests(player)
 	-- small scale testing
 
 	print(`🧪 Server: Testing attribute operations for {player.Name}`)

@@ -20,22 +20,6 @@ type PoolType = Types.PoolType
 local StatsManager = {}
 local playerStats: { [Player]: PlayerStats } = {}
 
--- Stats System Handler for NetworkManager
-local statsHandler = {
-	serialize = function(data: PlayerStats): any
-		return StatTypeUtil.serializeStats(data)
-	end,
-	deserialize = function(data: any): PlayerStats
-		return StatTypeUtil.deserializeStats(data)
-	end,
-	applyDelta = function(currentData: PlayerStats, delta): boolean
-		return StatTypeUtil.applyDelta(currentData, delta)
-	end,
-}
-
--- Register stats system with NetworkManager
-NetworkManager.registerSystem("stats", statsHandler)
-
 -- Initialize stats for a new player
 local function initializePlayerStats(player: Player)
 	playerStats[player] = StatsConfig.createDefaultStats()
@@ -57,7 +41,7 @@ local function sendStatDelta(player: Player, deltaType: string, target: string, 
 end
 
 -- Handle LOCAL player stats requests
-local function handleStatsSignalInvoke(_system: string, data: any): any
+local function handleRemoteFunctionInvoke(_system: string, data: any): any
 	print("TEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEST")
 	local stats = {}
 	for requestedStat in ipairs(data.requestedStats or {}) do
@@ -345,6 +329,22 @@ function StatsManager.resetStats(player: Player)
 	return true
 end
 
+-- Stats System Handler for NetworkManager
+local statsHandler = {
+	serialize = function(data: PlayerStats): any
+		return StatTypeUtil.serializeStats(data)
+	end,
+	deserialize = function(data: any): PlayerStats
+		return StatTypeUtil.deserializeStats(data)
+	end,
+	applyDelta = function(currentData: PlayerStats, delta): boolean
+		return StatTypeUtil.applyDelta(currentData, delta)
+	end,
+}
+
+-- Register stats system with NetworkManager
+NetworkManager.registerSystem("stats", statsHandler)
+
 -- Handle client requests for stats
 local function handleStatsRequest(player: Player)
 	if playerStats[player] then
@@ -355,11 +355,11 @@ local function handleStatsRequest(player: Player)
 end
 
 -- Listen for stats requests via NetworkManager
-local statsRequestSignal = Warp.Signal("statsRequest")
+local statsRequestSignal = Warp.Signal("statsFullSyncRequest")
 statsRequestSignal:Connect(handleStatsRequest)
 
 local statsSignal = Warp.Signal("statsSignal")
-statsSignal:Connect(handleStatsSignalInvoke)
+statsSignal:Connect(handleRemoteFunctionInvoke)
 
 -- Connect player events
 Players.PlayerAdded:Connect(initializePlayerStats)

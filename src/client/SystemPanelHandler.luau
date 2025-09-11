@@ -14,6 +14,7 @@ SystemPanelHandler.__index = SystemPanelHandler
 -- Import clients for centralized data access
 local AttributesClient = require(script.Parent.AttributesClient)
 local StatsClient = require(script.Parent.StatsClient)
+local NetRay = require(ReplicatedStorage.Packages.NetRay)
 
 function SystemPanelHandler.new()
 	local self = setmetatable({}, SystemPanelHandler)
@@ -40,26 +41,33 @@ function SystemPanelHandler.new()
 		followPlayer = true,
 	})
 
-	-- Listen for updates from the centralized system via signals instead of polling
-	local warp = require(game.ReplicatedStorage.Packages.warp)
+	-- Listen for stats updates via NetRay event
+	local statsEvent = NetRay:GetEvent("StatsDelta")
+	if statsEvent then
+		statsEvent:OnEvent(function(_delta)
+			-- Let StatsClient consume and update state first, then refresh UI
+			task.defer(function()
+				local statsData = StatsClient.getFormattedStats()
+				if statsData then
+					self:updateStats(statsData)
+				end
+			end)
+		end)
+	end
 
-	-- Listen for stats updates
-	local statsUpdatedSignal = warp.Signal("statsUpdated")
-	statsUpdatedSignal:Connect(function(statsData)
-		if statsData then
-			self:updateStats(statsData)
-		end
-	end)
-
-	-- Listen for attributes updates
-	local attributesUpdatedSignal = warp.Signal("attributesUpdated")
-	attributesUpdatedSignal:Connect(function(_attributesData)
-		-- Don't use the signal parameter, get fresh formatted data instead
-		local attributeData = AttributesClient.getFormattedAttributes()
-		if attributeData then
-			self:updateAttributes(attributeData)
-		end
-	end)
+	-- Listen for attributes updates via NetRay event
+	local attributesEvent = NetRay:GetEvent("AttributesDelta")
+	if attributesEvent then
+		attributesEvent:OnEvent(function(_delta)
+			-- Pull latest state from AttributesClient and update UI
+			task.defer(function()
+				local attributeData = AttributesClient.getFormattedAttributes()
+				if attributeData then
+					self:updateAttributes(attributeData)
+				end
+			end)
+		end)
+	end
 
 	-- Initial update to get current data
 	local function initialUpdate()

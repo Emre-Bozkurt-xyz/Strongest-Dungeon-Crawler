@@ -1,6 +1,6 @@
 # Player Attributes System
 
-A comprehensive player attributeistics management system for Roblox games using the Warp networking library.
+A comprehensive player attributes management system for Roblox games using the NetRay networking library.
 
 ## Features
 
@@ -8,8 +8,9 @@ A comprehensive player attributeistics management system for Roblox games using 
 - **Real-time synchronization** - Changes are instantly reflected on the client
 - **Flexible attribute system** - Support for base attributes and temporary bonuses
 - **Equipment bonuses** - Easily apply/remove equipment modifiers
-- **Type safety** - Full TypeScript-style type annotations for better code quality
+- **Type safety** - Luau type annotations for better code quality
 - **Extensible design** - Easy to add new attributes or modify existing ones
+- **NetRay-based networking** - Per-service events/requests with delta-based updates
 
 ## Available Attributes
 
@@ -30,19 +31,26 @@ src/
 │   └── AttributesConfig.luau          # Shared configuration and types
 ├── server/
 │   ├── AttributesManager.luau         # Main server-side attributes management
-│   ├── AttributesExamples.luau        # Example usage and demos
-│   └── init.server.luau          # Server initialization
+│   └── init.server.luau               # Server initialization
 └── client/
     ├── AttributesClient.luau          # Client-side attributes handling and UI
-    └── init.client.luau          # Client initialization
+    └── init.client.luau               # Client initialization
 ```
 
 ### Data Flow
 
-1. **Server** modifies player attributes using `AttributesManager`
-2. **Warp** automatically syncs changes to the relevant client(s)
+1. **Server** modifies player attributes using `AttributesManager` (authoritative)
+2. **Server → Client (NetRay event)**: Deltas are sent via `AttributesDelta` to relevant client(s)
 3. **Client** receives updates and refreshes the UI display
-4. **Client** can request attributes updates if needed
+4. **Client → Server (NetRay request)**: On spawn or when needed, the client requests a full sync via `AttributesRequest`. Clients spend points with `AttributesSpendPoint`.
+
+### Networking (NetRay)
+
+- Events
+  - `AttributesDelta` (Server → Client): Sends attribute deltas, including optional `{ type = "full_sync", data = ... }` payloads for initial sync
+- Requests
+  - `AttributesRequest` (Client → Server): Returns serialized full attribute state
+  - `AttributesSpendPoint` (Client → Server): Body `{ target = AttributeType }` to spend an attribute point
 
 ## Usage Examples
 
@@ -51,10 +59,10 @@ src/
 ```lua
 local AttributesManager = require(script.AttributesManager)
 
--- Add points to a attribute
+-- Add points to an attribute
 AttributesManager.addToAttribute(player, "Strength", 5)
 
--- Set a attribute to a specific value
+-- Set an attribute to a specific value
 AttributesManager.setAttribute(player, "Intelligence", 25)
 
 -- Get current attribute value
@@ -104,13 +112,14 @@ local damage = math.random() < critChance and baseDamage * 2 or baseDamage
 
 #### Functions
 
-- `setAttribute(player, attributeType, value, isBonus?)` - Set a attribute to a specific value
+- `setAttribute(player, attributeType, value, isBonus?)` - Set an attribute to a specific value
 - `addToAttribute(player, attributeType, amount, isBonus?)` - Add to an existing attribute
 - `getAttribute(player, attributeType)` - Get current attribute value  
 - `getAllAttributes(player)` - Get all attributes for a player
 - `resetAttributes(player)` - Reset all attributes to default values
 - `applyEquipmentBonus(player, attributeType, amount)` - Apply equipment bonus
 - `removeEquipmentBonus(player, attributeType)` - Remove equipment bonus
+- `spendAttributePoint(player, attributeType)` - Spend one available attribute point
 
 #### Types
 
@@ -124,7 +133,8 @@ local damage = math.random() < critChance and baseDamage * 2 or baseDamage
 
 - `getCurrentAttributes()` - Get cached player attributes
 - `getAttribute(attributeType)` - Get specific attribute value
-- `requestAttributesUpdate()` - Request fresh attributes from server
+- `requestAttributesData()` - Request fresh attributes from server (full sync)
+- `spendPoint(attributeType)` - Ask server to spend a point (via NetRay request)
 
 ## Configuration
 
@@ -155,12 +165,7 @@ AttributesConfig.MAX_ATTRIBUTE_VALUE = 999
 
 ## Testing
 
-The system includes keyboard shortcuts for testing:
-
-- **F1** - Request attributes update from server
-- **F2** - Print current attributes to console
-
-A full demo runs automatically when a player joins, showcasing:
+A quick demo runs automatically when a player joins, showcasing:
 - Character creation
 - Leveling up
 - Equipment bonuses
@@ -180,13 +185,13 @@ A full demo runs automatically when a player joins, showcasing:
 - All attribute modifications are server-authoritative
 - Client cannot directly modify attributes
 - Input validation on all server functions
-- Rate limiting through Warp networking layer
+- Optional rate limiting via NetRay middleware
 
 ## Performance Notes
 
 - Attributes are synced only when changed, not continuously
 - Client-side caching reduces network requests
-- Warp handles efficient networking automatically
+- NetRay handles efficient networking and delta-based updates
 - Minimal memory footprint per player
 
 ## Extending the System
@@ -228,4 +233,4 @@ local function loadPlayerAttributes(player: Player)
 end
 ```
 
-This system provides a solid foundation for any RPG-style game requiring player progression and attributeistics management!
+This system provides a solid foundation for any RPG-style game requiring player progression and attributes management!

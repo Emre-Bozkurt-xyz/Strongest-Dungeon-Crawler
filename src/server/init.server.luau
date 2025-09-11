@@ -9,17 +9,6 @@ local AttributesManager = require(script.AttributesManager)
 local RegenerationService = require(script.RegenerationService)
 RegenerationService.start()
 
--- Debug Controls (set to false to reduce console spam)
-local function _setNetworkDebug(enabled: boolean)
-	local NetworkManager = require(script.NetworkManager)
-	NetworkManager.setDebug(enabled)
-	print(`🐛 Network debug mode: {enabled and "ON" or "OFF"}`)
-end
-
--- Example: Uncomment to disable network debug logging
--- setNetworkDebug(false)
-
--- Example: Set up some demo commands (you can remove these later)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SkillsManager = require(script.SkillsFramework.SkillsManager)
@@ -49,6 +38,7 @@ end
 -- Example function to test the system
 local function setupPlayerCommands(player: Player)
 	SkillsManager.addSkill(player, "Punch")
+	SkillsManager.addSkill(player, "TripleStrike")
 
 	StatsManager.addModifier(
 		player,
@@ -70,7 +60,7 @@ local function setupPlayerCommands(player: Player)
 	-- Apply attribute scaling after stats and attributes are initialized
 	AttributesManager.applyAllScaling(player)
 
-	Testing.runAllTests(player)
+	-- Testing.runAllTests(player)
 	-- small scale testing
 
 	print(`🧪 Server: Testing attribute operations for {player.Name}`)

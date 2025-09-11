@@ -69,13 +69,10 @@ function Testing.runAllTests(player: Player)
 	-- Test 5: Modifier Operations (MODIFIER_ADDED/REMOVED/UPDATED deltas)
 	Testing.testModifierOperations(player)
 
-	-- Test 6: Batched Operations
-	Testing.testBatchedOperations(player)
-
-	-- Test 7: Full Sync
+	-- Test 6: Full Sync
 	Testing.testFullSync(player)
 
-	-- Test 8: Regeneration System
+	-- Test 7: Regeneration System
 	Testing.testRegenerationSystem(player)
 
 	-- Wait a bit then run continuous tests
@@ -221,33 +218,6 @@ function Testing.testModifierOperations(player: Player)
 	wait(0.1)
 
 	verifyStatValue(player, StatTypes.StaticStats.MagicDamage, initialMagicDamage, "Modifier Removal")
-end
-
-function Testing.testBatchedOperations(player: Player)
-	print("\n📦 Testing Batched Operations...")
-
-	-- Get current health before batching
-	local healthStat = StatsManager.getStat(player, StatTypes.PoolStats.Health)
-	if not healthStat then
-		recordTest("Batching Setup", false, "Could not get health stat")
-		return
-	end
-
-	-- Enable batching
-	StatsManager.enableBatching(player)
-
-	-- Perform multiple operations
-	StatsManager.setBaseStat(player, StatTypes.StaticStats.PhysicalDamage, 20)
-	StatsManager.addToPool(player, StatTypes.PoolStats.Health, 10)
-	StatsManager.addToPool(player, StatTypes.PoolStats.Stamina, 15)
-
-	-- Disable batching (should send batch)
-	StatsManager.disableBatching(player)
-
-	wait(0.1)
-
-	verifyStatValue(player, StatTypes.StaticStats.PhysicalDamage, 20, "Batched Physical Damage")
-	recordTest("Batched Health Addition", true, "Added 10 to health in batch")
 end
 
 function Testing.testFullSync(player: Player)

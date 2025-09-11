@@ -40,26 +40,17 @@ function AttributesUIController.new(Parent: Instance)
 
 	self.attributeButtons.Perception = perceptionFrame
 
-	-- Set up click listeners for each attribute button
+	-- Set up click listeners for each attribute button (NetRay)
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local NetRay = require(ReplicatedStorage.Packages.NetRay)
+	local spendReq = NetRay:RegisterRequestEvent("AttributesSpendPoint")
+
 	for attributeName, frame in pairs(self.attributeButtons) do
 		frame.MouseButton1Click:Connect(function()
-			print("Clicked on " .. attributeName)
-
-			-- Send delta to server to increase this attribute
-			local ClientNetworkManager = require(script.Parent.ClientNetworkManager)
-			local Players = game:GetService("Players")
-
-			local delta = {
-				system = "attributes",
-				type = "increase_attribute",
-				target = attributeName,
-				timestamp = os.time(),
-				data = {
-					playerId = Players.LocalPlayer.UserId,
-				},
-			}
-
-			ClientNetworkManager.sendDelta(delta)
+			-- Request to spend one point on this attribute
+			spendReq:Request({ target = attributeName }):catch(function(err)
+				warn("AttributesUIController: Failed to request spend point:", err)
+			end)
 		end)
 	end
 

@@ -308,15 +308,6 @@ function StatTypeUtil.createBaseValueDelta(statName: string, newBaseValue: numbe
 	})
 end
 
--- Batch multiple deltas together
-function StatTypeUtil.createBatchedDeltas(deltas: { any })
-	return {
-		type = "batch",
-		timestamp = tick(),
-		deltas = deltas,
-	}
-end
-
 -- Apply a delta to existing client stats (avoids recreation)
 function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): boolean
 	-- Support both old format (delta.stat) and new NetworkManager format (delta.target)
@@ -328,7 +319,7 @@ function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): bo
 	end
 
 	-- For new NetworkManager format, extract data from delta.data
-	local deltaData = delta.data 
+	local deltaData = delta.data
 
 	if delta.type == StatTypeUtil.DeltaTypes.MODIFIER_ADDED then
 		-- Import modifier classes
@@ -384,19 +375,6 @@ function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): bo
 	end
 
 	return true
-end
-
--- Apply a batch of deltas
-function StatTypeUtil.applyBatchedDeltas(clientStats: Types.PlayerStats, batchedUpdate: any): number
-	local successCount = 0
-
-	for _, delta in ipairs(batchedUpdate.deltas) do
-		if StatTypeUtil.applyDelta(clientStats, delta) then
-			successCount += 1
-		end
-	end
-
-	return successCount
 end
 
 -- Usage examples:

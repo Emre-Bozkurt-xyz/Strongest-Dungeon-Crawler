@@ -3,10 +3,12 @@
 
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local StatsManager = require(script.Parent.StatsManager)
-local NetworkManager = require(script.Parent.NetworkManager)
 local Types = require(game.ReplicatedStorage.Shared.StatTypes)
+local NetRay = require(ReplicatedStorage.Packages.NetRay)
+local StatTypeUtil = require(ReplicatedStorage.Shared.StatTypeUtil)
 
 local RegenerationService = {}
 
@@ -15,6 +17,9 @@ local TICK_RATE = 30 -- 30 ticks per second for smooth regeneration
 local TICK_INTERVAL = 1 / TICK_RATE -- ~0.033 seconds per tick
 local UPDATE_RATE = 2 -- Send updates to client only 2 times per second
 local UPDATE_INTERVAL = 1 / UPDATE_RATE -- 0.5 seconds between client updates
+
+-- NetRay event for stats updates
+local statsDeltaEvent = NetRay:RegisterEvent("StatsDelta")
 
 -- Track active players and connection
 local activeConnection: RBXScriptConnection? = nil
@@ -75,7 +80,7 @@ local function onRegenerationTick()
 		regeneratePlayer(player, deltaTime)
 	end
 
-	-- Send batched updates only every UPDATE_INTERVAL to reduce network spam
+	-- Send updates only every UPDATE_INTERVAL to reduce network spam
 	if currentTime - lastUpdateTime >= UPDATE_INTERVAL then
 		for _, player in pairs(Players:GetPlayers()) do
 			local stats = StatsManager.getAllStats(player)
@@ -85,9 +90,6 @@ local function onRegenerationTick()
 					lastSentValues[player] = {}
 				end
 
-				-- Check which pools have actually changed since last update
-				local deltas = {}
-
 				for poolType, _ in pairs(REGEN_MAPPING) do
 					local pool = stats[poolType]
 					if pool then
@@ -95,32 +97,21 @@ local function onRegenerationTick()
 						local lastValue = lastSentValues[player][poolType]
 
 						-- Only send delta if the value actually changed
-						if not lastValue or math.abs(currentValue - lastValue) > 0.01 then -- Small threshold for floating point precision
-							local delta = NetworkManager.createDelta("stats", "current_value_changed", poolType, {
-								currentValue = currentValue,
-								maxValue = pool:getValue(stats), -- Include max for UI percentage calculations
-							})
-							table.insert(deltas, delta)
-
-							-- Update the last sent value
+						if not lastValue or math.abs(currentValue - lastValue) > 0.01 then
+							local delta = {
+								system = "stats",
+								type = StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED,
+								target = poolType,
+								data = {
+									currentValue = currentValue,
+									maxValue = pool:getValue(stats),
+								},
+								timestamp = currentTime,
+							}
+							statsDeltaEvent:FireClient(player, delta)
 							lastSentValues[player][poolType] = currentValue
 						end
 					end
-				end
-
-				-- Send batched deltas instead of full stats
-				if #deltas > 0 then
-					-- Enable batching for efficient regeneration updates
-					StatsManager.enableBatching(player)
-
-					-- Apply all the regeneration deltas
-					for _, delta in ipairs(deltas) do
-						-- The delta contains the updated current value, just send it via NetworkManager
-						NetworkManager.sendDelta(player, delta)
-					end
-
-					-- Disable batching to send the batch
-					StatsManager.disableBatching(player)
 				end
 			end
 		end

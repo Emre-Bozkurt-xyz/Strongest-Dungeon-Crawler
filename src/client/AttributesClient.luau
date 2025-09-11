@@ -1,18 +1,16 @@
 --!strict
 -- AttributesClient.luau
--- Client-side attributes management using centralized NetworkManager
+-- Client-side attributes management using NetRay (per-service)
 
 -- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Imports
-local ClientNetworkManager = require(script.Parent.ClientNetworkManager)
-local NetworkTypes = require(ReplicatedStorage.Shared.NetworkTypes)
+local NetRay = require(ReplicatedStorage.Packages.NetRay)
 
 -- Types
-type Delta = NetworkTypes.Delta
-type AttributesData = {
+export type AttributesData = {
 	availableAP: number,
 	Strength: { base: number, bonus: number, current: number },
 	Intelligence: { base: number, bonus: number, current: number },
@@ -23,163 +21,97 @@ type AttributesData = {
 
 local player = Players.LocalPlayer
 
--- Attributes handler for ClientNetworkManager
-local attributesHandler = {
-	serialize = function(data: any): string
-		if not data or type(data) ~= "table" then
-			return "{}"
+-- Local state
+local current: AttributesData? = nil
+
+-- NetRay endpoints
+local attributesEvent = NetRay:GetEvent("AttributesDelta")
+local attributesRequest = NetRay:RegisterRequestEvent("AttributesRequest")
+
+-- Apply incoming delta to local state
+local function applyDelta(delta: any)
+	if delta.type == "full_sync" and delta.data then
+		-- Replace state
+		current = delta.data :: AttributesData
+		return
+	end
+
+	if not current then
+		return -- wait for full_sync
+	end
+
+	if
+		(delta.type == "attribute_increased" or delta.type == "attribute_set" or delta.type == "attribute_added")
+		and delta.target
+	then
+		local target = delta.target
+		local d = delta.data
+		local c: any = current
+		local entry = c[target]
+		if entry then
+			entry.base = d.newBase
+			entry.current = d.newTotal
+			entry.bonus = d.modifierTotal
 		end
-		-- Simple JSON-like serialization for attributes
-		local parts = {}
-		if data.Attributes then
-			local attrs = {}
-			for key, value in pairs(data.Attributes) do
-				table.insert(attrs, `"{key}": {value}`)
-			end
-			table.insert(parts, `"Attributes": { { table.concat(attrs, ", ") }}`)
+		if d and d.availablePoints ~= nil then
+			(current :: AttributesData).availableAP = d.availablePoints
 		end
-		if data.Level then
-			table.insert(parts, `"Level": {data.Level}`)
+	elseif (delta.type == "modifier_added" or delta.type == "modifier_removed") and delta.target then
+		local target = delta.target
+		local d = delta.data
+		local c: any = current
+		local entry = c[target]
+		if entry then
+			entry.current = d.newTotal
+			entry.bonus = d.modifierTotal
 		end
-		if data.Experience then
-			table.insert(parts, `"Experience": {data.Experience}`)
+	end
+end
+
+-- Listener
+if attributesEvent then
+	attributesEvent:OnEvent(function(delta)
+		local ok = pcall(applyDelta, delta)
+		if not ok then
+			warn("AttributesClient: Failed to apply delta")
 		end
-		return `{ { table.concat(parts, ", ") }}`
-	end,
-
-	deserialize = function(data: any): any
-		-- Server sends serialized attribute data, return it as-is for client use
-		if data and type(data) == "table" then
-			return data
-		else
-			-- Fallback to default structure
-			return {
-				availableAP = 5,
-				Strength = { base = 0, bonus = 0, current = 0 },
-				Intelligence = { base = 0, bonus = 0, current = 0 },
-				Dexterity = { base = 0, bonus = 0, current = 0 },
-				Defense = { base = 0, bonus = 0, current = 0 },
-				Perception = { base = 0, bonus = 0, current = 0 },
-			}
-		end
-	end,
-
-	applyDelta = function(currentData: any, delta: Delta): (boolean, any)
-		if not currentData then
-			currentData = {
-				availableAP = 5,
-				Strength = { base = 0, bonus = 0, current = 0 },
-				Intelligence = { base = 0, bonus = 0, current = 0 },
-				Dexterity = { base = 0, bonus = 0, current = 0 },
-				Defense = { base = 0, bonus = 0, current = 0 },
-				Perception = { base = 0, bonus = 0, current = 0 },
-			}
-		end
-
-		local success, result = pcall(function()
-			local newData = table.clone(currentData)
-
-			-- Handle full sync (most common for attributes)
-			if delta.type == "full_sync" and delta.data then
-				-- Replace with the new attribute data
-				newData = delta.data
-			elseif delta.type == "attribute_increased" and delta.target then
-				-- Handle attribute increases (from spending attribute points)
-				if newData[delta.target] then
-					newData[delta.target].base = delta.data.newBase
-					newData[delta.target].current = delta.data.newTotal
-					newData[delta.target].bonus = delta.data.modifierTotal
-				end
-				newData.availableAP = delta.data.availablePoints
-			elseif (delta.type == "attribute_set" or delta.type == "attribute_added") and delta.target then
-				-- Handle direct attribute setting or adding
-				if newData[delta.target] then
-					newData[delta.target].base = delta.data.newBase
-					newData[delta.target].current = delta.data.newTotal
-					newData[delta.target].bonus = delta.data.modifierTotal
-				end
-			elseif (delta.type == "modifier_added" or delta.type == "modifier_removed") and delta.target then
-				-- Handle modifier additions/removals (only update totals, not base)
-				if newData[delta.target] then
-					newData[delta.target].current = delta.data.newTotal
-					newData[delta.target].bonus = delta.data.modifierTotal
-				end
-			end
-
-			return newData
-		end)
-
-		if success then
-			print(`✅ AttributesClient: Applied {delta.type} delta for {delta.target or "full_sync"}`)
-			-- Notify UI of attribute changes (will implement proper connection later)
-			-- TODO: Connect to SystemPanelHandler instance when available
-			return true, result
-		else
-			warn(`❌ AttributesClient: Failed to apply delta for {delta.target or "unknown"}: {result}`)
-			return false, currentData
-		end
-	end,
-}
-
--- Initialize attributes system
-local function initializeAttributes()
-	-- Register attributes system with ClientNetworkManager
-	ClientNetworkManager.registerSystem("attributes", attributesHandler, {
-		availableAP = 5,
-		Strength = { base = 0, bonus = 0, current = 0 },
-		Intelligence = { base = 0, bonus = 0, current = 0 },
-		Dexterity = { base = 0, bonus = 0, current = 0 },
-		Defense = { base = 0, bonus = 0, current = 0 },
-		Perception = { base = 0, bonus = 0, current = 0 },
-	})
-
-	print("🏷️ AttributesClient: Initialized with centralized NetworkManager")
+	end)
 end
 
 -- Public API
 local AttributesClient = {}
 
--- Get player attributes from ClientNetworkManager
-function AttributesClient.getPlayerAttributes(targetPlayer: Player?): AttributesData?
-	local target = targetPlayer or player
-	local systemData = ClientNetworkManager.getSystemData("attributes")
-	return systemData and systemData[target.UserId] or nil
-end
-
--- Request fresh attributes data from server
 function AttributesClient.requestAttributesData()
-	-- Request the server to send the latest attributes via ClientNetworkManager
-	ClientNetworkManager.requestSystemData("attributes")
+	attributesRequest
+		:Request({})
+		:andThen(function(data)
+			current = data :: AttributesData
+		end)
+		:catch(function(err)
+			warn("AttributesClient: Failed to request attributes:", err)
+		end)
 end
 
--- Get current attributes data from ClientNetworkManager
 function AttributesClient.getCurrentData()
-	local systemData = ClientNetworkManager.getSystemData("attributes")
-	return systemData
+	return current
 end
 
--- Get formatted attributes for UI display
 function AttributesClient.getFormattedAttributes(): AttributesData?
-	local data = AttributesClient.getCurrentData()
-	if not data then
-		-- Request data if we don't have it yet
-		print("🏷️ AttributesClient: No data available, requesting from server")
+	if not current then
 		AttributesClient.requestAttributesData()
 		return nil
 	end
-
-	-- Ensure the data matches the expected UI format
-	return {
-		availableAP = data.availableAP or 0,
-		Strength = data.Strength or { base = 0, bonus = 0, current = 0 },
-		Intelligence = data.Intelligence or { base = 0, bonus = 0, current = 0 },
-		Dexterity = data.Dexterity or { base = 0, bonus = 0, current = 0 },
-		Defense = data.Defense or { base = 0, bonus = 0, current = 0 },
-		Perception = data.Perception or { base = 0, bonus = 0, current = 0 },
-	}
+	return current
 end
 
--- Initialize when script loads
-initializeAttributes()
+-- Initial request after character loads
+local function onCharacterAdded(_char: Model)
+	task.delay(0.2, AttributesClient.requestAttributesData)
+end
+
+if player.Character then
+	onCharacterAdded(player.Character)
+end
+player.CharacterAdded:Connect(onCharacterAdded)
 
 return AttributesClient

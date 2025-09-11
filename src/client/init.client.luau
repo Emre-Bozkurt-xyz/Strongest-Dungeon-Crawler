@@ -15,16 +15,16 @@ local Players = game:GetService("Players")
 local _player = Players.LocalPlayer
 
 -- Debug Controls (set to false to reduce console spam)
-local function setGUIDebug(enabled: boolean)
+local function _setGUIDebug(enabled: boolean)
 	-- We can add debug controls here later if needed
 	print(`🐛 GUI debug mode: {enabled and "ON" or "OFF"}`)
 end
 
 -- Example: Uncomment to disable GUI debug logging
--- setGUIDebug(false)
+-- _setGUIDebug(false)
 
 -- Set camera to first person
-local function setupFirstPersonCamera()
+local function _setupFirstPersonCamera()
 	_player.CameraMode = Enum.CameraMode.LockFirstPerson
 	print("📷 First-person camera enabled")
 end
@@ -37,7 +37,7 @@ local function onCharacterAdded(character: Model)
 	print(`📷 Setting up first-person camera and GUI for {character.Name}`)
 
 	-- Set up first-person camera
-	--setupFirstPersonCamera()
+	--_setupFirstPersonCamera()
 
 	-- Initialize world GUI system
 	local _worldGUIManager = WorldGUIManager.getInstance()

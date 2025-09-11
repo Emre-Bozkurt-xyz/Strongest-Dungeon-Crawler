@@ -1,86 +1,103 @@
 --!strict
--- Client-side stats display and handling
+-- Client-side stats display and handling (NetRay-based)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local NetRay = require(ReplicatedStorage.Packages.NetRay)
 local StatTypeUtil = require(ReplicatedStorage.Shared.StatTypeUtil)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
-local ClientNetworkManager = require(script.Parent.ClientNetworkManager)
 
--- Import shared types
-local NetworkTypes = require(game.ReplicatedStorage.Shared.NetworkTypes)
-type Delta = NetworkTypes.Delta
+-- Local state for stats
+local currentStats: StatTypes.PlayerStats? = nil
 
--- Stats handler for ClientNetworkManager
-local statsHandler = {
-	deserialize = function(data: any): StatTypes.PlayerStats
-		return StatTypeUtil.deserializeStats(data)
-	end,
-	applyDelta = function(currentData: StatTypes.PlayerStats, delta: Delta): boolean
-		-- StatTypeUtil now handles both old and new delta formats
-		return StatTypeUtil.applyDelta(currentData, delta)
-	end,
-	serialize = function(data: StatTypes.PlayerStats): any
-		return StatTypeUtil.serializeStats(data)
-	end,
-}
+-- NetRay endpoints
+local statsEvent = NetRay:GetEvent("StatsDelta")
+local statsRequest = NetRay:RegisterRequestEvent("StatsRequest")
 
--- Initialize stats system
-local function initializeStats()
-	-- Register stats system with ClientNetworkManager
-	ClientNetworkManager.registerSystem("stats", statsHandler, {})
+-- Apply incoming deltas to local state
+local function onStatsDelta(delta: any)
+	-- If this is a full sync, (re)initialize state
+	if delta and delta.type == StatTypeUtil.DeltaTypes.FULL_SYNC and delta.data then
+		local ok, deserialized = pcall(function()
+			return StatTypeUtil.deserializeStats(delta.data)
+		end)
+		if ok then
+			currentStats = deserialized
+		else
+			warn("StatsClient: Failed to deserialize full_sync:", deserialized)
+		end
+		return
+	end
 
-	print("📊 StatsClient: Initialized with centralized NetworkManager")
+	if not currentStats then
+		-- If no state yet, request a full sync and skip applying incremental deltas
+		-- The server may also push a full_sync on join
+		return
+	end
+
+	local success = pcall(function()
+		StatTypeUtil.applyDelta(currentStats :: StatTypes.PlayerStats, delta)
+	end)
+
+	if not success then
+		warn("StatsClient: Failed to apply delta")
+	end
+end
+
+-- Request fresh stats data from server
+local function requestStats()
+	statsRequest
+		:Request({})
+		:andThen(function(serialized)
+			local ok, deserialized = pcall(function()
+				return StatTypeUtil.deserializeStats(serialized)
+			end)
+			if ok then
+				currentStats = deserialized
+			else
+				warn("StatsClient: Failed to deserialize stats:", deserialized)
+			end
+		end)
+		:catch(function(err)
+			warn("StatsClient: Failed to request stats:", err)
+		end)
+end
+
+-- Initialize listeners once
+if statsEvent then
+	statsEvent:OnEvent(onStatsDelta)
 end
 
 -- Public API
 local StatsClient = {}
 
--- Get current stats data from ClientNetworkManager
 function StatsClient.getCurrentStats(): StatTypes.PlayerStats?
-	return ClientNetworkManager.getSystemData("stats")
+	return currentStats
 end
 
--- Get formatted stats for UI display
 function StatsClient.getFormattedStats(): StatTypes.PlayerStats?
-	local rawData = ClientNetworkManager.getSystemData("stats")
-	if not rawData then
-		-- Request data if we don't have it yet
+	if not currentStats then
+		-- Trigger a request and return nil for now
 		StatsClient.requestStatsUpdate()
 		return nil
 	end
-
-	-- Check what type of data we're getting
-	if type(rawData) == "table" then
-		-- Check if it's already deserialized stats objects
-		if rawData.Health and type(rawData.Health) == "table" and rawData.Health.getValue then
-			return rawData
-		else
-			-- Try to deserialize it
-			local success, result = pcall(function()
-				return StatTypeUtil.deserializeStats(rawData)
-			end)
-
-			if success then
-				return result
-			else
-				warn(`📊 StatsClient: Failed to deserialize stats: {result}`)
-				return nil
-			end
-		end
-	end
-
-	warn("📊 StatsClient: Invalid data type received:", type(rawData))
-	return nil
+	return currentStats
 end
 
--- Request fresh stats data from server
 function StatsClient.requestStatsUpdate()
-	-- Request the server to send the latest stats via ClientNetworkManager
-	ClientNetworkManager.requestSystemData("stats")
-	print("📥 StatsClient: Requested stats from server")
+	requestStats()
 end
 
--- Initialize when script loads
-initializeStats()
+-- Initial request after character loads
+local function onCharacterAdded(_char: Model)
+	-- slight delay to ensure server has initialized
+	task.delay(0.2, requestStats)
+end
+
+if Players.LocalPlayer.Character then
+	onCharacterAdded(Players.LocalPlayer.Character)
+end
+Players.LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
 
 return StatsClient

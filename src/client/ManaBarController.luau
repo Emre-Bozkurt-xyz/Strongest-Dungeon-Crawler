@@ -12,6 +12,8 @@ function ManaBarController.new(Parent: Instance)
 	self.manaLabel = self.manaBar:WaitForChild("ManaLabel")
 	self.maxManaLabel = self.manaBar:WaitForChild("MaxManaLabel")
 
+	self.tween = nil
+
 	return self
 end
 
@@ -20,7 +22,11 @@ function ManaBarController:updateMana(mana, maxMana)
 	local fillAmount = mana / maxMana
 
 	-- Update the fill bar size based on mana percentage
-	TS:Create(
+	if self.tween then
+		self.tween:Cancel()
+	end
+	
+	self.tween = TS:Create(
 		self.fillBar,
 		TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 		{ Size = UDim2.new(fillAmount, 0, 1, 0) }

@@ -310,7 +310,6 @@ end
 
 -- Apply a delta to existing client stats (avoids recreation)
 function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): boolean
-	-- Support both old format (delta.stat) and new NetworkManager format (delta.target)
 	local statName = delta.stat or delta.target
 	local stat = clientStats[statName]
 	if not stat then
@@ -318,7 +317,6 @@ function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): bo
 		return false
 	end
 
-	-- For new NetworkManager format, extract data from delta.data
 	local deltaData = delta.data
 
 	if delta.type == StatTypeUtil.DeltaTypes.MODIFIER_ADDED then

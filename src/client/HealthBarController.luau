@@ -12,6 +12,8 @@ function HealthBarController.new(Parent: Instance)
 	self.healthLabel = self.healthBar:WaitForChild("HealthLabel")
 	self.maxHealthLabel = self.healthBar:WaitForChild("MaxHealthLabel")
 
+	self.tween = nil
+
 	return self
 end
 
@@ -19,8 +21,11 @@ function HealthBarController:updateHealth(health, maxHealth)
 	health = math.clamp(health, 0, maxHealth)
 	local fillAmount = health / maxHealth
 
+	if self.tween then
+		self.tween:Cancel()
+	end
 	-- Update the fill bar size based on health percentage
-	TS:Create(
+	self.tween = TS:Create(
 		self.fillBar,
 		TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 		{ Size = UDim2.new(fillAmount, 0, 1, 0) }

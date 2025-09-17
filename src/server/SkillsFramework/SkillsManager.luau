@@ -76,6 +76,7 @@ function SkillsManager.useSkill(player: Player, skillName: string, requestData: 
 			total = comboCfg.steps,
 			token = token,
 			window = comboCfg.window,
+			finalCd = comboCfg.comboCooldown or skill.cooldown,
 		}
 		skill:use(req)
 

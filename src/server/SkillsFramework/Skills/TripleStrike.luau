@@ -59,12 +59,12 @@ function TripleStrike:use()
 					if DEBUG_VIS then
 						HitboxService.debugDrawRay(originCf, 8, 0.25)
 					end
-					targets = HitboxService.queryCone(
-						originCf,
-						50,
-						8,
-						{ caster = player, playersOnly = true, teamRelation = "enemy" }
-					)
+					targets = HitboxService.newQuery(originCf)
+						:caster(player)
+						:teamRelation("enemy")
+						:playersOnly(true)
+						:cone(50, 8)
+						:collect()
 				end
 				self:emitImpact(1, originCf)
 				for _, model in ipairs(targets) do
@@ -81,12 +81,12 @@ function TripleStrike:use()
 					if DEBUG_VIS then
 						HitboxService.debugDrawRay(originCf, 8, 0.25)
 					end
-					targets = HitboxService.queryCone(
-						originCf,
-						50,
-						8,
-						{ caster = player, playersOnly = true, teamRelation = "enemy" }
-					)
+					targets = HitboxService.newQuery(originCf)
+						:caster(player)
+						:teamRelation("enemy")
+						:playersOnly(true)
+						:cone(50, 8)
+						:collect()
 				end
 				self:emitImpact(2, originCf)
 				for _, model in ipairs(targets) do
@@ -103,12 +103,12 @@ function TripleStrike:use()
 					if DEBUG_VIS then
 						HitboxService.debugDrawRay(originCf, 8, 0.25)
 					end
-					targets = HitboxService.queryCone(
-						originCf,
-						50,
-						8,
-						{ caster = player, playersOnly = true, teamRelation = "enemy" }
-					)
+					targets = HitboxService.newQuery(originCf)
+						:caster(player)
+						:teamRelation("enemy")
+						:playersOnly(true)
+						:cone(50, 8)
+						:collect()
 				end
 				self:emitImpact(3, originCf)
 				for _, model in ipairs(targets) do

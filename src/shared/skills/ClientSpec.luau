@@ -7,7 +7,9 @@ local ClientSpec = {
 		icon = "rbxassetid://0", -- TODO: replace
 		label = "Punch",
 		anim = {
-			impact = { "Punch_Combo_1", "Punch_Combo_2", "Punch_Combo_3" }, -- per step impact anims
+			-- Body animations for each combo step in order
+			comboSteps = { "Punch_Combo_1", "Punch_Combo_2", "Punch_Combo_3" },
+			-- Note: FX/SFX per impact are still configured under fx/sfx.impact below.
 			comboIdle = "Punch_Idle", -- optional idle during combo wait
 		},
 		fx = {

@@ -23,7 +23,7 @@ local function removeBundles(character)
 		error("Character has no humanoid.")
 	end
 
-	wait(0.9)
+	wait(1)
 
 	local descriptionClone = humanoid:GetAppliedDescription()
 	descriptionClone.Head = 0

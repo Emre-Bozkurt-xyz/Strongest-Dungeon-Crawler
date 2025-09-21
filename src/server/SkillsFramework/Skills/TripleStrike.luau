@@ -19,18 +19,6 @@ function TripleStrike.new(player: Player, data: any)
 	return self
 end
 
-local function getPhysicalDamage(player: Player): number
-	local stats = StatsManager.getAllStats(player)
-	if not stats then
-		return 0
-	end
-	local s = stats.PhysicalDamage
-	if s then
-		return s:getValue(stats)
-	end
-	return 0
-end
-
 local function casterOriginCFrame(player: Player, yawOffsetDeg: number?): CFrame?
 	local character = player.Character
 	local hrp = character and (character:FindFirstChild("HumanoidRootPart") :: BasePart?)
@@ -43,85 +31,57 @@ local function casterOriginCFrame(player: Player, yawOffsetDeg: number?): CFrame
 end
 
 function TripleStrike:use()
-	local player = self.player
-	local base = getPhysicalDamage(player)
+	local stats = StatsManager.getAllStats(self.player)
+	local base = 0
+	if stats and stats.PhysicalDamage then
+		base = stats.PhysicalDamage:getValue(stats)
+	end
 
 	self:emitStart()
 
-	-- Schedule three directional cones: center, left, right
-	self:schedule({
-		{
-			t = 0.10,
-			fn = function()
-				local originCf = casterOriginCFrame(player, 0)
-				local targets = {}
-				if originCf then
-					if DEBUG_VIS then
-						HitboxService.debugDrawRay(originCf, 8, 0.25)
-					end
-					targets = HitboxService.newQuery(originCf)
-						:caster(player)
-						:teamRelation("enemy")
-						:playersOnly(true)
-						:cone(50, 8)
-						:collect()
-				end
-				self:emitImpact(1, originCf)
-				for _, model in ipairs(targets) do
-					CombatService.applyDamage(model, base * 0.8, player)
-				end
-			end,
-		},
-		{
-			t = 0.25,
-			fn = function()
-				local originCf = casterOriginCFrame(player, -25)
-				local targets = {}
-				if originCf then
-					if DEBUG_VIS then
-						HitboxService.debugDrawRay(originCf, 8, 0.25)
-					end
-					targets = HitboxService.newQuery(originCf)
-						:caster(player)
-						:teamRelation("enemy")
-						:playersOnly(true)
-						:cone(50, 8)
-						:collect()
-				end
-				self:emitImpact(2, originCf)
-				for _, model in ipairs(targets) do
-					CombatService.applyDamage(model, base * 1.0, player)
-				end
-			end,
-		},
-		{
-			t = 0.40,
-			fn = function()
-				local originCf = casterOriginCFrame(player, 25)
-				local targets = {}
-				if originCf then
-					if DEBUG_VIS then
-						HitboxService.debugDrawRay(originCf, 8, 0.25)
-					end
-					targets = HitboxService.newQuery(originCf)
-						:caster(player)
-						:teamRelation("enemy")
-						:playersOnly(true)
-						:cone(50, 8)
-						:collect()
-				end
-				self:emitImpact(3, originCf)
-				for _, model in ipairs(targets) do
-					CombatService.applyDamage(model, base * 1.2, player)
-				end
-			end,
-		},
-	})
+	local hits = (self.config and self.config.hits) :: { any }?
+	if type(hits) == "table" and #hits > 0 then
+		local steps = {}
+		for i, h in ipairs(hits) do
+			local t = (h.t or 0) :: number
+			steps[#steps + 1] = {
+				t = t,
+				fn = function()
+					-- announce step for client animations
+					self:emitStep(i)
+					local yaw = (h.yaw or 0) :: number
+					local angle = (h.coneAngle or 50) :: number
+					local range = (h.coneRange or 8) :: number
+					local playersOnly = if h.playersOnly == nil then true else h.playersOnly
+					local mult = (h.damageMult or 1.0) :: number
 
-	-- Optionally, emit end slightly after last impact
-	task.delay(0.45, function()
-		self:emitEnd()
-	end)
+					local originCf = casterOriginCFrame(self.player, yaw)
+					local targets = {}
+					if originCf then
+						if DEBUG_VIS then
+							HitboxService.debugDrawRay(originCf, range, 0.25)
+						end
+						local q = HitboxService.newQuery(originCf)
+							:caster(self.player)
+							:teamRelation("enemy")
+							:playersOnly(playersOnly)
+							:cone(angle, range)
+						targets = q:collect()
+					end
+					self:emitFX(i, { cframe = originCf, lifetime = 1 })
+					for _, model in ipairs(targets) do
+						CombatService.applyDamage(model, base * mult, self.player)
+					end
+				end,
+			}
+		end
+		self:schedule(steps)
+		local lastT = hits[#hits].t or 0
+		task.delay(lastT + 0.05, function()
+			self:emitEnd()
+		end)
+		return
+	end
 end
 
 return TripleStrike

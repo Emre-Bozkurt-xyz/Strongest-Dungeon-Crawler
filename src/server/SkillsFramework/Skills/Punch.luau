@@ -41,15 +41,20 @@ function Punch:onComboStep(step: number)
 			:caster(self.player)
 			:teamRelation("enemy")
 			:playersOnly(false)
-			:cone(40, 5)
+			:box(Vector3.new(3, 3, 3))
+			:offset(0, 1, -4)
 			:collect()
-		self:emitImpact(step, origin)
+		self:emitFX(step, {
+			cframe = origin * CFrame.new(0, 0, -2),
+			anchor = { mode = "attachment", name = "FX_Hand_R", fallback = "RightHand" },
+			lifetime = 1,
+		})
 		for _, m in ipairs(targets) do
 			print("FOUND TARGET: " .. m.Name .. " for damage: " .. damage)
 			CombatService.applyDamage(m, damage, self.player)
 		end
 	else
-		self:emitImpact(step)
+		self:emitFX(step, { lifetime = 1 })
 	end
 end
 

@@ -21,6 +21,7 @@ function BaseComboSkill:use(requestData: any?)
 	local window = combo and combo.window or 0
 	local token = combo and combo.token or 0
 	local finalCd = combo and combo.finalCd or self.cooldown
+    local hitDelays: {number}? = (self.config and self.config.combo and self.config.combo.hitDelays) :: {number}?
 
 	local isFirst = (step == 1)
 	local isFinal = (step == total)
@@ -32,8 +33,19 @@ function BaseComboSkill:use(requestData: any?)
 		self:emitStart({ step = step, total = total })
 	end
 
-	-- Defer actual hit/logic to child
-	self:onComboStep(step, requestData)
+	-- Let clients know the step started (to play the correct animation)
+	self:emitStep(step, { total = total })
+
+	-- Optionally delay server-side hit logic to align with animation
+	local delaySec = if hitDelays and hitDelays[step] then hitDelays[step] else 0
+	if delaySec > 0 then
+		task.delay(delaySec, function()
+			self:onComboStep(step, requestData)
+		end)
+	else
+		-- Immediate hit
+		self:onComboStep(step, requestData)
+	end
 
 	-- Open wait window (if more steps)
 	if not isFinal and window > 0 then

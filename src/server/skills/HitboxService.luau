@@ -53,6 +53,14 @@ export type QueryShape =
 -- Chainable builder returned by `HitboxService.newQuery`.
 export type HitboxQueryBuilder = {
 	-- config
+	--- Set absolute origin CFrame (overrides caster-derived origin if provided).
+	origin: (self: HitboxQueryBuilder, cf: CFrame) -> HitboxQueryBuilder,
+	--- Apply a relative transform (local-space) to the origin (offset/rotation).
+	transform: (self: HitboxQueryBuilder, cf: CFrame) -> HitboxQueryBuilder,
+	--- Translate the origin by local-space offset (studs). Z<0 moves forward.
+	offset: (self: HitboxQueryBuilder, dx: number, dy: number, dz: number) -> HitboxQueryBuilder,
+	--- Yaw rotate the origin by degrees around Y (local-space).
+	yaw: (self: HitboxQueryBuilder, deg: number) -> HitboxQueryBuilder,
 	--- Set the caster associated with this query (affects team/PvP and caster exclusion).
 	caster: (self: HitboxQueryBuilder, plr: Player?) -> HitboxQueryBuilder,
 	--- Limit results to player characters only (true) or include NPCs/other (false).
@@ -86,7 +94,8 @@ export type HitboxQueryBuilder = {
 
 	-- execution
 	--- Execute the configured query and collect models. For rays, returns at most one model.
-	collect: (self: HitboxQueryBuilder) -> { Model },
+	--- If debug is true, attempts to draw the hitbox shape briefly.
+	collect: (self: HitboxQueryBuilder, debug: boolean?) -> { Model },
 	--- Cast the configured ray and return (top-level Model?, RaycastResult?). Only valid for ray shape.
 	cast: (self: HitboxQueryBuilder) -> (Model?, RaycastResult?),
 }
@@ -419,8 +428,32 @@ do
 		}
 		local shape: QueryShape? = nil
 		local origin: CFrame? = originCf
+		local localXform: CFrame = CFrame.new()
 
 		local b = {} :: any
+
+		-- placement/origin helpers
+		-- allow overriding absolute origin
+		function b:origin(cf: CFrame): HitboxQueryBuilder
+			origin = cf
+			return (b :: any) :: HitboxQueryBuilder
+		end
+		-- apply a local-space transform relative to origin/caster HRP
+		function b:transform(cf: CFrame): HitboxQueryBuilder
+			localXform = localXform * cf
+			return (b :: any) :: HitboxQueryBuilder
+		end
+		-- translate in local space; Z<0 forward
+		function b:offset(dx: number, dy: number, dz: number): HitboxQueryBuilder
+			localXform = localXform * CFrame.new(dx, dy, dz)
+			return (b :: any) :: HitboxQueryBuilder
+		end
+		-- yaw rotate around Y in local space (degrees)
+		function b:yaw(deg: number): HitboxQueryBuilder
+			local rad = math.rad(deg)
+			localXform = localXform * CFrame.Angles(0, rad, 0)
+			return (b :: any) :: HitboxQueryBuilder
+		end
 
 		-- config setters
 		-- Set the caster associated with this query (affects team/PvP and caster exclusion).
@@ -499,7 +532,7 @@ do
 		-- execution helpers
 		local function ensureOrigin(): CFrame
 			if origin then
-				return origin
+				return origin * localXform
 			end
 			-- derive from caster if possible
 			local plr = opts.caster
@@ -507,27 +540,44 @@ do
 				and plr.Character
 				and plr.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if hrp then
-				return (hrp :: BasePart).CFrame
+				return (hrp :: BasePart).CFrame * localXform
 			end
 			-- fallback to identity
-			return CFrame.new()
+			return CFrame.new() * localXform
 		end
 
 		-- Execute the configured query and collect models.
 		-- For ray queries, returns a list with at most one model.
-		function b:collect(): { Model }
+		function b:collect(debug: boolean?): { Model }
 			local cf = ensureOrigin()
 			if not shape then
 				return {}
 			end
 			if shape.kind == "sphere" then
+				if debug then
+					HitboxService.debugDrawSphere(cf, shape.radius)
+				end
 				return HitboxService.querySphere(cf, shape.radius, opts)
 			elseif shape.kind == "cone" then
+				if debug then
+					-- Approximate cone by drawing forward and boundary rays
+					local half = math.rad(shape.angleDeg * 0.5)
+					HitboxService.debugDrawRay(cf, shape.range)
+					HitboxService.debugDrawRay(cf * CFrame.Angles(0,  half, 0), shape.range)
+					HitboxService.debugDrawRay(cf * CFrame.Angles(0, -half, 0), shape.range)
+				end
 				return HitboxService.queryCone(cf, shape.angleDeg, shape.range, opts)
 			elseif shape.kind == "box" then
+				if debug then
+					HitboxService.debugDrawBox(cf, shape.size)
+				end
 				return HitboxService.queryBox(cf, shape.size, opts)
 			else -- ray
-				local model: Model?, _ = HitboxService.queryRay(cf, (shape :: any).length, opts)
+				local len = (shape :: any).length
+				if debug then
+					HitboxService.debugDrawRay(cf, len)
+				end
+				local model: Model?, _ = HitboxService.queryRay(cf, len, opts)
 				local list: { Model } = {}
 				if model then
 					list[1] = model

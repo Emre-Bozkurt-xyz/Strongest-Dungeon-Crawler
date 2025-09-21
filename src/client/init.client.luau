@@ -4,11 +4,6 @@ print("Client starting...")
 -- Initialize the client systems (they auto-initialize when required)
 local StatsClient = require(script.StatsClient)
 local AttributesClient = require(script.AttributesClient)
---local _ClientTesting = require(script.ClientTesting) -- Auto-starts monitoring
-
--- Initialize world GUI system (no more camera controller needed)
-local WorldGUIManager = require(script.WorldGUIManager)
-local SystemPanelHandler = require(script.SystemPanelHandler)
 
 -- Example: Add some client-side commands for testing
 local Players = game:GetService("Players")
@@ -39,16 +34,9 @@ local function onCharacterAdded(character: Model)
 	-- Set up first-person camera
 	--_setupFirstPersonCamera()
 
-	-- Initialize world GUI system
-	local _worldGUIManager = WorldGUIManager.getInstance()
-
 	-- Request initial data from server
 	StatsClient.requestStatsUpdate()
 	AttributesClient.requestAttributesData()
-
-	-- Create and display system panel (it will auto-register with WorldGUIManager)
-	local systemPanelHandler = SystemPanelHandler.new()
-	systemPanelHandler:displayPanel()
 
 	print("📷 First-person camera and world GUI systems initialized")
 end

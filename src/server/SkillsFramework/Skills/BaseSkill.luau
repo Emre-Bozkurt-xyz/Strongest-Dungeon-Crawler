@@ -16,6 +16,8 @@ function BaseSkill.new(player: Player, data: any)
 	self.level = data.level or 1
 	self.cooldown = data.cooldown or 0
 	self.gcd = data.gcd or 1.0
+	-- Keep full server-side config for timing and other logic
+	self.config = data
 	return self
 end
 
@@ -30,13 +32,32 @@ function BaseSkill:emitStart(extra: any?)
 end
 
 -- Emit an impact with optional cframe/targets and step index
-function BaseSkill:emitImpact(step: number, cframe: CFrame?, extra: any?)
+-- Emit a generic FX signal (replaces old 'impact')
+-- params:
+--   step: number (combo step or sequence index)
+--   opts: { cframe: CFrame?, anchor: { mode: string, name: string, offset: CFrame?, fallback: string? }?, fxKey: string?, lifetime: number?, meta: any? }
+function BaseSkill:emitFX(step: number, opts: any?)
+	local o = opts or {}
 	event:FireAllClients({
-		phase = "impact",
+		phase = "fx",
 		id = self.name,
 		casterId = self.player.UserId,
 		step = step,
-		cframe = cframe,
+		cframe = o.cframe,
+		anchor = o.anchor,
+		fxKey = o.fxKey,
+		lifetime = o.lifetime,
+		data = o.meta,
+	})
+end
+
+-- Emit a step begin (for playing combo step animations client-side)
+function BaseSkill:emitStep(step: number, extra: any?)
+	event:FireAllClients({
+		phase = "step",
+		id = self.name,
+		casterId = self.player.UserId,
+		step = step,
 		data = extra,
 	})
 end

@@ -29,29 +29,63 @@ event:OnEvent(function(payload)
 				AnimationPlayer.play(k)
 			end
 		end
-	elseif phase == "impact" then
+	elseif phase == "step" then
 		local idx = (payload.step or 1) :: number
-		local posCFrame = payload.cframe or CFrame.new()
-		-- animations per impact optional
-		local impactAnim = spec.anim and spec.anim.impact
-		if type(impactAnim) == "table" then
-			local key = impactAnim[idx] or impactAnim[1]
+		-- Per-step body animation: prefer anim.comboSteps; fallback to legacy anim.impact string/table
+		local stepAnims = spec.anim and spec.anim.comboSteps
+		local legacyImpactAnim = (spec.anim and spec.anim.impact) --[[deprecated for animations]]
+		if type(stepAnims) == "table" then
+			local key = stepAnims[idx] or stepAnims[1]
 			if key then
 				AnimationPlayer.play(key)
 			end
-		elseif type(impactAnim) == "string" then
-			AnimationPlayer.play(impactAnim)
-		end
-		-- FX per impact
-		local impactFx = spec.fx and spec.fx.impact
-		if type(impactFx) == "table" then
-			local fxKey = impactFx[idx] or impactFx[1]
-			if fxKey then
-				FXPlayer.playAt(fxKey, posCFrame)
+		elseif type(legacyImpactAnim) == "table" then
+			local key = legacyImpactAnim[idx] or legacyImpactAnim[1]
+			if key then
+				AnimationPlayer.play(key)
 			end
-		elseif type(impactFx) == "string" then
-			FXPlayer.playAt(impactFx, posCFrame)
+		elseif type(legacyImpactAnim) == "string" then
+			AnimationPlayer.play(legacyImpactAnim)
 		end
+	elseif phase == "fx" then
+		local idx = (payload.step or 1) :: number
+		local anchor = payload.anchor
+		local lifetime = payload.lifetime or 1
+		local fxKeyOverride = payload.fxKey
+		local resolvedFx: string? = fxKeyOverride
+		if not resolvedFx then
+			local impactFx = spec.fx and spec.fx.impact
+			if type(impactFx) == "table" then
+				resolvedFx = impactFx[idx] or impactFx[1]
+			elseif type(impactFx) == "string" then
+				resolvedFx = impactFx
+			end
+		end
+		if not resolvedFx then
+			return
+		end
+		local finalCFrame = payload.cframe or CFrame.new()
+		if anchor and anchor.mode == "attachment" then
+			local casterId = payload.casterId
+			if casterId then
+				local plr = game.Players:GetPlayerByUserId(casterId)
+				local char = plr and plr.Character
+				if char then
+					local att = char:FindFirstChild(anchor.name, true)
+					if att and att:IsA("Attachment") then
+						FXPlayer.playAttached(resolvedFx, att, anchor.offset, lifetime)
+						return
+					end
+					if anchor.fallback then
+						local part = char:FindFirstChild(anchor.fallback)
+						if part and part:IsA("BasePart") then
+							finalCFrame = (part :: BasePart).CFrame
+						end
+					end
+				end
+			end
+		end
+		FXPlayer.playAt(resolvedFx, finalCFrame, lifetime)
 	elseif phase == "combo_wait" then
 		local casterId = payload.casterId
 		local open = payload.open

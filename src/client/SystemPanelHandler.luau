@@ -122,6 +122,22 @@ function SystemPanelHandler:updateAttributes(attributes)
 	self.attributesUIController:updateAttributes(attributes)
 end
 
+function SystemPanelHandler:togglePanel()
+	-- Toggle visibility of the system panel
+	if not self.systemPanel then
+		warn("System panel not initialized")
+		return
+	end
+	local worldGUIManager = WorldGUIManager.getInstance()
+	local isVisible = worldGUIManager:isPanelVisible("SystemPanel")
+	print("Toggling system panel, currently visible:", isVisible)
+	if isVisible then
+		self:hidePanel()
+	else
+		self:displayPanel()
+	end
+end
+
 function SystemPanelHandler:displayPanel()
 	-- WorldGUIManager handles positioning, we just need to place it in workspace
 	if not self.systemPanel then
@@ -149,4 +165,34 @@ function SystemPanelHandler:hidePanel()
 	end
 end
 
-return SystemPanelHandler
+-- Lazy singleton facade so callers don't need to instantiate manually
+local _instance: any
+
+local function getOrCreate()
+	if _instance then
+		return _instance
+	end
+	_instance = SystemPanelHandler.new()
+	return _instance
+end
+
+return {
+	-- expose class constructor just in case
+	new = SystemPanelHandler.new,
+	get = getOrCreate,
+	show = function()
+		getOrCreate():displayPanel()
+	end,
+	hide = function()
+		getOrCreate():hidePanel()
+	end,
+	toggle = function()
+		getOrCreate():togglePanel()
+	end,
+	updateStats = function(s)
+		getOrCreate():updateStats(s)
+	end,
+	updateAttributes = function(a)
+		getOrCreate():updateAttributes(a)
+	end,
+}

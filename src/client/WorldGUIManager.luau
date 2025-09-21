@@ -52,6 +52,7 @@ type PanelConfig = {
 	followPlayer: boolean?, -- Whether panel should follow player (default true)
 	playerWasLooking: boolean?, -- Track if player was looking at panel
 	playerWasWithinDistance: boolean?, -- Track if player was within distance boundaries
+	visible: boolean?, -- Current visibility state
 }
 
 local WorldGUIManager_Instance = nil
@@ -87,6 +88,7 @@ function WorldGUIManager:registerPanel(config: PanelConfig)
 	config.offset = config.offset or Vector3.new(0, 0, 0)
 	config.playerWasLooking = false
 	config.playerWasWithinDistance = false
+	config.visible = false
 
 	self.panels[config.name] = config
 
@@ -384,6 +386,10 @@ function WorldGUIManager:setPanelVisibility(panelName: string, visible: boolean,
 		end
 		tweenGuiTransparency(child)
 	end
+
+	task.wait(duration)
+
+	config.visible = visible
 end
 
 -- Reset the initial panel position (useful when respawning or repositioning)
@@ -396,6 +402,16 @@ end
 function WorldGUIManager:getGUIPosition(): Vector3
 	-- Return the ideal panel position for the camera to look at
 	return self:_getIdealPanelPosition()
+end
+
+function WorldGUIManager:isPanelVisible(panelName: string): boolean
+	local config = self.panels[panelName]
+	if not config or not config.part then
+		warn(`WorldGUIManager: Panel '{panelName}' not found`)
+		return false
+	end
+
+	return config.visible
 end
 
 -- Cleanup

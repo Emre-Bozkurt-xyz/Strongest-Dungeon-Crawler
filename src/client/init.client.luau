@@ -4,6 +4,8 @@ print("Client starting...")
 -- Initialize the client systems (they auto-initialize when required)
 local StatsClient = require(script.StatsClient)
 local AttributesClient = require(script.AttributesClient)
+local CameraController = require(script.CameraController)
+local UserInputService = game:GetService("UserInputService")
 
 -- Example: Add some client-side commands for testing
 local Players = game:GetService("Players")
@@ -38,6 +40,11 @@ local function onCharacterAdded(character: Model)
 	StatsClient.requestStatsUpdate()
 	AttributesClient.requestAttributesData()
 
+	-- Initialize/refresh camera controller on spawn
+	local cam = CameraController.getInstance()
+	cam:setZoomLimits(2.5, 16)
+	cam:enable()
+
 	print("📷 First-person camera and world GUI systems initialized")
 end
 
@@ -46,6 +53,17 @@ if _player.Character then
 	onCharacterAdded(_player.Character)
 end
 _player.CharacterAdded:Connect(onCharacterAdded)
+
+-- Bind a toggle for camera mode (V)
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.V then
+		local cam = CameraController.getInstance()
+		cam:toggleMode()
+	end
+end)
 
 -- Start client-side testing (monitoring is already auto-started)
 print("📊 Client testing initialized")

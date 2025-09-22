@@ -13,7 +13,26 @@ local ClientSpec = {
 			comboIdle = "Punch_Idle", -- optional idle during combo wait
 		},
 		fx = {
-			impact = { "Punch_Hit" },
+			-- Default anchor for step/marker FX (optional)
+			anchor = { name = "FX_Hand_R", fallback = "RightHand" },
+			-- Optional per-step anchors (1-indexed to comboSteps)
+			-- Example: step 2 is a left hook, so attach FX to left hand
+			anchorsByStep = {
+				[2] = { name = "FX_Hand_L", fallback = "LeftHand" },
+			},
+			-- Marker-driven FX: map animation marker name -> FX behavior
+			-- - play (default): play one-shot FX
+			-- - start: spawn looping/long-lived FX (will keep running until a matching 'stop')
+			-- - stop: stop a previously started FX of the same key
+			-- Multiple different animations (combo steps) can share the same marker names.
+			markers = {
+				-- Windup looper starts
+				punch_windup_start = { key = "Punch_Windup", action = "start" },
+				-- Windup looper ends
+				punch_windup_end = { key = "Punch_Windup", action = "stop" },
+				-- Impact one-shot
+				Punch_Land = "Punch_Land",
+			},
 		},
 		sfx = {
 			impact = { "Punch_Hit_SFX" },

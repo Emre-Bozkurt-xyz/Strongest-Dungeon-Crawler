@@ -96,7 +96,7 @@ end
 -- Connect to new players for demo purposes
 Players.PlayerAdded:Connect(function(player)
 	player.CharacterAdded:Connect(function(character)
-		removeBundles(character)
+		--removeBundles(character)
 	end)
 	spawn(function()
 		setupPlayerCommands(player)

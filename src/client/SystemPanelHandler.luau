@@ -39,6 +39,9 @@ function SystemPanelHandler.new()
 		part = self.systemPanel,
 		faceCamera = true,
 		followPlayer = true,
+		followMode = "camera",
+		offset = Vector3.new(0, 0.75, 0), -- lift the panel slightly to avoid player head overlap
+		camSpaceOffset = Vector3.new(0, 0.0, 0.0), -- tweak if needed without affecting OS mode
 	})
 
 	-- Listen for stats updates via NetRay event
@@ -130,7 +133,6 @@ function SystemPanelHandler:togglePanel()
 	end
 	local worldGUIManager = WorldGUIManager.getInstance()
 	local isVisible = worldGUIManager:isPanelVisible("SystemPanel")
-	print("Toggling system panel, currently visible:", isVisible)
 	if isVisible then
 		self:hidePanel()
 	else
@@ -144,25 +146,20 @@ function SystemPanelHandler:displayPanel()
 		warn("System panel not initialized")
 		return
 	end
-	if not self.systemPanel.Parent then
-		self.systemPanel.Parent = workspace
-	end
 
-	-- Optionally use WorldGUIManager visibility controls
+	-- Use WorldGUIManager visibility controls (it will handle parenting)
 	local worldGUIManager = WorldGUIManager.getInstance()
-	worldGUIManager:setPanelVisibility("SystemPanel", true, 0.5)
+	worldGUIManager:setPanelVisibility("SystemPanel", true, 0.5, workspace)
+
+	-- No focus effects; CameraController handles per-mode follow behavior
 end
 
 function SystemPanelHandler:hidePanel()
-	-- Use WorldGUIManager for smooth hiding
+	-- Use WorldGUIManager for smooth hiding (it will handle unparenting after fade)
 	local worldGUIManager = WorldGUIManager.getInstance()
-	worldGUIManager:setPanelVisibility("SystemPanel", false, 0.5)
+	worldGUIManager:setPanelVisibility("SystemPanel", false, 0.5, workspace)
 
-	-- After animation, remove from workspace
-	task.wait(0.6) -- Wait for animation to complete
-	if self.systemPanel and self.systemPanel.Parent then
-		self.systemPanel.Parent = nil
-	end
+	-- No focus effects on hide
 end
 
 -- Lazy singleton facade so callers don't need to instantiate manually

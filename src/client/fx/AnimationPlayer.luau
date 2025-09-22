@@ -53,6 +53,19 @@ function AnimationPlayer.play(key: string, fade: number?, speed: number?)
 	track:Play(fade or 0.1)
 end
 
+-- Plays and returns the AnimationTrack so callers can bind marker callbacks.
+function AnimationPlayer.playReturn(key: string, fade: number?, speed: number?): AnimationTrack?
+	local track = loadTrack(key)
+	if not track then
+		return nil
+	end
+	if speed then
+		track:AdjustSpeed(speed)
+	end
+	track:Play(fade or 0.1)
+	return track
+end
+
 function AnimationPlayer.stop(key: string, fade: number?)
 	local track = cache[key]
 	if not track then

@@ -39,6 +39,8 @@ AttributesConfig.DEFAULT_ATTRIBUTES = {
 	},
 }
 
+AttributesConfig.DefaultAttributePoints = 1000
+
 -- Attribute limits
 AttributesConfig.MIN_ATTRIBUTE_VALUE = 0
 AttributesConfig.MAX_ATTRIBUTE_VALUE = 999
@@ -81,54 +83,63 @@ AttributesConfig.ScalingFormulas = {
 			return math.floor(intelligenceValue / 5) * 5
 		end,
 	},
+	Strength = {
+		PhysicalDamageFromValue = function(strengthValue: number): number
+			-- Every 2nd point of Strength gives +1 Physical Damage
+			return math.floor(strengthValue / 2)
+		end,
+	},
 }
 
 -- ========================================
 -- SCALING RELATIONSHIPS
 -- ========================================
 
+local StatsManager = require(game.ServerScriptService.Server.StatsManager)
+local function addOrUpdateScalingModifier(player: Player, statName: StatTypes.StatType, modifierId: string, value: number, description: string)
+	
+	if StatsManager.hasModifier(player, statName, modifierId) then
+		StatsManager.updateModifier(player, statName, modifierId, value)
+	else
+		StatsManager.addModifier(
+			player,
+			statName,
+			StatModifier.new({
+				source_id = modifierId,
+				type = "flat",
+				value = value,
+				description = description,
+			})
+		)
+	end
+end
+
 -- Define how each attribute scales different stats
 AttributesConfig.AttributeMilestones = {
 	{
 		attribute = AttributeTypes.Attributes.Intelligence,
-		applyScaling = function(player: Player, StatsManager: any, intelligenceValue: number)
+		applyScaling = function(player: Player, intelligenceValue: number)
 			local newValue = AttributesConfig.ScalingFormulas.Intelligence.MagicDamageFromValue(intelligenceValue)
-			if StatsManager.hasModifier(player, StatTypes.StaticStats.MagicDamage, "IntelligenceScaling") then
-				StatsManager.updateModifier(player, StatTypes.StaticStats.MagicDamage, "IntelligenceScaling", newValue)
-			else
-				StatsManager.addModifier(
-					player,
-					StatTypes.StaticStats.MagicDamage,
-					StatModifier.new({
-						source_id = "IntelligenceScaling",
-						type = "flat",
-						value = newValue,
-						description = "Increased Magic Damage from Intelligence",
-					})
-				)
-			end
+			addOrUpdateScalingModifier(player, StatTypes.StaticStats.MagicDamage, "IntelligenceScaling", newValue, "Increased Magic Damage from Intelligence")
 		end,
 	},
 	{
 		attribute = AttributeTypes.Attributes.Intelligence,
-		applyScaling = function(player: Player, StatsManager: any, intelligenceValue: number)
+		applyScaling = function(player: Player, intelligenceValue: number)
 			local newValue = AttributesConfig.ScalingFormulas.Intelligence.ManaFromValue(intelligenceValue)
-			if StatsManager.hasModifier(player, StatTypes.PoolStats.Mana, "IntelligenceScaling") then
-				StatsManager.updateModifier(player, StatTypes.PoolStats.Mana, "IntelligenceScaling", newValue)
-			else
-				StatsManager.addModifier(
-					player,
-					StatTypes.PoolStats.Mana,
-					StatModifier.new({
-						source_id = "IntelligenceScaling",
-						type = "flat",
-						value = newValue,
-						description = "Increased Mana from Intelligence",
-					})
-				)
-			end
+			addOrUpdateScalingModifier(player, StatTypes.PoolStats.Mana, "IntelligenceManaScaling", newValue, "Increased Mana from Intelligence")
 		end,
 	},
+	{
+		attribute = AttributeTypes.Attributes.Strength,
+		applyScaling = function(player: Player, strengthValue: number)
+			local newValue = AttributesConfig.ScalingFormulas.Strength.PhysicalDamageFromValue(strengthValue)
+			addOrUpdateScalingModifier(player, StatTypes.StaticStats.PhysicalDamage, "StrengthScaling", newValue, "Increased Physical Damage from Strength")
+		end,
+	}
+} :: { 
+	attribute: AttributeType, 
+	applyScaling: (player: Player, attributeValue: number) -> () 
 }
 
 -- Helper function to create a new set of attributes using Attribute classes
@@ -147,8 +158,7 @@ function AttributesConfig.createDefaultAttributes(): PlayerAttributes
 	end
 
 	-- Initialize available attribute points (can be adjusted based on level later)
-	attributes.availableAttributePoints = 5 -- Starting points for new players
-
+	attributes.availableAttributePoints = AttributesConfig.DefaultAttributePoints
 	return attributes :: PlayerAttributes
 end
 

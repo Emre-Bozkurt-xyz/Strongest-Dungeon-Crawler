@@ -9,6 +9,30 @@ local FXFolder = ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorag
 
 local DEFAULT_LIFETIME = 1 -- seconds
 
+-- Track child BasePart relative transforms so they follow a moving root while preserving offsets
+local function buildChildPartOffsets(root: BasePart): { [BasePart]: CFrame }
+	local map: { [BasePart]: CFrame } = {}
+	for _, d in ipairs(root:GetDescendants()) do
+		if d:IsA("BasePart") and d ~= root then
+			local bp = d :: BasePart
+			-- Store relative transform
+			map[bp] = root.CFrame:ToObjectSpace(bp.CFrame)
+			-- Ensure they don't interfere with physics
+			bp.Anchored = true
+			bp.CanCollide = false
+		end
+	end
+	return map
+end
+
+local function applyChildPartOffsets(rootCf: CFrame, offsets: { [BasePart]: CFrame })
+	for part, rel in pairs(offsets) do
+		if part.Parent then
+			part.CFrame = rootCf * rel
+		end
+	end
+end
+
 local function primeFX(fx: Instance)
 	for _, d in ipairs(fx:GetDescendants()) do
 		if d:IsA("ParticleEmitter") then
@@ -55,10 +79,22 @@ function FXPlayer.playAt(key: string, cframe: CFrame, lifetime: number?)
 		return
 	end
 	local fx = template:Clone()
-	fx.Transparency = 1
-	fx.CFrame = cframe
-	fx.Parent = workspace
-	primeFX(fx)
+	if fx:IsA("BasePart") then
+		local offsets = buildChildPartOffsets(fx)
+		fx.Transparency = 1
+		fx.Anchored = true
+		fx.CanCollide = false
+		fx.CFrame = cframe
+		fx.Parent = workspace
+		applyChildPartOffsets(fx.CFrame, offsets)
+		primeFX(fx)
+	else
+		fx.Parent = workspace
+		if fx:IsA("Model") then
+			(fx :: Model):PivotTo(cframe)
+		end
+		primeFX(fx)
+	end
 	game:GetService("Debris"):AddItem(fx, (lifetime or DEFAULT_LIFETIME))
 end
 
@@ -82,9 +118,12 @@ function FXPlayer.playAttached(key: string, targetAttachment: Attachment, offset
 
 	if fx:IsA("BasePart") then
 		fx.Anchored = true
+		fx.Transparency = 1
 		fx.CanCollide = false
+		local offsets = buildChildPartOffsets(fx)
 		fx.CFrame = targetAttachment.WorldCFrame * offsetCf
 		fx.Parent = workspace
+		applyChildPartOffsets(fx.CFrame, offsets)
 		primeFX(fx)
 		local conn: RBXScriptConnection? = nil
 		conn = RunService.Heartbeat:Connect(function()
@@ -94,7 +133,9 @@ function FXPlayer.playAttached(key: string, targetAttachment: Attachment, offset
 				end
 				return
 			end
-			fx.CFrame = targetAttachment.WorldCFrame * offsetCf
+			local newCf = targetAttachment.WorldCFrame * offsetCf
+			fx.CFrame = newCf
+			applyChildPartOffsets(newCf, offsets)
 		end)
 		Debris:AddItem(fx, life)
 		return
@@ -164,8 +205,11 @@ function FXPlayer.spawnAttached(key: string, targetAttachment: Attachment, offse
 	if fx:IsA("BasePart") then
 		fx.Anchored = true
 		fx.CanCollide = false
+		fx.Transparency = 1
+		local offsets = buildChildPartOffsets(fx)
 		fx.CFrame = targetAttachment.WorldCFrame * offsetCf
 		fx.Parent = workspace
+		applyChildPartOffsets(fx.CFrame, offsets)
 		primeFX(fx)
 		conn = RunService.RenderStepped:Connect(function()
 			if not fx or not fx.Parent then
@@ -174,7 +218,9 @@ function FXPlayer.spawnAttached(key: string, targetAttachment: Attachment, offse
 				end
 				return
 			end
-			fx.CFrame = targetAttachment.WorldCFrame * offsetCf
+			local newCf = targetAttachment.WorldCFrame * offsetCf
+			fx.CFrame = newCf
+			applyChildPartOffsets(newCf, offsets)
 		end)
 	elseif fx:IsA("Model") then
 		fx.Parent = workspace
@@ -218,6 +264,7 @@ function FXPlayer.spawnAt(key: string, cframe: CFrame): FXHandle?
 	fx.Parent = workspace
 	if fx:IsA("BasePart") then
 		fx.Anchored = true
+		fx.Transparency = 1
 		fx.CanCollide = false
 		fx.CFrame = cframe
 	elseif fx:IsA("Model") then
@@ -229,7 +276,7 @@ function FXPlayer.spawnAt(key: string, cframe: CFrame): FXHandle?
 		Stop = function()
 			local linger = computeMaxParticleLifetime(fx)
 			if linger > 0 then
-				game:GetService("Debris"):AddItem(fx, linger + 0.1)
+				game:GetService("Debris"):AddItem(fx, linger + 100)
 			else
 				fx:Destroy()
 			end

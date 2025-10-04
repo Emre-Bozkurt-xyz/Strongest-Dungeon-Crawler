@@ -35,8 +35,6 @@ type WorldGUIManagerType = {
 	_getIdealPanelPosition: (self: WorldGUIManagerType, customOffset: Vector3?) -> Vector3,
 	_getIdealPanelRotation: (self: WorldGUIManagerType, panelPosition: Vector3) -> CFrame,
 	_updatePanelPosition: (self: WorldGUIManagerType, config: PanelConfig, deltaTime: number) -> (),
-	_isPlayerLookingAtPanel: (self: WorldGUIManagerType, config: PanelConfig) -> (boolean, number),
-	_isPlayerWithinDistanceBoundaries: (self: WorldGUIManagerType, config: PanelConfig) -> (boolean, number),
 	_startUpdateLoop: (self: WorldGUIManagerType) -> (),
 	getGUIPosition: (self: WorldGUIManagerType) -> Vector3,
 	setPanelFrozen: (self: WorldGUIManagerType, panelName: string, frozen: boolean) -> (),
@@ -47,15 +45,12 @@ type WorldGUIManagerType = {
 -- Configuration
 local GUI_OFFSET = Vector3.new(0, 1.5, -3.5)
 -- Camera-relative placement for panels that should follow the camera rather than the player
-local CAMERA_PANEL_FORWARD = 4.0 -- studs in front of camera
+local CAMERA_PANEL_FORWARD = 4.0 -- default studs in front of camera (non-SystemPanel or legacy)
+local CAMERA_PANEL_FORWARD_OS = 3.5 -- Over-Shoulder (Scriptable) ideal distance for SystemPanel
+local CAMERA_PANEL_FORWARD_FREE = 3.5 -- Free camera (Custom) ideal distance for SystemPanel
 local CAMERA_PANEL_RIGHT = 0.0 -- shift to the right (positive) or left (negative)
-local CAMERA_PANEL_UP = -0.25 -- slight downward offset to better frame content
-local LOOK_TOLERANCE = 5 -- Degrees of tolerance beyond panel edges before rotation starts
-local MAX_DISTANCE = 4 -- Maximum distance from optimal position
-local MIN_DISTANCE = 1.5 -- Minimum distance from optimal position
-local BASE_LERP_SPEED = 4.0 -- Base lerp speed when far from boundaries
-local MIN_LERP_SPEED = 0.5 -- Minimum lerp speed when close to boundaries
-local ANGLE_TRANSITION_RANGE = 15 -- Degrees beyond tolerance where speed transitions occur
+local CAMERA_PANEL_UP = -0.5 -- slight downward offset to better frame content
+local BASE_LERP_SPEED = 8.0 -- Base lerp speed
 
 -- Track active tweens per instance to avoid overlapping animations
 local activeVisTweens: { [Instance]: Tween } = {}
@@ -87,11 +82,9 @@ type PanelConfig = {
 	part: BasePart,
 	offset: Vector3?, -- Optional custom offset from default position
 	camSpaceOffset: Vector3?, -- Optional camera-space offset (X=right, Y=up, Z=forward)
+	playerSpaceOffset: Vector3?, -- Optional player-space offset (X=right, Y=up, Z=forward)
 	faceCamera: boolean?, -- Whether panel should face the camera (default true)
-	followPlayer: boolean?, -- Legacy: Whether panel should follow player (default true)
 	followMode: "player" | "camera"?, -- New: explicit follow mode (default "player")
-	playerWasLooking: boolean?, -- Track if player was looking at panel
-	playerWasWithinDistance: boolean?, -- Track if player was within distance boundaries
 	visible: boolean?, -- Current visibility state
 }
 
@@ -125,14 +118,12 @@ function WorldGUIManager:registerPanel(config: PanelConfig)
 
 	-- Set defaults
 	config.faceCamera = config.faceCamera ~= false -- Default true
-	config.followPlayer = config.followPlayer ~= false -- Default true (legacy)
-	-- Default followMode derived from legacy flag when not provided
-	local derivedMode: "player" | "camera" = if config.followPlayer then "player" else "camera"
-	config.followMode = config.followMode or derivedMode
+	-- Default followMode to player when not provided
+	config.followMode = config.followMode or "player"
 	config.offset = config.offset or Vector3.new(0, 0, 0)
 	config.camSpaceOffset = config.camSpaceOffset or Vector3.new(0, 0, 0)
-	config.playerWasLooking = false
-	config.playerWasWithinDistance = false
+	local cfgAny = config :: any
+	cfgAny.playerSpaceOffset = cfgAny.playerSpaceOffset or Vector3.new(0, 0, 0)
 	config.visible = false
 
 	self.panels[config.name] = config
@@ -200,125 +191,7 @@ function WorldGUIManager:_getIdealPanelPosition(customOffset: Vector3?): Vector3
 end
 
 -- Check if player is looking at the panel (within tolerance) and return lerp speed modifier
-function WorldGUIManager:_isPlayerLookingAtPanel(config: PanelConfig): (boolean, number)
-	if not config.part or not self.camera then
-		return false, BASE_LERP_SPEED
-	end
-
-	local cameraPosition = self.camera.CFrame.Position
-	local cameraLookDirection = self.camera.CFrame.LookVector
-
-	-- Get panel bounds (left and right edges)
-	local panelCFrame = config.part.CFrame
-	local panelSize = config.part.Size
-
-	-- Calculate left and right edge positions in world space
-	local leftEdge = panelCFrame * Vector3.new(-panelSize.X / 2, 0, 0)
-	local rightEdge = panelCFrame * Vector3.new(panelSize.X / 2, 0, 0)
-
-	-- Calculate angles to left and right edges
-	local cameraToLeftEdge = (leftEdge - cameraPosition).Unit
-	local cameraToRightEdge = (rightEdge - cameraPosition).Unit
-
-	-- Project onto horizontal plane for angle calculation
-	local horizontalLookDirection = Vector3.new(cameraLookDirection.X, 0, cameraLookDirection.Z).Unit
-	local horizontalToLeftEdge = Vector3.new(cameraToLeftEdge.X, 0, cameraToLeftEdge.Z).Unit
-	local horizontalToRightEdge = Vector3.new(cameraToRightEdge.X, 0, cameraToRightEdge.Z).Unit
-
-	-- Calculate signed angles using cross product to determine left/right
-	local function getSignedAngle(from: Vector3, to: Vector3): number
-		local dot = math.clamp(from:Dot(to), -1, 1)
-		local angle = math.deg(math.acos(dot))
-		local cross = from:Cross(to)
-		return cross.Y > 0 and angle or -angle
-	end
-
-	local angleToLeftEdge = getSignedAngle(horizontalLookDirection, horizontalToLeftEdge)
-	local angleToRightEdge = getSignedAngle(horizontalLookDirection, horizontalToRightEdge)
-
-	-- Calculate how far past the edge + tolerance we are looking
-	local leftOvershoot = math.max(0, angleToLeftEdge - LOOK_TOLERANCE)
-	local rightOvershoot = math.max(0, -angleToRightEdge - LOOK_TOLERANCE)
-
-	-- Use the maximum overshoot to determine speed
-	local maxOvershoot = math.max(leftOvershoot, rightOvershoot)
-
-	-- Calculate lerp speed based on overshoot
-	local lerpSpeed: number
-	if maxOvershoot <= ANGLE_TRANSITION_RANGE then
-		-- Linear falloff from MIN_LERP_SPEED to BASE_LERP_SPEED
-		local normalizedOvershoot = maxOvershoot / ANGLE_TRANSITION_RANGE
-		lerpSpeed = MIN_LERP_SPEED + (BASE_LERP_SPEED - MIN_LERP_SPEED) * normalizedOvershoot
-	else
-		-- Full speed when far from edges
-		lerpSpeed = BASE_LERP_SPEED
-	end
-
-	-- Player is looking at panel if:
-	-- - Looking past left edge (negative angle to left edge)
-	-- - Looking past right edge (positive angle to right edge)
-	-- - Both conditions are true simultaneously
-	local lookingPastLeftEdge = false
-	local lookingPastRightEdge = false
-
-	if config.playerWasLooking then
-		lookingPastLeftEdge = angleToLeftEdge > LOOK_TOLERANCE
-		lookingPastRightEdge = angleToRightEdge < -LOOK_TOLERANCE
-	else
-		lookingPastLeftEdge = angleToLeftEdge > 0
-		lookingPastRightEdge = angleToRightEdge < 0
-	end
-
-	-- Player is looking at panel if they're NOT looking past both edges
-	local isLooking = not (lookingPastLeftEdge or lookingPastRightEdge)
-
-	return isLooking, lerpSpeed
-end
-
-function WorldGUIManager:_isPlayerWithinDistanceBoundaries(config: PanelConfig): (boolean, number)
-	if not config.part or not self.player.Character then
-		return false, BASE_LERP_SPEED
-	end
-
-	local playerRootPart = self.player.Character:FindFirstChild("HumanoidRootPart")
-	if not playerRootPart then
-		return false, BASE_LERP_SPEED
-	end
-
-	-- Check if panel is in front of or behind the player
-	local playerPosition = playerRootPart.Position
-	local playerForward = playerRootPart.CFrame.LookVector
-	local panelPosition = config.part.Position
-
-	-- Vector from player to panel
-	local playerToPanel = (panelPosition - playerPosition)
-	local distanceToPlayer = playerToPanel.Magnitude
-
-	-- Project onto player's forward direction to see if panel is in front or behind
-	local forwardDot = playerToPanel.Unit:Dot(playerForward)
-	local isInFront = forwardDot > 0
-
-	-- Always use full speed for distance-based movements
-	local lerpSpeed = BASE_LERP_SPEED
-
-	-- Calculate if within boundaries (with hysteresis)
-	local withinBoundaries = false
-	if config.playerWasWithinDistance then
-		-- If player was within distance last time, check if still within boundaries
-		-- Panel should be in front and within distance range
-		withinBoundaries = isInFront and distanceToPlayer <= MAX_DISTANCE and distanceToPlayer >= MIN_DISTANCE
-	else
-		-- If player was not within distance last time, check if now within boundaries
-		-- Use tighter boundaries to prevent jitter
-		withinBoundaries = isInFront
-			and distanceToPlayer <= MAX_DISTANCE - 0.5
-			and distanceToPlayer >= MIN_DISTANCE + 0.5
-	end
-
-	config.playerWasWithinDistance = withinBoundaries
-
-	return withinBoundaries, lerpSpeed
-end
+-- Player-follow uses anchored placement; no distance/look smoothing is applied
 
 -- Update a single panel's position and rotation
 function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: number)
@@ -328,7 +201,7 @@ function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: nu
 	end
 
 	-- Camera-relative follow mode: keep panel readable in front of the camera
-	local mode = (config.followMode or (config.followPlayer and "player" or "camera")) :: any
+	local mode = (config.followMode or "player") :: any
 	if mode == "camera" then
 		local cam = self.camera
 		if cam then
@@ -337,10 +210,14 @@ function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: nu
 			local up: Vector3 = camCF.UpVector
 			local look: Vector3 = camCF.LookVector
 			local basePos: Vector3 = camCF.Position
-			-- Per-panel forward distance: SystemPanel is a bit closer in OS (Scriptable) for readability
+			-- Per-panel forward distance: SystemPanel varies by camera mode for readability
 			local forwardDist = CAMERA_PANEL_FORWARD
-			if config.name == "SystemPanel" and cam.CameraType == Enum.CameraType.Scriptable then
-				forwardDist = 3.0
+			if config.name == "SystemPanel" then
+				if cam.CameraType == Enum.CameraType.Scriptable then
+					forwardDist = CAMERA_PANEL_FORWARD_OS
+				else
+					forwardDist = CAMERA_PANEL_FORWARD_FREE
+				end
 			end
 			local desired: Vector3 = basePos + right * CAMERA_PANEL_RIGHT + up * CAMERA_PANEL_UP + look * forwardDist
 
@@ -382,31 +259,7 @@ function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: nu
 		return
 	end
 
-	-- Check current state and get lerp speed modifiers
-	local isLookingAtPanel, angleLerpSpeed = self:_isPlayerLookingAtPanel(config)
-	local isWithinDistance, _ = self:_isPlayerWithinDistanceBoundaries(config)
-
-	-- Update state variables for next frame
-	config.playerWasLooking = isLookingAtPanel
-	-- Note: playerWasWithinDistance is already updated inside _isPlayerWithinDistanceBoundaries
-
-	-- Skip rotation updates if player is looking at the panel AND within distance
-	-- Exception: always update the SystemPanel to keep it anchored during OS focus
-	if config.name ~= "SystemPanel" then
-		if isLookingAtPanel and isWithinDistance then
-			return
-		end
-	end
-
-	-- Determine the reason for rotation and apply appropriate speed
-	local dynamicLerpSpeed: number
-	if not isLookingAtPanel and isWithinDistance then
-		-- Rotating because player looked away (angle boundary) - use slow speed
-		dynamicLerpSpeed = angleLerpSpeed
-	else
-		-- Rotating because player moved away (distance boundary) - use full speed
-		dynamicLerpSpeed = BASE_LERP_SPEED
-	end -- Calculate ideal rotation
+	-- Player-follow anchored placement
 	local offset: Vector3 = config.offset or Vector3.new(0, 0, 0)
 
 	-- Adjust target position to be within the desired distance range from player
@@ -415,22 +268,22 @@ function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: nu
 		if playerRootPart and playerRootPart:IsA("BasePart") then
 			local root: BasePart = playerRootPart
 			local playerPosition: Vector3 = root.Position
-			local playerForward: Vector3 = root.CFrame.LookVector
 
-			-- Target position should be at optimal distance in front of player
-			local optimalDistance = (MIN_DISTANCE + MAX_DISTANCE) / 2 -- Middle of the range
-			if config.name == "SystemPanel" then
-				optimalDistance = 2.75 -- consistent comfortable distance for OS
+			local targetPosition = playerPosition + offset
+
+			-- Apply optional player-space offset (relative to player's local axes)
+			local pso: Vector3 = (config :: any).playerSpaceOffset or Vector3.new(0, 0, 0)
+			if pso.X ~= 0 or pso.Y ~= 0 or pso.Z ~= 0 then
+				local r: Vector3 = root.CFrame.RightVector
+				local u: Vector3 = root.CFrame.UpVector
+				local f: Vector3 = root.CFrame.LookVector
+				targetPosition += r * pso.X + u * pso.Y + f * pso.Z
 			end
-			local targetPosition = playerPosition
-				+ playerForward * optimalDistance
-				+ Vector3.new(0, GUI_OFFSET.Y, 0)
-				+ offset
 
 			local panelRotation: CFrame = self:_getIdealPanelRotation(targetPosition)
 
-			-- Use delta time for frame-rate independent lerping with dynamic speed
-			local frameRateLerp = 1 - math.exp(-dynamicLerpSpeed * deltaTime)
+			-- Use delta time for frame-rate independent lerping
+			local frameRateLerp = 1 - math.exp(-BASE_LERP_SPEED * deltaTime)
 
 			config.part.CFrame = config.part.CFrame:Lerp(panelRotation, frameRateLerp)
 		end
@@ -444,7 +297,7 @@ function WorldGUIManager:_snapPanelToTarget(config: PanelConfig)
 	if not config.part or not config.name then
 		return
 	end
-	local mode = (config.followMode or (config.followPlayer and "player" or "camera")) :: any
+	local mode = (config.followMode or "player") :: any
 	if mode == "camera" then
 		local cam = self.camera
 		if not cam then
@@ -455,10 +308,19 @@ function WorldGUIManager:_snapPanelToTarget(config: PanelConfig)
 		local up: Vector3 = camCF.UpVector
 		local look: Vector3 = camCF.LookVector
 		local basePos: Vector3 = camCF.Position
+		-- Per-panel forward distance: SystemPanel varies by camera mode for readability
+		local forwardDist = CAMERA_PANEL_FORWARD
+		if config.name == "SystemPanel" then
+			if cam.CameraType == Enum.CameraType.Scriptable then
+				forwardDist = CAMERA_PANEL_FORWARD_OS
+			else
+				forwardDist = CAMERA_PANEL_FORWARD_FREE
+			end
+		end
 		local desired: Vector3 = basePos
 			+ right * CAMERA_PANEL_RIGHT
 			+ up * CAMERA_PANEL_UP
-			+ look * CAMERA_PANEL_FORWARD
+			+ look * forwardDist
 		local off: Vector3 = config.offset or Vector3.new(0, 0, 0)
 		desired += off
 		local cso: Vector3 = (config :: any).camSpaceOffset or Vector3.new(0, 0, 0)
@@ -486,7 +348,7 @@ function WorldGUIManager:_snapPanelToTarget(config: PanelConfig)
 		config.part.CFrame = self:_getIdealPanelRotation(desired)
 		return
 	end
-	-- player follow
+	-- player follow (anchored)
 	if not self.player.Character then
 		return
 	end
@@ -496,13 +358,15 @@ function WorldGUIManager:_snapPanelToTarget(config: PanelConfig)
 	end
 	local root: BasePart = playerRootPart
 	local playerPosition: Vector3 = root.Position
-	local playerForward: Vector3 = root.CFrame.LookVector
-	local optimalDistance = (MIN_DISTANCE + MAX_DISTANCE) / 2
-	if config.name == "SystemPanel" then
-		optimalDistance = 2.75
-	end
 	local offset: Vector3 = config.offset or Vector3.new(0, 0, 0)
-	local targetPosition = playerPosition + playerForward * optimalDistance + Vector3.new(0, GUI_OFFSET.Y, 0) + offset
+	local targetPosition = playerPosition + offset
+	local pso: Vector3 = (config :: any).playerSpaceOffset or Vector3.new(0, 0, 0)
+	if pso.X ~= 0 or pso.Y ~= 0 or pso.Z ~= 0 then
+		local r2: Vector3 = root.CFrame.RightVector
+		local u2: Vector3 = root.CFrame.UpVector
+		local f2: Vector3 = root.CFrame.LookVector
+		targetPosition += r2 * pso.X + u2 * pso.Y + f2 * pso.Z
+	end
 	config.part.CFrame = self:_getIdealPanelRotation(targetPosition)
 end
 
@@ -708,6 +572,17 @@ function WorldGUIManager:getGUIPosition(): Vector3
 	return self:_getIdealPanelPosition()
 end
 
+-- Expose all registered panel parts for systems that need to ignore them (e.g., camera collision raycasts)
+function WorldGUIManager:getPanelParts(): { Instance }
+	local parts: { Instance } = {}
+	for _, cfg in pairs(self.panels) do
+		if cfg and cfg.part then
+			table.insert(parts, cfg.part)
+		end
+	end
+	return parts
+end
+
 function WorldGUIManager:setPanelFrozen(panelName: string, frozen: boolean)
 	if frozen then
 		frozenPanels[panelName] = true
@@ -723,9 +598,6 @@ function WorldGUIManager:setPanelFollowMode(panelName: string, mode: "player" | 
 	end
 	local anyCfg: any = cfg
 	anyCfg.followMode = mode
-	-- Reset hysteresis flags to avoid carry-over artifacts when switching modes
-	anyCfg.playerWasLooking = false
-	anyCfg.playerWasWithinDistance = false
 	-- Snap immediately to new target to avoid residual offsets
 	self:_snapPanelToTarget(cfg)
 end
@@ -736,6 +608,14 @@ function WorldGUIManager:setPanelCameraSpaceOffset(panelName: string, off: Vecto
 		return
 	end
 	(cfg :: any).camSpaceOffset = off
+end
+
+function WorldGUIManager:setPanelPlayerSpaceOffset(panelName: string, off: Vector3)
+	local cfg = self.panels[panelName]
+	if not cfg then
+		return
+	end
+	(cfg :: any).playerSpaceOffset = off
 end
 
 function WorldGUIManager:isPanelVisible(panelName: string): boolean

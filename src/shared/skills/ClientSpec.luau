@@ -4,7 +4,7 @@
 
 local ClientSpec = {
 	Punch = {
-		icon = "rbxassetid://0", -- TODO: replace
+		icon = "rbxassetid://13050670424", 
 		label = "Punch",
 		anim = {
 			-- Body animations for each combo step in order
@@ -40,7 +40,7 @@ local ClientSpec = {
 	},
 
 	TripleStrike = {
-		icon = "rbxassetid://0",
+		icon = "rbxassetid://13050670424",
 		label = "Triple",
 		anim = {
 			start = "TripleStrike_Start",

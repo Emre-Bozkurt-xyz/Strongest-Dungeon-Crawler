@@ -397,10 +397,10 @@ function HitboxService.debugDrawBox(cf: CFrame, size: Vector3, duration: number?
 end
 
 -- Debug-only: draw a thin box representing a ray forward for duration seconds.
-function HitboxService.debugDrawRay(origin: CFrame, length: number, duration: number?)
-	local size = Vector3.new(0.2, 0.2, length)
+function HitboxService.debugDrawRay(origin: CFrame, length: number, duration: number?, color: Color3?, width: number?)
+	local size = Vector3.new(width or 0.2, width or 0.2, length)
 	local cf = origin * CFrame.new(0, 0, -length * 0.5)
-	makePart(cf, size, Color3.fromRGB(170, 255, 0), nil, duration or 0.5)
+	makePart(cf, size, color or Color3.fromRGB(170, 255, 0), nil, duration or 0.5)
 end
 
 --
@@ -563,8 +563,8 @@ do
 					-- Approximate cone by drawing forward and boundary rays
 					local half = math.rad(shape.angleDeg * 0.5)
 					HitboxService.debugDrawRay(cf, shape.range)
-					HitboxService.debugDrawRay(cf * CFrame.Angles(0,  half, 0), shape.range)
-					HitboxService.debugDrawRay(cf * CFrame.Angles(0, -half, 0), shape.range)
+					HitboxService.debugDrawRay(cf * CFrame.Angles(0,  half, 0), shape.range, nil, Color3.fromRGB(0, 13, 255), 0.07)
+					HitboxService.debugDrawRay(cf * CFrame.Angles(0, -half, 0), shape.range, nil, Color3.fromRGB(0, 13, 255), 0.07)
 				end
 				return HitboxService.queryCone(cf, shape.angleDeg, shape.range, opts)
 			elseif shape.kind == "box" then

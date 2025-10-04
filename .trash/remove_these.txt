@@ -1,7 +1,0 @@
-Removed because class-based SkillsFramework supersedes data-driven behavior defs:
-- src/shared/skills/Definitions.luau
-- src/shared/skills/defs/_index.luau
-- src/shared/skills/defs/Cleave.luau
-- src/shared/skills/defs/FireballBurst.luau
-
-If you prefer hard delete, say the word and I'll delete them.

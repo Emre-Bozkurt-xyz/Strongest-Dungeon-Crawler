@@ -5,6 +5,8 @@ print("Client starting...")
 local StatsClient = require(script.StatsClient)
 local AttributesClient = require(script.AttributesClient)
 local CameraController = require(script.CameraController)
+local StatusPreviewController = require(script.ui.controllers.StatusPreviewController)
+local SkillSlotUI = require(script.SkillsFramework.SkillSlotUI)
 local UserInputService = game:GetService("UserInputService")
 
 -- Example: Add some client-side commands for testing
@@ -45,6 +47,15 @@ local function onCharacterAdded(character: Model)
 	cam:setZoomLimits(2.5, 16)
 	cam:enable()
 
+	-- Ensure the status preview is created and visible
+	StatusPreviewController.get()
+
+	-- Mount skill slot UI (only once)
+	local playerGui = _player:WaitForChild("PlayerGui")
+	local hud = playerGui:WaitForChild("HUD")
+	local anchor = hud:FindFirstChild("SkillSlots")
+	SkillSlotUI.mount(anchor)
+
 	print("📷 First-person camera and world GUI systems initialized")
 end
 
@@ -69,3 +80,11 @@ end)
 print("📊 Client testing initialized")
 
 print("Client initialized")
+
+local CooldownClient = require(script.SkillsFramework.CooldownClient)
+CooldownClient.onChanged(function(evt, key)
+    if key == "_GCD" then
+        local rec = CooldownClient.get("_GCD")
+        print("[GCD EVENT]", evt, rec and (rec.endAt - os.clock()) or "cleared")
+    end
+end)

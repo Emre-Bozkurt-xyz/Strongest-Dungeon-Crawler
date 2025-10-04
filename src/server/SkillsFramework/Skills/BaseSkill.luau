@@ -1,6 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Timeline = require(script.Parent.Parent.Timeline)
 local NetRay = require(ReplicatedStorage.Packages.NetRay)
+local ExecutionService = require(script.Parent.Parent.ExecutionService)
 -- Ensure event exists on server; GetEvent is client-only
 local event = NetRay:RegisterEvent("SkillsEvent")
 
@@ -93,6 +94,30 @@ function BaseSkill:schedule(steps: { { t: number, fn: () -> () } })
 	local tl = Timeline.new()
 	tl:sequence(steps)
 	return tl
+end
+
+-- Execution helpers: wrap emitStart/emitEnd with execution lock semantics.
+-- duration: optional planned execution length (auto-completes). If nil, skill must call completeExecution manually.
+function BaseSkill:beginExecution(duration: number?, allowChain: boolean?)
+	if self._execToken then return end -- already executing
+	local token = ExecutionService.begin(self.player, self.name, {
+		duration = duration,
+		allowChainSkill = allowChain and self.name or nil,
+	})
+	if not token then
+		return false
+	end
+	self._execToken = token
+	self:emitStart()
+	return true
+end
+
+function BaseSkill:completeExecution(reason: string?)
+	if not self._execToken then return end
+	local tok = self._execToken
+	self._execToken = nil
+	ExecutionService.complete(self.player, tok, reason)
+	self:emitEnd({ reason = reason })
 end
 
 return BaseSkill

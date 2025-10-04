@@ -14,8 +14,9 @@ export type ComboState = {
 local ComboService = {}
 local state: { [Player]: { [string]: ComboState } } = {}
 
+-- Use os.clock for monotonic timing (align with CooldownService)
 local function now(): number
-	return tick()
+	return os.clock()
 end
 
 local function ensurePlayerMap(player: Player): { [string]: ComboState }

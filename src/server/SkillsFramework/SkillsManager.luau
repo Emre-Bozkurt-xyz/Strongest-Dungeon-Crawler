@@ -4,6 +4,7 @@ local SkillsConfig = require(script.Parent.SkillsConfig)
 local NetRay = require(ReplicatedStorage.Packages.NetRay)
 local CooldownService = require(script.Parent.CooldownService)
 local ComboService = require(script.Parent.ComboService)
+local ExecutionService = require(script.Parent.ExecutionService)
 
 -- Ensure SkillsEvent exists for client FX hooks
 NetRay:RegisterEvent("SkillsEvent")
@@ -39,6 +40,21 @@ function SkillsManager.addSkill(player: Player, name: string)
 	return skill
 end
 
+-- Listen for execution completion to start cooldown + GCD
+ExecutionService.onCompleted(function(player: Player, completedSkill: string, _reason: string)
+	local skills = playerSkills[player]
+	if not skills then return end
+	local skill = skills[completedSkill]
+	if not skill then return end
+	-- Start GCD & cooldown now (completion-based model)
+	if skill.gcd and skill.gcd > 0 then
+		CooldownService.startGCD(player, skill.gcd)
+	end
+	if skill.cooldown and skill.cooldown > 0 then
+		CooldownService.start(player, completedSkill, skill.cooldown)
+	end
+end)
+
 function SkillsManager.useSkill(player: Player, skillName: string, requestData: any?)
 	local skills = playerSkills[player]
 	if not skills then
@@ -55,21 +71,29 @@ function SkillsManager.useSkill(player: Player, skillName: string, requestData: 
 	local skillCfg = SkillsConfig.skills[skillName]
 	local comboCfg = skillCfg and skillCfg.combo
 
-	-- Combo-enabled skill handling
+	-- Block if main skill cooldown active (cooldown gating between full uses)
+	local onCD = CooldownService.isOnCooldown(player, skillName)
+	if onCD then return end
+
+	-- Block based on execution lock:
+	-- 1. If locked by a DIFFERENT skill -> always block.
+	-- 2. If locked by the SAME skill:
+	--    - Allow only if this skill is a combo (chaining next step)
+	--    - Otherwise block to prevent spam (e.g., TripleStrike re-fire mid execution)
+	local locked, lockedSkill = ExecutionService.isLocked(player)
+	if locked then
+		if lockedSkill ~= skillName then
+			return -- different skill executing
+		end
+		-- Same skill locked
+		if not comboCfg then
+			return -- non-combo skill cannot be re-used during its own execution
+		end
+	end
+
 	if comboCfg then
-		-- Block if cooldown active (only enforced between whole combos)
-		local onCD = CooldownService.isOnCooldown(player, skillName)
-		if onCD then
-			return
-		end
-
-		local step, token, advanced =
-			ComboService.nextStep(player, skillName, comboCfg.steps, comboCfg.window, comboCfg.stepDelays)
-		if not advanced then
-			-- still in per-step lockout; ignore spam
-			return
-		end
-
+		local step, token, advanced = ComboService.nextStep(player, skillName, comboCfg.steps, comboCfg.window, comboCfg.stepDelays)
+		if not advanced then return end
 		local req = requestData or {}
 		req.combo = {
 			step = step,
@@ -79,29 +103,14 @@ function SkillsManager.useSkill(player: Player, skillName: string, requestData: 
 			finalCd = comboCfg.comboCooldown or skill.cooldown,
 		}
 		skill:use(req)
-
-		-- If final step executed, start cooldown now
-		if step == comboCfg.steps then
-			local finalCd = comboCfg.comboCooldown or skill.cooldown
-			if finalCd and finalCd > 0 then
-				CooldownService.start(player, skillName, finalCd)
-			end
-		end
 		return
-	end
-
-	-- Non-combo skill normal path
-	local onCD = CooldownService.isOnCooldown(player, skillName)
-	if onCD then
-		return
-	end
-	CooldownService.startGCD(player, skill.gcd)
-	CooldownService.start(player, skillName, skill.cooldown)
-
-	if requestData ~= nil then
-		skill:use(requestData)
 	else
-		skill:use()
+		-- Non-combo: just execute
+		if requestData ~= nil then
+			skill:use(requestData)
+		else
+			skill:use()
+		end
 	end
 end
 

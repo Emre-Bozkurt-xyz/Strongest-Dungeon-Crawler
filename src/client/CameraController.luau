@@ -30,6 +30,12 @@ local _FOCUS_DISTANCE = 6.0
 local _FOCUS_UP = 0.5
 local _FOCUS_TWEEN = 0.3
 
+-- Mouse-look configuration (Over-Shoulder)
+local MOUSE_SENS_YAW = 0.0025
+local MOUSE_SENS_PITCH = 0.0020
+local PITCH_MIN = math.rad(-45)
+local PITCH_MAX = math.rad(35)
+
 export type Mode = "Free" | "OverShoulder"
 
 type CameraControllerType = {
@@ -42,6 +48,11 @@ type CameraControllerType = {
 	targetLookPosition: Vector3?,
 	minZoom: number,
 	maxZoom: number,
+
+	-- Cursor lock state and API
+	isCursorUnlocked: (self: CameraControllerType) -> boolean,
+	setCursorUnlocked: (self: CameraControllerType, unlocked: boolean) -> (),
+	toggleCursorUnlocked: (self: CameraControllerType) -> (),
 
 	setMode: (self: CameraControllerType, mode: Mode) -> (),
 	toggleMode: (self: CameraControllerType) -> (),
@@ -76,6 +87,7 @@ function CameraController.new()
 	self.enabled = false
 	self.mode = "OverShoulder"
 	self.heartbeatConnection = nil
+	self._inputConn = nil
 	self.originalCameraType = self.camera.CameraType
 	self.targetLookPosition = nil
 	self.minZoom = DEFAULT_MIN_ZOOM
@@ -83,6 +95,9 @@ function CameraController.new()
 	self._isFocusing = false
 	self._savedCamCF = nil
 	self._focusTarget = nil
+	self._yaw = 0
+	self._pitch = 0
+	self._cursorUnlocked = false
 
 	-- Enforce zoom limits for Free camera
 	self.player.CameraMinZoomDistance = self.minZoom
@@ -109,6 +124,11 @@ function CameraController:setMode(mode: Mode)
 		self.camera.CameraType = Enum.CameraType.Custom
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
+		-- Restore character auto-rotate
+		local hum = self.player.Character and self.player.Character:FindFirstChildOfClass("Humanoid")
+		if hum then
+			hum.AutoRotate = true
+		end
 		-- Panels: follow camera in Free mode
 		local wg = WorldGUIManager.getInstance()
 		if wg then
@@ -120,25 +140,91 @@ function CameraController:setMode(mode: Mode)
 			local s: any = self
 			s.heartbeatConnection = nil
 		end
+		if self._inputConn then
+			self._inputConn:Disconnect()
+			local s2: any = self
+			s2._inputConn = nil
+		end
 		return
 	end
 
 	-- Over-Shoulder
 	self.camera.CameraType = Enum.CameraType.Scriptable
-	UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
-	UserInputService.MouseIconEnabled = false
+	-- Apply cursor state for OS mode
+	if self._cursorUnlocked then
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+	else
+		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		UserInputService.MouseIconEnabled = false
+	end
+	-- Initialize yaw/pitch from current camera facing relative to character
+	local hrp = self.player.Character and self.player.Character:FindFirstChild("HumanoidRootPart")
+	if hrp and hrp:IsA("BasePart") then
+		local look = (self.camera.CFrame.LookVector)
+		-- derive yaw from camera forward projected on XZ
+		local flatForward = Vector3.new(look.X, 0, look.Z)
+		if flatForward.Magnitude > 0.001 then
+			self._yaw = math.atan2(-flatForward.X, -flatForward.Z)
+		end
+		-- derive pitch from camera forward Y
+		self._pitch = math.clamp(math.asin(math.clamp(look.Y, -1, 1)), PITCH_MIN, PITCH_MAX)
+	end
 	-- Panels: keep following camera in OS mode as well for consistency
 	local wg2 = WorldGUIManager.getInstance()
 	if wg2 then
 		wg2:setPanelFollowMode("SystemPanel", "camera")
 		wg2:setPanelCameraSpaceOffset("SystemPanel", Vector3.new(0, 0.0, 0.0))
 	end
+	-- Disable character auto-rotate; we will orient to camera yaw
+	local hum2 = self.player.Character and self.player.Character:FindFirstChildOfClass("Humanoid")
+	if hum2 then
+		hum2.AutoRotate = false
+	end
 	if self.heartbeatConnection then
 		self.heartbeatConnection:Disconnect()
 		local s: any = self
 		s.heartbeatConnection = nil
 	end
+	-- Mouse delta -> yaw/pitch
+	if self._inputConn then
+		self._inputConn:Disconnect()
+		local s3: any = self
+		s3._inputConn = nil
+	end
+	self._inputConn = UserInputService.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			-- Ignore mouse deltas while cursor is unlocked for UI interaction in OS mode
+			if not self._cursorUnlocked then
+				local d = input.Delta
+				self._yaw += -d.X * MOUSE_SENS_YAW
+				self._pitch = math.clamp(self._pitch + -d.Y * MOUSE_SENS_PITCH, PITCH_MIN, PITCH_MAX)
+			end
+		end
+	end)
 	self:_startUpdateLoop()
+end
+
+function CameraController:isCursorUnlocked(): boolean
+	return (self :: any)._cursorUnlocked == true
+end
+
+function CameraController:setCursorUnlocked(unlocked: boolean)
+	(self :: any)._cursorUnlocked = unlocked and true or false
+	-- Apply immediately if currently in Over-Shoulder mode
+	if self.enabled and self.mode == "OverShoulder" then
+		if (self :: any)._cursorUnlocked then
+			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+			UserInputService.MouseIconEnabled = true
+		else
+			UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+			UserInputService.MouseIconEnabled = false
+		end
+	end
+end
+
+function CameraController:toggleCursorUnlocked()
+	self:setCursorUnlocked(not self:isCursorUnlocked())
 end
 
 function CameraController:toggleMode()
@@ -204,10 +290,11 @@ function CameraController:_getIdealCameraPosition(): Vector3
 	end
 
 	local rootPart = character.HumanoidRootPart :: BasePart
-	local playerCFrame = rootPart.CFrame :: CFrame
-
-	-- Calculate camera position relative to player orientation (right/up/back)
-	local idealPosition = (playerCFrame * CFrame.new(SHOULDER_RIGHT, SHOULDER_UP, SHOULDER_BACK)).Position
+	local rootPos = rootPart.Position
+	-- Build camera rotation from yaw/pitch
+	local camRot = CFrame.Angles(0, self._yaw, 0) * CFrame.Angles(self._pitch, 0, 0)
+	local offsetWorld = camRot:VectorToWorldSpace(Vector3.new(SHOULDER_RIGHT, SHOULDER_UP, SHOULDER_BACK))
+	local idealPosition = rootPos + offsetWorld
 
 	-- Check for collisions and adjust if necessary
 	local playerPosition = rootPart.Position
@@ -224,7 +311,20 @@ function CameraController:_checkCollision(startPos: Vector3, endPos: Vector3): V
 	-- Perform raycast to check for obstacles
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = { self.player.Character }
+	-- Exclude the player's character and any world-space UI panels so the camera doesn't
+	-- treat them as obstacles (prevents jitter/feedback when a panel is near the camera)
+	local exclude: { Instance } = {}
+	if self.player.Character then
+		table.insert(exclude, self.player.Character)
+	end
+	local wg = WorldGUIManager.getInstance()
+	if wg and (wg :: any).getPanelParts then
+		local parts = (wg :: any):getPanelParts()
+		for _, inst in ipairs(parts) do
+			table.insert(exclude, inst)
+		end
+	end
+	raycastParams.FilterDescendantsInstances = exclude
 
 	local raycastResult = Workspace:Raycast(startPos, direction * distance, raycastParams)
 
@@ -272,8 +372,9 @@ function CameraController:_getLookAtPosition(): Vector3
 	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if humanoidRootPart then
 		local pos = humanoidRootPart.Position
-		local forward = humanoidRootPart.CFrame.LookVector
-		return pos + forward * LOOK_FORWARD_DISTANCE + Vector3.new(0, LOOK_UP_OFFSET_Y, 0)
+		-- Camera forward from yaw/pitch
+		local camForward = (CFrame.Angles(0, self._yaw, 0) * CFrame.Angles(self._pitch, 0, 0)).LookVector
+		return pos + camForward * LOOK_FORWARD_DISTANCE + Vector3.new(0, LOOK_UP_OFFSET_Y, 0)
 	end
 
 	-- As a last resort, if we have WorldGUIManager and we couldn't find HRP, try its target
@@ -322,6 +423,16 @@ function CameraController:_startUpdateLoop()
 			return
 		end
 		self:_updateCamera()
+		-- Orient character to camera yaw so movement is camera-relative and mouse controls facing
+		local character = self.player.Character
+		local hrpAny = character and character:FindFirstChild("HumanoidRootPart")
+		local hum = character and character:FindFirstChildOfClass("Humanoid")
+		if hrpAny and hrpAny:IsA("BasePart") and hum then
+			local hrp = hrpAny :: BasePart
+			local pos = hrp.Position
+			local desired = CFrame.new(pos) * CFrame.Angles(0, self._yaw, 0)
+			hrp.CFrame = desired
+		end
 	end)
 end
 
@@ -331,6 +442,11 @@ function CameraController:_stopUpdateLoop()
 		self.heartbeatConnection:Disconnect()
 	end
 	(self :: any).heartbeatConnection = nil
+	if self._inputConn then
+		self._inputConn:Disconnect()
+		local s4: any = self
+		s4._inputConn = nil
+	end
 end
 
 -- Focus the camera on a target part (e.g., System Panel) and free the mouse for UI.

@@ -6,8 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local NetRay = require(ReplicatedStorage.Packages.NetRay)
-local StatsManager = require(script.Parent.StatsManager)
-local AttributesConfig = require(game.ReplicatedStorage.Shared.AttributesConfig)
+local AttributesConfig = require(game.ServerScriptService.Server.AttributesConfig) 
 local AttributeTypes = require(game.ReplicatedStorage.Shared.AttributeTypes)
 
 -- Import types from central location
@@ -271,7 +270,7 @@ function AttributesManager.applyAllScaling(player: Player)
 		local intelligenceValue = attribute:getValue()
 
 		-- Apply the scaling formula defined in the milestone
-		attributeMilestone.applyScaling(player, StatsManager, intelligenceValue)
+		attributeMilestone.applyScaling(player, intelligenceValue)
 	end
 end
 

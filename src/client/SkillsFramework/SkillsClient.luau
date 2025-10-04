@@ -237,6 +237,15 @@ event:OnEvent(function(payload)
 			return
 		end
 		local finalCFrame = payload.cframe or CFrame.new()
+
+		-- If no explicit anchor provided by server, try to resolve one from ClientSpec
+		if not anchor then
+			local autoAnchor = spec.fx and resolveAnchorForStep(spec.fx, idx, nil)
+			if autoAnchor then
+				playFXWithAnchor(resolvedFx, payload.casterId, autoAnchor, lifetime)
+				return
+			end
+		end
 		if anchor and anchor.mode == "attachment" then
 			local casterId = payload.casterId
 			if casterId then

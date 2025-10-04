@@ -1,7 +1,7 @@
 local BaseComboSkill = require(script.Parent.BaseComboSkill)
 local StatsManager = require(script.Parent.Parent.Parent.StatsManager)
-local HitboxService = require(script.Parent.Parent.Parent:WaitForChild("skills"):WaitForChild("HitboxService"))
-local CombatService = require(script.Parent.Parent.Parent:WaitForChild("CombatService"))
+local HitboxService = require(script.Parent.Parent.HitboxService)
+local CombatService = require(script.Parent.Parent.Parent.CombatService)
 
 local Punch = {}
 Punch.__index = Punch
@@ -43,15 +43,13 @@ function Punch:onComboStep(step: number)
 			:playersOnly(false)
 			:box(Vector3.new(3, 3, 3))
 			:offset(0, 0, -3)
-			:collect(true)
+			:collect()
 
 		for _, m in ipairs(targets) do
 			-- for debugging
 			print("FOUND TARGET: " .. m.Name .. " for damage: " .. damage)
 			CombatService.applyDamage(m, damage, self.player)
 		end
-	else
-		self:emitFX(step, { lifetime = 1 })
 	end
 end
 

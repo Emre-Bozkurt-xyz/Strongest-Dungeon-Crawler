@@ -6,7 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local NetRay = require(ReplicatedStorage.Packages.NetRay)
-local StatsConfig = require(game.ReplicatedStorage.Shared.StatsConfig)
+local StatsConfig = require(game.ServerScriptService.Server.StatsConfig)
 local Types = require(game.ReplicatedStorage.Shared.StatTypes)
 local StatTypeUtil = require(ReplicatedStorage.Shared.StatTypeUtil)
 

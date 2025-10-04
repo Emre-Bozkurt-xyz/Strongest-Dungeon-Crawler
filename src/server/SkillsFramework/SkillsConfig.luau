@@ -13,6 +13,7 @@ export type SkillData = {
 		window: number,
 		stepDelays: { number }?,
 		hitDelays: { number }?,
+		recovery: number?, -- optional post-final-hit lock before execution completes (keeps GCD/cooldown from starting early)
 	}?,
 	hits: {
 		{
@@ -38,10 +39,11 @@ SkillsConfig.skills = {
 		combo = {
 			steps = 3, -- left jab, right jab, heavy
 			window = 1, -- seconds to press again to advance combo
-			stepDelays = { 0.3, 0.6, 0.0 }, -- enforced minimum delay before next press allowed (each within window)
-			-- Optional server hit timings per step (sec from step start to apply damage/impact)
-			-- If omitted, defaults to 0 for all steps
-			hitDelays = { 0.4, 0.4, 0.4 },
+			-- Enforced minimum delay before next press allowed (each within window)
+			stepDelays = { 0.3, 0.4, 1 },
+
+			-- Server hit timings per step (sec from step start to apply damage/impact)
+			hitDelays = { 0.4, 0.4, 0.4 }
 		},
 	},
 	TripleStrike = {

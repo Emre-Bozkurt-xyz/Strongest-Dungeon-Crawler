@@ -1,6 +1,6 @@
 local BaseSkill = require(script.Parent.BaseSkill)
 local ComboService = require(script.Parent.Parent.ComboService)
-local CooldownService = require(script.Parent.Parent.CooldownService)
+-- Cooldown start will be handled centrally on execution completion (SkillsManager listener)
 
 local BaseComboSkill = {}
 BaseComboSkill.__index = BaseComboSkill
@@ -20,23 +20,25 @@ function BaseComboSkill:use(requestData: any?)
 	local total = combo and combo.total or 1
 	local window = combo and combo.window or 0
 	local token = combo and combo.token or 0
-	local finalCd = combo and combo.finalCd or self.cooldown
     local hitDelays: {number}? = (self.config and self.config.combo and self.config.combo.hitDelays) :: {number}?
 
 	local isFirst = (step == 1)
+	-- Proper boolean final step check (previous 'or 0' introduced truthiness issues)
 	local isFinal = (step == total)
+	local recovery = (self.config and self.config.combo and self.config.combo.recovery) or 0
 
 	if not isFirst then
 		self:emitComboWaitEnd()
 	end
 	if isFirst then
-		self:emitStart({ step = step, total = total })
+		-- Begin execution with manual completion (no auto-duration) so variable player timing / stepDelays
+		self:beginExecution(nil, true) -- allowChain = true for same-skill steps
 	end
 
 	-- Let clients know the step started (to play the correct animation)
 	self:emitStep(step, { total = total })
 
-	-- Optionally delay server-side hit logic to align with animation
+	-- Delay server-side hit logic to align with animation
 	local delaySec = if hitDelays and hitDelays[step] then hitDelays[step] else 0
 	if delaySec > 0 then
 		task.delay(delaySec, function()
@@ -49,22 +51,28 @@ function BaseComboSkill:use(requestData: any?)
 
 	-- Open wait window (if more steps)
 	if not isFinal and window > 0 then
-		local capturedStep = step
 		self:emitComboWaitStart(window, step, total)
 		task.delay(window, function()
 			if ComboService.isExpired(self.player, self.name, token) then
 				self:emitComboWaitEnd()
-				self:emitEnd({ step = capturedStep, total = total, expired = true })
-				-- cooldown on expiry
-				if finalCd and finalCd > 0 then
-					CooldownService.start(self.player, self.name, finalCd)
-				end
+				self:completeExecution("expired")
 			end
 		end)
 	end
 
 	if isFinal then
-		self:emitEnd({ step = step, total = total })
+		-- Schedule completion strictly after the final hit delay + recovery, ensuring onComboStep executes first.
+		local totalDelay = delaySec + (recovery or 0)
+		if totalDelay > 0 then
+			task.delay(totalDelay, function()
+				self:completeExecution()
+			end)
+		else
+			-- Defer to guarantee order relative to immediate onComboStep
+			task.defer(function()
+				self:completeExecution()
+			end)
+		end
 	end
 end
 

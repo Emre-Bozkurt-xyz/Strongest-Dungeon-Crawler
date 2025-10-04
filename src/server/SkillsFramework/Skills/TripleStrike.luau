@@ -1,7 +1,7 @@
 --!strict
 local BaseSkill = require(script.Parent:WaitForChild("BaseSkill"))
 local StatsManager = require(script.Parent.Parent.Parent:WaitForChild("StatsManager"))
-local HitboxService = require(script.Parent.Parent.Parent:WaitForChild("skills"):WaitForChild("HitboxService"))
+local HitboxService = require(script.Parent.Parent.HitboxService)
 local CombatService = require(script.Parent.Parent.Parent:WaitForChild("CombatService"))
 
 local DEBUG_VIS = false
@@ -37,9 +37,16 @@ function TripleStrike:use()
 		base = stats.PhysicalDamage:getValue(stats)
 	end
 
-	self:emitStart()
-
+	-- Determine total planned execution duration (last hit time + small tail)
 	local hits = (self.config and self.config.hits) :: { any }?
+	local tail = 0.05
+	local totalDuration = 0
+	if type(hits) == "table" and #hits > 0 then
+		local lastT = hits[#hits].t or 0
+		totalDuration = lastT + tail
+	end
+	self:beginExecution(totalDuration > 0 and totalDuration or nil, false)
+
 	if type(hits) == "table" and #hits > 0 then
 		local steps = {}
 		for i, h in ipairs(hits) do
@@ -52,7 +59,6 @@ function TripleStrike:use()
 					local yaw = (h.yaw or 0) :: number
 					local angle = (h.coneAngle or 50) :: number
 					local range = (h.coneRange or 8) :: number
-					local playersOnly = if h.playersOnly == nil then true else h.playersOnly
 					local mult = (h.damageMult or 1.0) :: number
 
 					local originCf = casterOriginCFrame(self.player, yaw)
@@ -64,21 +70,23 @@ function TripleStrike:use()
 						local q = HitboxService.newQuery(originCf)
 							:caster(self.player)
 							:teamRelation("enemy")
-							:playersOnly(playersOnly)
+							:playersOnly(false)
 							:cone(angle, range)
-						targets = q:collect()
+						targets = q:collect(true)
 					end
 					self:emitFX(i, { cframe = originCf, lifetime = 1 })
 					for _, model in ipairs(targets) do
 						CombatService.applyDamage(model, base * mult, self.player)
+						print(
+							`TripleStrike hit {model.Name} for {base} * {mult} = {base * mult} damage (base {base}, mult {mult})`
+						)
 					end
 				end,
 			}
 		end
 		self:schedule(steps)
-		local lastT = hits[#hits].t or 0
-		task.delay(lastT + 0.05, function()
-			self:emitEnd()
+		task.delay(totalDuration, function()
+			self:completeExecution()
 		end)
 		return
 	end

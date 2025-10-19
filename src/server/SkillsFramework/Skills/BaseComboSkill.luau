@@ -8,8 +8,8 @@ setmetatable(BaseComboSkill, { __index = BaseSkill })
 
 -- Contract: child implements onComboStep(self, step: number, requestData: any?)
 
-function BaseComboSkill.new(player: Player, data: any)
-	local self = BaseSkill.new(player, data)
+function BaseComboSkill.new(caster: Instance, data: any)
+	local self = BaseSkill.new(caster, data)
 	setmetatable(self, BaseComboSkill)
 	return self
 end
@@ -53,7 +53,7 @@ function BaseComboSkill:use(requestData: any?)
 	if not isFinal and window > 0 then
 		self:emitComboWaitStart(window, step, total)
 		task.delay(window, function()
-			if ComboService.isExpired(self.player, self.name, token) then
+			if ComboService.isExpired(self.caster, self.name, token) then
 				self:emitComboWaitEnd()
 				self:completeExecution("expired")
 			end

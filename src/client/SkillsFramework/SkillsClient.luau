@@ -1,5 +1,6 @@
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local NetRay = require(ReplicatedStorage.Packages.NetRay)
+local Networking = require(ReplicatedStorage.Shared.Networking)
 
 local AnimationPlayer = require(script.Parent.Parent.Parent.Client.fx.AnimationPlayer)
 local FXPlayer = require(script.Parent.Parent.Parent.Client.fx.FXPlayer)
@@ -7,8 +8,10 @@ local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 
 local SkillsClient = {}
 
-local request = NetRay:RegisterRequestEvent("SkillsRequest")
-local event = NetRay:GetEvent("SkillsEvent")
+local SKILLS_CHANNEL_NAME = "Skills"
+local dispatcher = Networking.client()
+local dispatcherAny = dispatcher :: any
+dispatcherAny:_ensureChannel(SKILLS_CHANNEL_NAME)
 
 local activeComboIdle: { [number]: string } = {}
 
@@ -161,11 +164,20 @@ local function bindMarkerFX(track: AnimationTrack?, casterId: number?, markersSp
 	)
 end
 
-event:OnEvent(function(payload)
+local function onSkillsEvent(payload: any, _meta: any?)
 	local phase = payload and payload.phase
 	local id = payload and payload.id
 	local spec = id and ClientSpec[id]
 	if not phase or not id or not spec then
+		return
+	end
+
+	local casterId = payload.casterId
+	local localPlayer = Players.LocalPlayer
+	local localUserId = localPlayer and localPlayer.UserId or nil
+	local isLocalCaster = (typeof(casterId) == "number" and casterId == localUserId)
+
+	if (phase == "start" or phase == "step" or phase == "combo_wait" or phase == "end" or phase == "interrupt") and not isLocalCaster then
 		return
 	end
 	if phase == "start" then
@@ -247,7 +259,6 @@ event:OnEvent(function(payload)
 			end
 		end
 		if anchor and anchor.mode == "attachment" then
-			local casterId = payload.casterId
 			if casterId then
 				local plr = game.Players:GetPlayerByUserId(casterId)
 				local char = plr and plr.Character
@@ -268,7 +279,6 @@ event:OnEvent(function(payload)
 		end
 		FXPlayer.playAt(resolvedFx, finalCFrame, lifetime)
 	elseif phase == "combo_wait" then
-		local casterId = payload.casterId
 		local open = payload.open
 		local idleKey = spec.anim and spec.anim.comboIdle
 		if open then
@@ -295,7 +305,6 @@ event:OnEvent(function(payload)
 			end
 		end
 		-- Ensure any lingering loop FX for this caster are stopped
-		local casterId = payload.casterId
 		if casterId and activeFX[casterId] then
 			for key, handle in pairs(activeFX[casterId]) do
 				pcall(handle.Stop)
@@ -303,11 +312,28 @@ event:OnEvent(function(payload)
 			end
 		end
 	end
-end)
+end
+
+dispatcherAny:on("SkillsEvent", onSkillsEvent)
 
 function SkillsClient.useSkill(skillName: string)
-	request:Request({ action = "use", skillName = skillName }):catch(function(err)
-		warn("SkillsClient: Failed to request skill use:", err)
+	task.spawn(function()
+		local ok, resultOrError = pcall(function()
+			return dispatcherAny:request("SkillsRequest", {
+				action = "use",
+				skillName = skillName,
+			}, {
+				qos = "CRITICAL",
+			})
+		end)
+		if not ok then
+			warn("SkillsClient: Failed to request skill use:", resultOrError)
+			return
+		end
+		local res = resultOrError
+		if typeof(res) == "table" and res.success == false then
+			warn("SkillsClient: Skill request rejected:", res.error)
+		end
 	end)
 end
 

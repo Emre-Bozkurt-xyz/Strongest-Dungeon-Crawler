@@ -11,6 +11,8 @@ local StatusEffectsService = require(script.Parent:WaitForChild("StatusEffectsSe
 local CombatService = {}
 
 export type DamageEffect = { id: string, chance: number?, params: any? }
+export type DamageSource = Instance
+
 export type DamageOptions = {
 	kind: string?, -- "physical" | "magic" | "true" | custom
 	element: string?, -- e.g., fire, ice
@@ -30,6 +32,9 @@ export type DamageResult = {
 	finalAmount: number,
 	targetPlayer: Player?,
 	targetHumanoid: Humanoid?,
+	sourcePlayer: Player?,
+	sourceModel: Model?,
+	sourceEntity: Instance?,
 	-- IDs of any status effects that were applied by this damage instance
 	effectsApplied: { string }?,
 }
@@ -73,6 +78,38 @@ local function playerFromTarget(target: Instance): Player?
 	return nil
 end
 
+local function resolveSourceInfo(source: Instance?): (Player?, Model?, Instance?)
+	if not source then
+		return nil, nil, nil
+	end
+
+	if source:IsA("Player") then
+		local player = source :: Player
+		local char = player.Character
+		local entity: Instance? = nil
+		if StatsManager.isRegistered(player) then
+			entity = player
+		elseif char and StatsManager.isRegistered(char) then
+			entity = char
+		end
+		return player, char, entity
+	end
+
+	local sourceModel = if source:IsA("Model") then source else modelOf(source)
+	local sourcePlayer = if sourceModel then Players:GetPlayerFromCharacter(sourceModel) else nil
+
+	local entity: Instance? = nil
+	if StatsManager.isRegistered(source) then
+		entity = source
+	elseif sourceModel and StatsManager.isRegistered(sourceModel) then
+		entity = sourceModel
+	elseif sourcePlayer and StatsManager.isRegistered(sourcePlayer) then
+		entity = sourcePlayer
+	end
+
+	return sourcePlayer, sourceModel, entity
+end
+
 local function resolveStatic(name: string): any
 	return (StatTypes.StaticStats :: any)[name]
 end
@@ -94,21 +131,29 @@ end
 
 local ARMOR_K = 100 -- tuning constant for armor diminishing returns
 
+local function normalizeChance(v: number?): number
+	if not v then
+		return 0
+	end
+	if v > 1 then
+		-- allow percent inputs like 5, 25, 100
+		v = v / 100
+	end
+	return math.clamp(v, 0, 1)
+end
+
 local function roll(p: number): boolean
-	if p <= 0 then
-		return false
-	end
-	if p >= 1 then
-		return true
-	end
-	return (math.random() < p)
+	local prob = math.clamp(p, 0, 1)
+	if prob <= 0 then return false end
+	if prob >= 1 then return true end
+	return (math.random() < prob)
 end
 
 -- Main, extensible damage pipeline
 function CombatService.applyDamageDetailed(
 	target: Instance,
 	baseAmount: number,
-	source: Player?,
+	source: Instance?,
 	opts: DamageOptions?
 ): DamageResult
 	local result: DamageResult = {
@@ -121,6 +166,9 @@ function CombatService.applyDamageDetailed(
 		finalAmount = 0,
 		targetPlayer = nil,
 		targetHumanoid = nil,
+		sourcePlayer = nil,
+		sourceModel = nil,
+		sourceEntity = nil,
 	}
 	if baseAmount <= 0 then
 		return result
@@ -130,10 +178,28 @@ function CombatService.applyDamageDetailed(
 	result.targetPlayer = targetPlayer
 	result.targetHumanoid = CombatService.getHumanoid(target)
 
+	local targetModel = if target:IsA("Model") then target else modelOf(target)
+	local targetEntity: Instance? = targetPlayer
+	if not targetEntity and targetModel and StatsManager.isRegistered(targetModel) then
+		targetEntity = targetModel
+	end
+
+	local sourcePlayer, sourceModel, sourceEntity = resolveSourceInfo(source)
+	result.sourcePlayer = sourcePlayer
+	result.sourceModel = sourceModel
+	result.sourceEntity = sourceEntity
+
+	local effectiveSourceForStats = sourceEntity
+	if not effectiveSourceForStats and sourcePlayer then
+		effectiveSourceForStats = sourcePlayer
+	elseif not effectiveSourceForStats and sourceModel and StatsManager.isRegistered(sourceModel) then
+		effectiveSourceForStats = sourceModel
+	end
+
 	-- Pre-hit: dodge (target stat) if present
 	if targetPlayer then
 		local tStats = StatsManager.getAllStats(targetPlayer)
-		local dodge = getStatValueByName(tStats, "DodgeChance")
+		local dodge = normalizeChance(getStatValueByName(tStats, "DodgeChance"))
 		if roll(dodge) then
 			result.dodged = true
 			return result
@@ -144,13 +210,28 @@ function CombatService.applyDamageDetailed(
 
 	-- Attacker crit (optional, if stats exist)
 	if opts == nil or opts.critAllowed ~= false then
-		local sStats = source and StatsManager.getAllStats(source) or nil
-		local critChance = getStatValueByName(sStats, "CriticalHitChance")
+		local sStats = effectiveSourceForStats and StatsManager.getAllStats(effectiveSourceForStats) or nil
+		local critChance = normalizeChance(getStatValueByName(sStats, "CriticalHitChance"))
 		local critDamage = getStatValueByName(sStats, "CriticalHitDamage")
 		if roll(critChance) then
 			result.crit = true
-			local bonus = (critDamage > 0) and critDamage or 0.5 -- defaults to +50% if not configured
-			amount = amount * (1 + bonus)
+			-- Interpret CriticalHitDamage flexibly:
+			--   150 -> 1.5x (percent total)
+			--   1.5 -> 1.5x (direct multiplier)
+			--   0.5 -> 1.5x (bonus fraction)
+			local multiplier: number
+			if critDamage and critDamage > 0 then
+				if critDamage > 3 then
+					multiplier = critDamage / 100
+				elseif critDamage >= 1 then
+					multiplier = critDamage
+				else
+					multiplier = 1 + critDamage
+				end
+			else
+				multiplier = 1.5
+			end
+			amount = amount * multiplier
 		end
 	end
 
@@ -159,9 +240,10 @@ function CombatService.applyDamageDetailed(
 		if targetPlayer then
 			local tStats2 = StatsManager.getAllStats(targetPlayer)
 			local damageReduction = getStatValueByName(tStats2, "DamageReduction")
+			local dr = (damageReduction > 1) and (damageReduction / 100) or damageReduction
 			local armor = getStatValueByName(tStats2, "Armor")
 			local armorFactor = (armor > 0) and (armor / (armor + ARMOR_K)) or 0
-			local reduceFactor = math.clamp(damageReduction + armorFactor, 0, 0.9)
+			local reduceFactor = math.clamp(dr + armorFactor, 0, 0.9)
 			local reduced = amount * reduceFactor
 			amount -= reduced
 			result.mitigated = reduced
@@ -170,15 +252,15 @@ function CombatService.applyDamageDetailed(
 
 	-- Absorption (ManaShield) for players
 	if not (opts and opts.bypassShield) then
-		if targetPlayer then
-			local stats = StatsManager.getAllStats(targetPlayer)
+		if targetEntity then
+			local stats = StatsManager.getAllStats(targetEntity)
 			local shield = stats and stats[StatTypes.PoolStats.ManaShield]
 			if shield and shield.getCurrentValue then
 				local cur = shield:getCurrentValue()
 				if cur > 0 then
 					local absorb = math.min(cur, amount)
 					if absorb > 0 then
-						StatsManager.removeFromPool(targetPlayer, StatTypes.PoolStats.ManaShield, absorb)
+						StatsManager.removeFromPool(targetEntity, StatTypes.PoolStats.ManaShield, absorb)
 						result.absorbed = absorb
 						amount -= absorb
 					end
@@ -191,6 +273,12 @@ function CombatService.applyDamageDetailed(
 	if targetPlayer then
 		if amount > 0 then
 			StatsManager.removeFromPool(targetPlayer, StatTypes.PoolStats.Health, amount)
+			result.appliedToHealth = amount
+			result.finalAmount = amount
+		end
+	elseif targetEntity then
+		if amount > 0 then
+			StatsManager.removeFromPool(targetEntity, StatTypes.PoolStats.Health, amount)
 			result.appliedToHealth = amount
 			result.finalAmount = amount
 		end
@@ -208,7 +296,8 @@ function CombatService.applyDamageDetailed(
 		for _, eff in ipairs(opts.effects) do
 			local chance = (eff.chance ~= nil) and (eff.chance :: number) or 1
 			if roll(chance) then
-				if StatusEffectsService.apply(target, eff.id, source, eff.params) then
+				local effectSource = source or sourceEntity or sourcePlayer or sourceModel
+				if StatusEffectsService.apply(target, eff.id, effectSource, eff.params) then
 					table.insert(applied, eff.id)
 				end
 			end
@@ -222,7 +311,7 @@ function CombatService.applyDamageDetailed(
 end
 
 -- Apply raw damage. Returns true if any damage was applied.
-function CombatService.applyDamage(target: Instance, amount: number, source: Player?): boolean
+function CombatService.applyDamage(target: Instance, amount: number, source: Instance?): boolean
 	local r = CombatService.applyDamageDetailed(target, amount, source, nil)
 	return (r.finalAmount > 0) or (r.absorbed > 0)
 end

@@ -6,7 +6,7 @@ local RunService = game:GetService("RunService")
 local StatusEffectsService = {}
 
 export type EffectContext = {
-	applyDamage: (target: Instance, amount: number, source: Player?, opts: any?) -> any,
+	applyDamage: (target: Instance, amount: number, source: Instance?, opts: any?) -> any,
 }
 
 export type StackingMode = "aggregate" | "multi" | "charges"
@@ -28,15 +28,15 @@ export type EffectDef = {
 	paramCombine: ((entries: { any }) -> any)?, -- combine params for aggregate ticks
 	getPotency: ((params: any) -> number)?, -- for refreshWeakest
 	-- Callbacks
-	onApply: ((target: Instance, source: Player?, params: any?, stacks: number) -> ())?,
-	onRefresh: ((target: Instance, source: Player?, params: any?, stacks: number) -> ())?,
-	onTick: ((target: Instance, source: Player?, params: any?, stacks: number, dt: number, ctx: EffectContext) -> ())?,
-	onRemove: ((target: Instance, source: Player?, stacks: number) -> ())?,
+	onApply: ((target: Instance, source: Instance?, params: any?, stacks: number) -> ())?,
+	onRefresh: ((target: Instance, source: Instance?, params: any?, stacks: number) -> ())?,
+	onTick: ((target: Instance, source: Instance?, params: any?, stacks: number, dt: number, ctx: EffectContext) -> ())?,
+	onRemove: ((target: Instance, source: Instance?, stacks: number) -> ())?,
 }
 
 export type ActiveEntry = {
 	params: any?,
-	source: Player?,
+	source: Instance?,
 	expiresAt: number,
 	nextTickAt: number?,
 	lastTick: number,
@@ -50,7 +50,7 @@ export type ActiveEffectState = {
 	stacks: number,
 	expiresAt: number, -- os.clock() time (aggregate/charges-global)
 	params: any?, -- aggregate combined/last params
-	source: Player?,
+	source: Instance?,
 	def: EffectDef,
 	lastTick: number,
 	nextTickAt: number?, -- aggregate/charges per-effect tick time
@@ -147,7 +147,7 @@ end
 local function ensureState(
 	id: string,
 	def: EffectDef,
-	source: Player?,
+	source: Instance?,
 	params: any,
 	now: number,
 	duration: number
@@ -173,7 +173,7 @@ local function addOrReplaceEntry(
 	st: ActiveEffectState,
 	def: EffectDef,
 	params: any,
-	source: Player?,
+	source: Instance?,
 	now: number,
 	duration: number
 )
@@ -253,7 +253,7 @@ local function recomputeAggregateParams(st: ActiveEffectState)
 	end
 end
 
-function StatusEffectsService.apply(target: Instance, id: string, source: Player?, params: any?): boolean
+function StatusEffectsService.apply(target: Instance, id: string, source: Instance?, params: any?): boolean
 	local def = registry[id]
 	if not def then
 		warn("StatusEffectsService: effect not registered:", id)

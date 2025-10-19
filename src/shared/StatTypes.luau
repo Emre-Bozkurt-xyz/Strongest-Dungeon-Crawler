@@ -43,6 +43,8 @@ export type StaticStatType =
 	| "HealthRegeneration"
 	| "ManaRegeneration"
 	| "StaminaRegeneration"
+	| "PerceptionDistance"
+	| "PerceptionTier"
 
 -- Pool stat names (current/max values like health, mana)
 export type PoolType = "Health" | "Mana" | "Stamina" | "ManaShield"
@@ -70,6 +72,8 @@ export type PlayerStats = {
 	HealthRegeneration: typeof(Stat.new({ baseValue = 0, name = "" })),
 	ManaRegeneration: typeof(Stat.new({ baseValue = 0, name = "" })),
 	StaminaRegeneration: typeof(Stat.new({ baseValue = 0, name = "" })),
+	PerceptionDistance: typeof(Stat.new({ baseValue = 0, name = "" })),
+	PerceptionTier: typeof(Stat.new({ baseValue = 0, name = "" })),
 }
 
 export type StaticStatInstance = typeof(Stat.new({ baseValue = 0, name = "" }))
@@ -125,6 +129,8 @@ Types.StaticStats = {
 	HealthRegeneration = "HealthRegeneration" :: StaticStatType,
 	ManaRegeneration = "ManaRegeneration" :: StaticStatType,
 	StaminaRegeneration = "StaminaRegeneration" :: StaticStatType,
+	PerceptionDistance = "PerceptionDistance" :: StaticStatType,
+	PerceptionTier = "PerceptionTier" :: StaticStatType,
 }
 
 -- Pool stat names (like C# enum)
@@ -159,6 +165,8 @@ Types.AllStaticStatNames = {
 	"HealthRegeneration",
 	"ManaRegeneration",
 	"StaminaRegeneration",
+	"PerceptionDistance",
+	"PerceptionTier",
 } :: { StaticStatType }
 
 Types.AllPoolStatNames = {
@@ -182,6 +190,8 @@ Types.AllStatNames = {
 	"HealthRegeneration",
 	"ManaRegeneration",
 	"StaminaRegeneration",
+	"PerceptionDistance",
+	"PerceptionTier",
 } :: { StatType }
 
 return Types

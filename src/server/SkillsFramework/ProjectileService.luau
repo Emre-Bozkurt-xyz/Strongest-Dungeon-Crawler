@@ -1,12 +1,9 @@
 --!strict
 -- ProjectileService stub: spawns and owns projectile simulation; emits SkillsEvent for visuals
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
-local NetRay = require(ReplicatedStorage.Packages.NetRay)
-
-local event = NetRay:RegisterEvent("SkillsEvent")
+local event = require(script.Parent.SkillsEvent)
 
 local ProjectileService = {}
 

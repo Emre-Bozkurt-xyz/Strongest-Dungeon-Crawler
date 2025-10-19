@@ -15,7 +15,6 @@ SystemPanelHandler.__index = SystemPanelHandler
 -- Import clients for centralized data access
 local AttributesClient = require(script.Parent.Parent.Parent.AttributesClient)
 local StatsClient = require(script.Parent.Parent.Parent.StatsClient)
-local NetRay = require(ReplicatedStorage.Packages.NetRay)
 
 function SystemPanelHandler.new()
     local self = setmetatable({}, SystemPanelHandler)
@@ -45,33 +44,23 @@ function SystemPanelHandler.new()
         camSpaceOffset = Vector3.new(0, 0.0, 0.0), -- tweak if needed without affecting OS mode
     })
 
-    -- Listen for stats updates via NetRay event
-    local statsEvent = NetRay:GetEvent("StatsDelta")
-    if statsEvent then
-        statsEvent:OnEvent(function(_delta)
-            -- Let StatsClient consume and update state first, then refresh UI
-            task.defer(function()
-                local statsData = StatsClient.getFormattedStats()
-                if statsData then
-                    self:updateStats(statsData)
-                end
-            end)
+    -- Listen for stats updates via StatsClient change signal
+    self._statsConn = StatsClient.onChanged(function()
+        task.defer(function()
+            local statsData = StatsClient.getFormattedStats()
+            if statsData then
+                self:updateStats(statsData)
+            end
         end)
-    end
+    end)
 
-    -- Listen for attributes updates via NetRay event
-    local attributesEvent = NetRay:GetEvent("AttributesDelta")
-    if attributesEvent then
-        attributesEvent:OnEvent(function(_delta)
-            -- Pull latest state from AttributesClient and update UI
-            task.defer(function()
-                local attributeData = AttributesClient.getFormattedAttributes()
-                if attributeData then
-                    self:updateAttributes(attributeData)
-                end
-            end)
-        end)
+    -- Listen for attributes updates via dispatcher-backed client
+    local function attrListener(ctx: any)
+        self:updateAttributes(ctx.data)
     end
+    self._attrConn = AttributesClient.onChanged(function(data, source, trace)
+        attrListener({ data = data, source = source, trace = trace })
+    end)
 
     -- Initial update to get current data
     local function initialUpdate()

@@ -1,13 +1,13 @@
 --!strict
 -- AttributesClient.luau
--- Client-side attributes management using NetRay (per-service)
+-- Client-side attributes management using the custom dispatcher
 
 -- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Imports
-local NetRay = require(ReplicatedStorage.Packages.NetRay)
+local Networking = require(ReplicatedStorage.Shared.Networking)
 
 -- Types
 export type AttributesData = {
@@ -23,16 +23,34 @@ local player = Players.LocalPlayer
 
 -- Local state
 local current: AttributesData? = nil
+local currentVersion: number = 0
+local listeners: { [number]: (AttributesData, string, any?) -> () } = {}
+local nextListenerId = 0
 
--- NetRay endpoints
-local attributesEvent = NetRay:GetEvent("AttributesDelta")
-local attributesRequest = NetRay:RegisterRequestEvent("AttributesRequest")
+local ATTRIBUTES_CHANNEL_NAME = "Attributes"
+local dispatcher = Networking.client()
+local dispatcherAny = dispatcher :: any
+dispatcherAny:_ensureChannel(ATTRIBUTES_CHANNEL_NAME)
+
+local function notify(source: string, trace: any?)
+	if not current then
+		return
+	end
+	local snapshotListeners = table.clone(listeners)
+	for _, cb in pairs(snapshotListeners) do
+		cb(current :: AttributesData, source, trace)
+	end
+end
 
 -- Apply incoming delta to local state
 local function applyDelta(delta: any)
+	-- Debug: log receive with timing if trace present
+	local trace = (delta :: any).trace
 	if delta.type == "full_sync" and delta.data then
 		-- Replace state
 		current = delta.data :: AttributesData
+		currentVersion = (delta :: any).version or currentVersion
+		notify("full_sync", trace)
 		return
 	end
 
@@ -56,6 +74,7 @@ local function applyDelta(delta: any)
 		if d and d.availablePoints ~= nil then
 			(current :: AttributesData).availableAP = d.availablePoints
 		end
+		notify("delta", trace)
 	elseif (delta.type == "modifier_added" or delta.type == "modifier_removed") and delta.target then
 		local target = delta.target
 		local d = delta.data
@@ -65,35 +84,93 @@ local function applyDelta(delta: any)
 			entry.current = d.newTotal
 			entry.bonus = d.modifierTotal
 		end
+		notify("delta", trace)
 	end
 end
 
 -- Listener
-if attributesEvent then
-	attributesEvent:OnEvent(function(delta)
-		local ok = pcall(applyDelta, delta)
-		if not ok then
-			warn("AttributesClient: Failed to apply delta")
+local function onAttributesDelta(delta: any, _meta: any)
+	-- Version gate BEFORE apply to prevent stale overwrite
+	local ver = (delta :: any).version
+	if ver then
+		if ver <= currentVersion then
+			return
 		end
-	end)
+		currentVersion = ver
+	end
+
+	local ok = pcall(applyDelta, delta)
+	if not ok then
+		warn("AttributesClient: Failed to apply delta")
+	end
 end
+
+local _attributesDeltaDisconnect = dispatcherAny:on("AttributesDelta", onAttributesDelta)
 
 -- Public API
 local AttributesClient = {}
 
 function AttributesClient.requestAttributesData()
-	attributesRequest
-		:Request({})
-		:andThen(function(data)
-			current = data :: AttributesData
-		end)
-		:catch(function(err)
-			warn("AttributesClient: Failed to request attributes:", err)
-		end)
+	local ok, resultOrError = pcall(function()
+		return dispatcherAny:request("AttributesRequest", {})
+	end)
+	if not ok then
+		warn("AttributesClient: Failed to request attributes:", resultOrError)
+		return
+	end
+	if resultOrError == nil then
+		warn("AttributesClient: Received nil attributes payload")
+		return
+	end
+	current = resultOrError :: AttributesData
+	notify("request", nil)
 end
 
 function AttributesClient.getCurrentData()
 	return current
+end
+
+function AttributesClient.onChanged(callback: (AttributesData, string, any?) -> ())
+	nextListenerId += 1
+	local id = nextListenerId
+	listeners[id] = callback
+	if current then
+		callback(current :: AttributesData, "immediate", nil)
+	end
+	return {
+		Disconnect = function()
+			listeners[id] = nil
+		end,
+	}
+end
+
+-- Optional: get current version (debug)
+function AttributesClient.getVersion(): number
+	return currentVersion
+end
+
+-- Apply a minimal snapshot with version gating (used by request fast-path)
+function AttributesClient.applySnapshot(snap: any)
+	if not snap or not current then
+		return false
+	end
+	local ver = snap.version :: number?
+	if ver then
+		if ver <= currentVersion then
+			return false
+		end
+		currentVersion = ver
+	end
+	local c: any = current
+	local entry = c[snap.target]
+	if entry then
+		entry.base = snap.newBase
+		entry.current = snap.newTotal
+		entry.bonus = snap.modifierTotal
+	end
+	c.availableAP = snap.availableAP
+	notify("snapshot", snap.trace)
+	return true
 end
 
 function AttributesClient.getFormattedAttributes(): AttributesData?

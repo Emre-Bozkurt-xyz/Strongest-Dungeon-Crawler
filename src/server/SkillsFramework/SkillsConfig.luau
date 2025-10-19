@@ -1,4 +1,5 @@
 local SkillsFolder = script.Parent.Skills
+local SkillsDataFolder = script.Parent.SkillsData
 
 local SkillsConfig = {}
 
@@ -8,12 +9,14 @@ export type SkillData = {
 	cooldown: number,
 	gcd: number,
 	level: number,
+	animCategory: string?, -- category tag for NPC animation selection
 	combo: {
 		steps: number,
 		window: number,
 		stepDelays: { number }?,
 		hitDelays: { number }?,
 		recovery: number?, -- optional post-final-hit lock before execution completes (keeps GCD/cooldown from starting early)
+		comboCooldown: number?,
 	}?,
 	hits: {
 		{
@@ -27,48 +30,90 @@ export type SkillData = {
 	}?,
 }
 
--- minimal skill data; expand as needed
-SkillsConfig.skills = {
-	Punch = {
-		name = "Punch",
-		description = "A simple melee attack",
-		cooldown = 2.0,
-		gcd = 1.0,
-		level = 1,
-		-- Combo configuration (optional)
-		combo = {
-			steps = 3, -- left jab, right jab, heavy
-			window = 1, -- seconds to press again to advance combo
-			-- Enforced minimum delay before next press allowed (each within window)
-			stepDelays = { 0.3, 0.4, 1 },
+export type SkillConfigOverride = {
+	name: string?,
+	description: string?,
+	cooldown: number?,
+	gcd: number?,
+	level: number?,
+	animCategory: string?,
+	combo: {
+		steps: number?,
+		window: number?,
+		stepDelays: { number }?,
+		hitDelays: { number }?,
+		recovery: number?,
+		comboCooldown: number?,
+	}?,
+	hits: {
+		{
+			t: number?,
+			yaw: number?,
+			coneAngle: number?,
+			coneRange: number?,
+			playersOnly: boolean?,
+			damageMult: number?,
+		}
+	}?,
+}
 
-			-- Server hit timings per step (sec from step start to apply damage/impact)
-			hitDelays = { 0.4, 0.4, 0.4 }
-		},
-	},
-	TripleStrike = {
-		name = "TripleStrike",
-		description = "Three quick strikes in different arcs",
-		cooldown = 6.0,
-		gcd = 1.0,
-		level = 1,
-		-- Optional per-cast hit sequence (non-combo skills)
-		hits = {
-			{ t = 0.10, yaw = 0, coneAngle = 50, coneRange = 8, playersOnly = true, damageMult = 0.8 },
-			{ t = 0.25, yaw = -25, coneAngle = 50, coneRange = 8, playersOnly = true, damageMult = 1.0 },
-			{ t = 0.40, yaw = 25, coneAngle = 50, coneRange = 8, playersOnly = true, damageMult = 1.2 },
-		},
-	},
-} :: { [string]: SkillData }
+-- Build skills table by loading all modules under SkillsData
+local skills: { [string]: SkillData } = {}
+for _, child in ipairs(SkillsDataFolder:GetChildren()) do
+    if child:IsA("ModuleScript") then
+        local ok, dataOrErr = pcall(require, child)
+        if ok and type(dataOrErr) == "table" then
+            local name = (dataOrErr.name :: string?) or child.Name
+            if name then
+                skills[name] = dataOrErr :: SkillData
+            end
+        else
+            warn("SkillsConfig: failed to load skill data from", child:GetFullName(), dataOrErr)
+        end
+    end
+end
+SkillsConfig.skills = skills
 
-function SkillsConfig.addSkill(player: Player, name: string)
+local function deepCopy(value)
+	if type(value) ~= "table" then
+		return value
+	end
+	local result = {}
+	for k, v in pairs(value) do
+		result[k] = deepCopy(v)
+	end
+	return result
+end
+
+local function deepMerge(destination, source)
+	for key, value in pairs(source) do
+		if type(value) == "table" then
+			local existing = destination[key]
+			if type(existing) == "table" then
+				destination[key] = deepMerge(existing, value)
+			else
+				destination[key] = deepCopy(value)
+			end
+		else
+			destination[key] = value
+		end
+	end
+	return destination
+end
+
+function SkillsConfig.addSkill(caster: Instance, name: string, override: SkillConfigOverride?)
 	local skillData = SkillsConfig.skills[name]
 	if not skillData then
 		error(`Skill '{name}' does not exist in SkillsConfig`)
 	end
 
+	local config = deepCopy(skillData)
+	if override then
+		config = deepMerge(config, override)
+	end
+
 	local SkillClass = require(SkillsFolder:WaitForChild(name))
-	return SkillClass.new(player, skillData)
+	return SkillClass.new(caster, config)
 end
 
 return SkillsConfig

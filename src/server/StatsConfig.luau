@@ -52,6 +52,18 @@ StatsConfig.DEFAULT_STATS = {
 		maxValue = 999999,
 		name = "Stamina Regeneration",
 	}, -- per second
+	[Types.StaticStats.PerceptionDistance] = {
+		baseValue = 60,
+		minValue = 0,
+		maxValue = 2000,
+		name = "Perception Distance",
+	},
+	[Types.StaticStats.PerceptionTier] = {
+		baseValue = 0,
+		minValue = 0,
+		maxValue = 10,
+		name = "Perception Tier",
+	},
 }
 
 -- Helper function to create a new set of stats using Stat and PoolStat classes

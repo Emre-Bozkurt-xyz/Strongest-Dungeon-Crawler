@@ -1,3 +1,11 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Networking = require(ReplicatedStorage.Shared.Networking)
+
+local dispatcher = Networking.client()
+local dispatcherAny = dispatcher :: any
+local ATTRIBUTES_CHANNEL_NAME = "Attributes"
+dispatcherAny:_ensureChannel(ATTRIBUTES_CHANNEL_NAME)
+
 local AttributesUIController = {}
 AttributesUIController.__index = AttributesUIController
 
@@ -40,16 +48,41 @@ function AttributesUIController.new(Parent: Instance)
 
     self.attributeButtons.Perception = perceptionFrame
 
-    -- Set up click listeners for each attribute button (NetRay)
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local NetRay = require(ReplicatedStorage.Packages.NetRay)
-    local spendReq = NetRay:RegisterRequestEvent("AttributesSpendPoint")
+    -- Set up click listeners for each attribute button via dispatcher
+    local AttributesClient = require(script.Parent.Parent.Parent.AttributesClient)
 
     for attributeName, frame in pairs(self.attributeButtons) do
         frame.MouseButton1Click:Connect(function()
-            -- Request to spend one point on this attribute
-            spendReq:Request({ target = attributeName }):catch(function(err)
-                warn("AttributesUIController: Failed to request spend point:", err)
+            -- Send one spend request per click, immediately, with trace info
+            local now = os.clock()
+            local traceId = ("cli-%s-%.4f"):format(attributeName, now)
+            task.spawn(function()
+                local ok, responseOrError = pcall(function()
+                    return dispatcherAny:request("AttributesSpendPoint", {
+                        target = attributeName,
+                        trace = { id = traceId, clientSentTs = now },
+                    }, {
+                        qos = "HIGH",
+                    })
+                end)
+                if not ok then
+                    warn("AttributesUIController: Failed to request spend point:", responseOrError)
+                    return
+                end
+                local res = responseOrError
+                if typeof(res) ~= "table" then
+                    return
+                end
+                local snap = res.snapshot
+                if snap then
+                    snap.trace = snap.trace or { id = traceId, clientSentTs = now }
+                    if AttributesClient.applySnapshot(snap) then
+                        local current = AttributesClient.getCurrentData()
+                        if current then
+                            self:updateAttributes(current)
+                        end
+                    end
+                end
             end)
         end)
     end
@@ -58,6 +91,7 @@ function AttributesUIController.new(Parent: Instance)
 end
 
 function AttributesUIController:updateAttributes(attributes)
+    -- UI refresh; debug print removed to avoid spam/flicker
     self.availableAPLabel.Text = tostring(attributes.availableAP)
 
     self.strengthBaseLabel.Text = tostring(attributes.Strength.base)

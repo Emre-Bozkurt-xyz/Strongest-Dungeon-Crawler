@@ -5,8 +5,8 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local NetRay = require(ReplicatedStorage.Packages.NetRay)
-local AttributesConfig = require(game.ServerScriptService.Server.AttributesConfig) 
+local Networking = require(ReplicatedStorage.Shared.Networking)
+local AttributesConfig = require(game.ServerScriptService.Server.AttributesConfig)
 local AttributeTypes = require(game.ReplicatedStorage.Shared.AttributeTypes)
 
 -- Import types from central location
@@ -14,22 +14,32 @@ type PlayerAttributes = AttributeTypes.PlayerAttributes
 type AttributeType = AttributeTypes.AttributeType
 type AttributeModifier = AttributeTypes.AttributeModifier
 
+type Trace = {
+	id: string,
+	clientSentTs: number?,
+	serverReceiveTs: number?,
+	serverEmitTs: number?,
+}
+
 type Delta = {
 	system: string,
 	type: string,
 	target: string,
 	data: any,
 	timestamp: number,
+	trace: Trace?,
+	version: number?,
 }
 
 local AttributesManager = {}
 local playerAttributes: { [Player]: PlayerAttributes } = {}
+local pendingTraceByPlayer: { [Player]: Trace } = {}
+local attrVersionByPlayer: { [Player]: number } = {}
 
--- NetRay endpoints
-local attributesDelta = NetRay:RegisterEvent("AttributesDelta")
-local attributesRequest = NetRay:RegisterRequestEvent("AttributesRequest")
--- New: request to spend attribute points
-local attributesSpendPointRequest = NetRay:RegisterRequestEvent("AttributesSpendPoint")
+local ATTRIBUTES_CHANNEL_NAME = "Attributes"
+local dispatcher = Networking.server()
+local dispatcherAny = dispatcher :: any
+dispatcherAny:_ensureChannel(ATTRIBUTES_CHANNEL_NAME)
 
 -- Serialize attributes for network transmission
 function AttributesManager.serializeAttributes(attributes: PlayerAttributes)
@@ -62,14 +72,35 @@ end
 
 -- Helpers to send deltas
 local function sendAttrDelta(player: Player, deltaType: string, target: string, data: any)
-	local delta: Delta = {
+	local now = os.clock()
+	local ver = (attrVersionByPlayer[player] or 0) + 1
+	attrVersionByPlayer[player] = ver
+	local delta: any = {
 		system = "attributes",
 		type = deltaType,
 		target = target,
 		data = data,
-		timestamp = tick(),
+		timestamp = now,
+		version = ver,
 	}
-	attributesDelta:FireClient(player, delta)
+	-- Attach trace only if present (primarily for spend requests)
+	local trace = pendingTraceByPlayer[player]
+	if trace then
+		delta.trace = {
+			id = trace.id,
+			clientSentTs = trace.clientSentTs,
+			serverReceiveTs = trace.serverReceiveTs or now,
+			serverEmitTs = now,
+		}
+	end
+	local options = {
+		targets = player,
+		qos = "HIGH",
+	}
+	if trace and trace.id then
+		options.traceId = trace.id
+	end
+	dispatcherAny:emit("AttributesDelta", delta :: Delta, options)
 end
 
 local function sendFullSync(player: Player)
@@ -82,9 +113,13 @@ local function sendFullSync(player: Player)
 		type = "full_sync",
 		target = "ALL_DATA",
 		data = AttributesManager.serializeAttributes(attrs),
-		timestamp = tick(),
+		timestamp = os.clock(),
+		version = attrVersionByPlayer[player] or 0,
 	}
-	attributesDelta:FireClient(player, delta)
+	dispatcherAny:emit("AttributesDelta", delta, {
+		targets = player,
+		qos = "HIGH",
+	})
 end
 
 -- Add a modifier to a player's attribute
@@ -142,6 +177,7 @@ end
 -- Initialize attributes for a new player
 local function initializePlayerAttributes(player: Player)
 	playerAttributes[player] = AttributesConfig.createDefaultAttributes()
+	attrVersionByPlayer[player] = 0
 
 	-- Send initial full sync to player
 	sendFullSync(player)
@@ -150,6 +186,7 @@ end
 -- Clean up when player leaves
 local function cleanupPlayerAttributes(player: Player)
 	playerAttributes[player] = nil
+	attrVersionByPlayer[player] = nil
 end
 
 -- Update a player's attribute and notify client
@@ -279,21 +316,83 @@ Players.PlayerAdded:Connect(initializePlayerAttributes)
 Players.PlayerRemoving:Connect(cleanupPlayerAttributes)
 
 -- Request handler (C->S): return full serialized data
-attributesRequest:OnRequest(function(player, _requestData)
+dispatcherAny:onRequest("AttributesRequest", function(_payload, _meta, context)
+	local player = context.player
+	if not player then
+		warn("AttributesManager received AttributesRequest without player context")
+		return nil
+	end
 	if not playerAttributes[player] then
 		initializePlayerAttributes(player)
 	end
 	return AttributesManager.serializeAttributes(playerAttributes[player])
 end)
 
--- New: handle spend point request (C->S)
-attributesSpendPointRequest:OnRequest(function(player, requestData)
+-- Handle spend point request (C->S)
+dispatcherAny:onRequest("AttributesSpendPoint", function(requestData, _meta, context)
+	local player = context.player
+	if not player then
+		warn("AttributesManager received AttributesSpendPoint without player context")
+		return { success = false, error = "no_player" }
+	end
+	local recvTs = os.clock()
+	local traceIn = (requestData and requestData.trace) :: any
+	local traceId = traceIn and traceIn.id or ("no-trace")
+	pendingTraceByPlayer[player] = {
+		id = traceId,
+		clientSentTs = traceIn and traceIn.clientSentTs or nil,
+		serverReceiveTs = recvTs,
+	}
 	local target = requestData and requestData.target
 	if type(target) ~= "string" then
+		-- Clear pending trace quickly since we won't emit any deltas
+		task.defer(function()
+			pendingTraceByPlayer[player] = nil
+		end)
 		return { success = false, error = "missing_target" }
 	end
-	local ok = (AttributesManager :: any).spendAttributePoint(player, target :: any)
-	return { success = ok, error = ok and "" or "failed" }
+	local count = 1
+	if requestData and type(requestData.count) == "number" then
+		count = math.max(1, math.floor(requestData.count))
+	end
+
+	local spent = 0
+	for _ = 1, count do
+		local ok = (AttributesManager :: any).spendAttributePoint(player, target :: any)
+		if not ok then
+			break
+		end
+		spent += 1
+	end
+	local loopEnd = os.clock()
+	-- Clear trace shortly after to allow any last emits to carry it
+	task.delay(0.1, function()
+		pendingTraceByPlayer[player] = nil
+	end)
+	-- Build small snapshot for immediate client-side UI update (optional)
+	local snapshot: any = nil
+	if spent > 0 then
+		local attrs = playerAttributes[player]
+		local attrObj = (attrs :: any)[target]
+		snapshot = {
+			availableAP = attrs.availableAttributePoints,
+			target = target,
+			newBase = attrObj:getBaseValue(),
+			newTotal = attrObj:getValue(),
+			modifierTotal = attrObj:getModifierTotal(),
+			version = attrVersionByPlayer[player] or 0,
+		}
+		local pendingTrace = pendingTraceByPlayer[player]
+		if pendingTrace then
+			snapshot.trace = {
+				id = pendingTrace.id,
+				clientSentTs = pendingTrace.clientSentTs,
+				serverReceiveTs = pendingTrace.serverReceiveTs,
+				serverEmitTs = loopEnd,
+			}
+		end
+	end
+	return { success = spent > 0, spent = spent, snapshot = snapshot, error = spent > 0 and "" or "failed" }
 end)
 
 -- Utility: available attribute points

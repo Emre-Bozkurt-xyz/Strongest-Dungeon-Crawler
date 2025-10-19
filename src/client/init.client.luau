@@ -1,12 +1,20 @@
 -- Main client initialization script
 print("Client starting...")
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ChannelRegistry = require(ReplicatedStorage.Shared.Networking.ChannelRegistry)
+local ChannelDefinitions = require(ReplicatedStorage.Shared.Networking.Channels)
+
+ChannelRegistry.load(ChannelDefinitions)
+
 -- Initialize the client systems (they auto-initialize when required)
 local StatsClient = require(script.StatsClient)
 local AttributesClient = require(script.AttributesClient)
 local CameraController = require(script.CameraController)
 local StatusPreviewController = require(script.ui.controllers.StatusPreviewController)
+local SystemPanelHandler = require(script.ui.controllers.SystemPanelHandler)
 local SkillSlotUI = require(script.SkillsFramework.SkillSlotUI)
+local OverheadHealthService = require(script.OverheadHealthService)
 local UserInputService = game:GetService("UserInputService")
 
 -- Example: Add some client-side commands for testing
@@ -41,6 +49,9 @@ local function onCharacterAdded(character: Model)
 	-- Request initial data from server
 	StatsClient.requestStatsUpdate()
 	AttributesClient.requestAttributesData()
+
+	-- Ensure SystemPanelHandler is initialized so it listens for StatsDelta/AttributesDelta
+	SystemPanelHandler.get()
 
 	-- Initialize/refresh camera controller on spawn
 	local cam = CameraController.getInstance()
@@ -79,12 +90,7 @@ end)
 -- Start client-side testing (monitoring is already auto-started)
 print("📊 Client testing initialized")
 
-print("Client initialized")
+-- Start overhead HP bars service
+OverheadHealthService.start()
 
-local CooldownClient = require(script.SkillsFramework.CooldownClient)
-CooldownClient.onChanged(function(evt, key)
-    if key == "_GCD" then
-        local rec = CooldownClient.get("_GCD")
-        print("[GCD EVENT]", evt, rec and (rec.endAt - os.clock()) or "cleared")
-    end
-end)
+print("Client initialized")

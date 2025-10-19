@@ -1,5 +1,5 @@
 --!strict
--- ExecutionService: Manages per-player skill execution (cast/active) phase.
+-- ExecutionService: Manages per-entity skill execution (cast/active) phase.
 -- Phases separation: execution (no other skills except allowed chain) -> cooldown + optional GCD.
 -- API:
 --   ExecutionService.begin(player, skillName, opts) -> token? (nil if busy & cannot chain)
@@ -22,23 +22,25 @@ export type ExecState = {
 	cancelled: boolean?,
 }
 
-local active: { [Player]: ExecState } = {}
-local listeners: { (Player, string, string) -> () } = {}
+type Caster = Instance
+
+local active: { [Caster]: ExecState } = {}
+local listeners: { (Caster, string, string) -> () } = {}
 
 local function now(): number
 	return os.clock()
 end
 
-local function fireComplete(player: Player, skill: string, reason: string)
+local function fireComplete(caster: Caster, skill: string, reason: string)
 	for _, cb in ipairs(listeners) do
-		local ok = pcall(cb, player, skill, reason)
+		local ok = pcall(cb, caster, skill, reason)
 		if not ok then
 			warn("ExecutionService listener error")
 		end
 	end
 end
 
-function ExecutionService.onCompleted(cb: (Player, string, string) -> ())
+function ExecutionService.onCompleted(cb: (Caster, string, string) -> ())
 	table.insert(listeners, cb)
 	return function()
 		for i, f in ipairs(listeners) do
@@ -50,24 +52,24 @@ function ExecutionService.onCompleted(cb: (Player, string, string) -> ())
 	end
 end
 
-function ExecutionService.isLocked(player: Player): (boolean, string?)
-	local st = active[player]
+function ExecutionService.isLocked(caster: Caster): (boolean, string?)
+	local st = active[caster]
 	if st then
 		return true, st.skill
 	end
 	return false, nil
 end
 
-local function autoFinish(player: Player, token: number)
-	local st = active[player]
+local function autoFinish(caster: Caster, token: number)
+	local st = active[caster]
 	if not st or st.token ~= token then return end
 	-- auto completion
-	active[player] = nil
-	fireComplete(player, st.skill, "auto")
+	active[caster] = nil
+	fireComplete(caster, st.skill, "auto")
 end
 
-function ExecutionService.begin(player: Player, skillName: string, opts: { duration: number?, allowChainSkill: string? }?): number?
-	local st = active[player]
+function ExecutionService.begin(caster: Caster, skillName: string, opts: { duration: number?, allowChainSkill: string? }?): number?
+	local st = active[caster]
 	if st then
 		-- Allow chaining if same skill and chaining requested
 		if not (opts and opts.allowChainSkill and st.skill == opts.allowChainSkill) then
@@ -76,7 +78,7 @@ function ExecutionService.begin(player: Player, skillName: string, opts: { durat
 	end
 	local token = math.random(1, 2^31 - 1)
 	local duration = opts and opts.duration or nil
-	active[player] = {
+	active[caster] = {
 		skill = skillName,
 		token = token,
 		startedAt = now(),
@@ -85,17 +87,17 @@ function ExecutionService.begin(player: Player, skillName: string, opts: { durat
 	}
 	if duration and duration > 0 then
 		task.delay(duration, function()
-			autoFinish(player, token)
+			autoFinish(caster, token)
 		end)
 	end
 	return token
 end
 
-function ExecutionService.complete(player: Player, token: number, reason: string?)
-	local st = active[player]
+function ExecutionService.complete(caster: Caster, token: number, reason: string?)
+	local st = active[caster]
 	if not st or st.token ~= token then return end
-	active[player] = nil
-	fireComplete(player, st.skill, reason or "normal")
+	active[caster] = nil
+	fireComplete(caster, st.skill, reason or "normal")
 end
 
 return ExecutionService

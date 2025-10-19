@@ -34,6 +34,7 @@ function StatusPreviewController.new()
     self.healthBarController = HealthBarController.new(statusPanel)
     self.manaBarController = ManaBarController.new(statusPanel)
     self.staminaBarController = StaminaBarController.new(statusPanel)
+    self._statsDisconnect = function() end
 
     -- Register with WorldGUIManager in player follow mode with a player-space offset
     local wgm = WorldGUIManager.getInstance()
@@ -57,6 +58,17 @@ function StatusPreviewController.new()
     -- Make preview visible by default; SystemPanelHandler will hide/show as needed
     wgm:setPanelVisibility("StatusPreview", true, 0.2, workspace)
 
+    -- Listen for stats updates directly so preview doesn't depend on SystemPanelHandler initialization
+    local statsDisconnect = StatsClient.onChanged(function()
+        task.defer(function()
+            local stats = StatsClient.getFormattedStats()
+            if stats then
+                self:updateStats(stats)
+            end
+        end)
+    end)
+    self._statsDisconnect = statsDisconnect
+
     return self
 end
 
@@ -76,6 +88,8 @@ function StatusPreviewController:destroy()
     if self.panelPart then
         self.panelPart:Destroy()
     end
+    self._statsDisconnect()
+    self._statsDisconnect = function() end
 end
 
 -- Lazy singleton for convenience

@@ -10,15 +10,25 @@ local RegenerationService = require(script.RegenerationService)
 RegenerationService.start()
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SkillsManager = require(script.SkillsFramework.SkillsManager)
 local AttributeTypes = require(ReplicatedStorage.Shared.AttributeTypes)
 local PercentOfStatModifier = require(ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
+local NPCSpawner = require(script.NPCService.NPCSpawner)
+local ComponentManager = require(script.NPCService.ComponentManager)
+local NPCManager = require(script.NPCService.NPCManager)
+local EntityInfoService = require(script.EntityInfoService)
+local ChannelRegistry = require(ReplicatedStorage.Shared.Networking.ChannelRegistry)
+local ChannelDefinitions = require(ReplicatedStorage.Shared.Networking.Channels)
+
+ChannelRegistry.load(ChannelDefinitions)
+
 local Testing = require(script.Testing)
 
-local function removeBundles(character)
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
+local function _removeBundles(_character)
+	local humanoid = _character:FindFirstChildOfClass("Humanoid")
 	if not humanoid then
 		error("Character has no humanoid.")
 	end
@@ -37,6 +47,21 @@ end
 
 -- Example function to test the system
 local function setupPlayerCommands(player: Player)
+	NPCSpawner.spawn("Dummy", {
+		position = Vector3.new(90, 5, 0),
+		debug = true
+	})
+
+	-- NPCSpawner.spawn("Dummy", {
+	-- 	position = Vector3.new(95, 5, 0),
+	-- 	debug = true
+	-- })
+
+	-- NPCSpawner.spawn("Dummy", {
+	-- 	position = Vector3.new(90, 5, 20),
+	-- 	debug = true
+	-- })
+
 	SkillsManager.addSkill(player, "Punch")
 	SkillsManager.addSkill(player, "TripleStrike")
 
@@ -51,9 +76,13 @@ local function setupPlayerCommands(player: Player)
 		})
 	)
 
-	wait(10)
+	
+
+    wait(5)
+	
 
 	print("Starting in 5s...")
+	AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Perception, 1)
 
 	wait(5)
 
@@ -83,6 +112,8 @@ local function setupPlayerCommands(player: Player)
 	AttributesManager.spendAttributePoint(player, AttributeTypes.Attributes.Intelligence)
 	print(`{player.Name} spent 1 attribute point on Intelligence`)
 
+	AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Perception, 20)
+
 	wait(2)
 
 	-- Add intelligence modifier
@@ -95,8 +126,8 @@ end
 
 -- Connect to new players for demo purposes
 Players.PlayerAdded:Connect(function(player)
-	player.CharacterAdded:Connect(function(character)
-		--removeBundles(character)
+	player.CharacterAdded:Connect(function(_character)
+		--_removeBundles(_character)
 	end)
 	spawn(function()
 		setupPlayerCommands(player)
@@ -109,3 +140,12 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 print("Server initialized with Examples")
+
+-- Initialize NPC system and drive component updates each frame
+NPCManager.initialize()
+RunService.Heartbeat:Connect(function(dt)
+	ComponentManager.updateAll(dt)
+end)
+
+-- Start presence-only entity info streaming (Phase 2 scaffold)
+EntityInfoService.start()

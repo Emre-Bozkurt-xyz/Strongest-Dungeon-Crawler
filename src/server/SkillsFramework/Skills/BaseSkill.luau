@@ -1,16 +1,25 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 local Timeline = require(script.Parent.Parent.Timeline)
-local NetRay = require(ReplicatedStorage.Packages.NetRay)
 local ExecutionService = require(script.Parent.Parent.ExecutionService)
--- Ensure event exists on server; GetEvent is client-only
-local event = NetRay:RegisterEvent("SkillsEvent")
+local event = require(script.Parent.Parent.SkillsEvent)
 
 local BaseSkill = {}
 BaseSkill.__index = BaseSkill
 
-function BaseSkill.new(player: Player, data: any)
+function BaseSkill.new(caster: Instance, data: any)
 	local self = setmetatable({}, BaseSkill)
-	self.player = player
+	self.caster = caster
+	local casterPlayer: Player? = nil
+	if caster:IsA("Player") then
+		casterPlayer = caster
+	elseif caster:IsA("Model") then
+		casterPlayer = Players:GetPlayerFromCharacter(caster)
+	else
+		local model = caster:FindFirstAncestorOfClass("Model")
+		casterPlayer = model and Players:GetPlayerFromCharacter(model) or nil
+	end
+	self.player = casterPlayer
+	self._casterUserId = casterPlayer and casterPlayer.UserId or nil
 	self.id = data.id or data.name
 	self.name = data.name
 	self.description = data.description
@@ -29,7 +38,7 @@ end
 
 -- Emit a start phase; children can override before/after
 function BaseSkill:emitStart(extra: any?)
-	event:FireAllClients({ phase = "start", id = self.name, casterId = self.player.UserId, data = extra })
+	event:FireAllClients({ phase = "start", id = self.name, casterId = self._casterUserId, data = extra })
 end
 
 -- Emit an impact with optional cframe/targets and step index
@@ -42,7 +51,7 @@ function BaseSkill:emitFX(step: number, opts: any?)
 	event:FireAllClients({
 		phase = "fx",
 		id = self.name,
-		casterId = self.player.UserId,
+		casterId = self._casterUserId,
 		step = step,
 		cframe = o.cframe,
 		anchor = o.anchor,
@@ -57,7 +66,7 @@ function BaseSkill:emitStep(step: number, extra: any?)
 	event:FireAllClients({
 		phase = "step",
 		id = self.name,
-		casterId = self.player.UserId,
+		casterId = self._casterUserId,
 		step = step,
 		data = extra,
 	})
@@ -65,7 +74,7 @@ end
 
 -- Emit an end/cleanup
 function BaseSkill:emitEnd(extra: any?)
-	event:FireAllClients({ phase = "end", id = self.name, casterId = self.player.UserId, data = extra })
+	event:FireAllClients({ phase = "end", id = self.name, casterId = self._casterUserId, data = extra })
 end
 
 -- Combo helpers: open/close combo wait window for client idle anims
@@ -74,7 +83,7 @@ function BaseSkill:emitComboWaitStart(durationSec: number, step: number, totalSt
 		phase = "combo_wait",
 		open = true,
 		id = self.name,
-		casterId = self.player.UserId,
+		casterId = self._casterUserId,
 		step = step,
 		total = totalSteps,
 		duration = durationSec,
@@ -82,7 +91,7 @@ function BaseSkill:emitComboWaitStart(durationSec: number, step: number, totalSt
 end
 
 function BaseSkill:emitComboWaitEnd()
-	event:FireAllClients({ phase = "combo_wait", open = false, id = self.name, casterId = self.player.UserId })
+	event:FireAllClients({ phase = "combo_wait", open = false, id = self.name, casterId = self._casterUserId })
 end
 
 -- optional: child override to schedule hits/FX
@@ -100,7 +109,7 @@ end
 -- duration: optional planned execution length (auto-completes). If nil, skill must call completeExecution manually.
 function BaseSkill:beginExecution(duration: number?, allowChain: boolean?)
 	if self._execToken then return end -- already executing
-	local token = ExecutionService.begin(self.player, self.name, {
+	local token = ExecutionService.begin(self.caster, self.name, {
 		duration = duration,
 		allowChainSkill = allowChain and self.name or nil,
 	})
@@ -116,8 +125,38 @@ function BaseSkill:completeExecution(reason: string?)
 	if not self._execToken then return end
 	local tok = self._execToken
 	self._execToken = nil
-	ExecutionService.complete(self.player, tok, reason)
+	ExecutionService.complete(self.caster, tok, reason)
 	self:emitEnd({ reason = reason })
+end
+
+function BaseSkill:getCasterPlayer(): Player?
+	return self.player
+end
+
+function BaseSkill:getCasterModel(): Model?
+	if self.player then
+		return self.player.Character
+	end
+	if self.caster:IsA("Model") then
+		return self.caster
+	end
+	return self.caster:FindFirstAncestorOfClass("Model")
+end
+
+function BaseSkill:getCasterRootPart(): BasePart?
+	local model = self:getCasterModel()
+	if model then
+		return model:FindFirstChild("HumanoidRootPart") :: BasePart?
+	end
+	return nil
+end
+
+function BaseSkill:getCasterOriginCFrame(yaw: number): CFrame?
+	local root = self:getCasterRootPart()
+	if not root then
+		return nil
+	end
+	return root.CFrame * CFrame.Angles(0, math.rad(yaw), 0)
 end
 
 return BaseSkill

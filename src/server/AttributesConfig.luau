@@ -136,7 +136,43 @@ AttributesConfig.AttributeMilestones = {
 			local newValue = AttributesConfig.ScalingFormulas.Strength.PhysicalDamageFromValue(strengthValue)
 			addOrUpdateScalingModifier(player, StatTypes.StaticStats.PhysicalDamage, "StrengthScaling", newValue, "Increased Physical Damage from Strength")
 		end,
-	}
+	},
+	-- Perception drives reveal radius and info tier
+	{
+		attribute = AttributeTypes.Attributes.Perception,
+		applyScaling = function(player: Player, perceptionValue: number)
+			-- Example mapping: distance grows sublinearly; tier grows at breakpoints
+			-- Distance: base 60 + sqrt(perception)*6 studs
+			local dist = 60 + math.sqrt(math.max(perceptionValue, 0)) * 6
+			-- Use modifier as delta-from-base to avoid double-counting the default base value
+			local stat = StatsManager.getStat(player, StatTypes.StaticStats.PerceptionDistance)
+			local base = 0
+			if stat and (stat :: any).getBaseValue then
+				base = (stat :: any):getBaseValue()
+			end
+			local delta = math.max(0, dist - base)
+			addOrUpdateScalingModifier(player, StatTypes.StaticStats.PerceptionDistance, "PerceptionDistanceFromPerception", delta, "Reveal distance from Perception")
+
+			-- Tier: 0(<1), 1(>=1), 2(>=10), 3(>=25), 4(>=50), 5(>=100)
+			local tier = 0
+			if perceptionValue >= 1 then
+				tier = 1
+			end
+			if perceptionValue >= 10 then
+				tier = 2
+			end
+			if perceptionValue >= 25 then
+				tier = 3
+			end
+			if perceptionValue >= 50 then
+				tier = 4
+			end
+			if perceptionValue >= 100 then
+				tier = 5
+			end
+			addOrUpdateScalingModifier(player, StatTypes.StaticStats.PerceptionTier, "PerceptionTierFromPerception", tier, "Reveal tier from Perception")
+		end,
+	},
 } :: { 
 	attribute: AttributeType, 
 	applyScaling: (player: Player, attributeValue: number) -> () 

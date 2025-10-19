@@ -12,31 +12,32 @@ export type ComboState = {
 }
 
 local ComboService = {}
-local state: { [Player]: { [string]: ComboState } } = {}
+type Caster = Instance
+local state: { [Caster]: { [string]: ComboState } } = {}
 
 -- Use os.clock for monotonic timing (align with CooldownService)
 local function now(): number
 	return os.clock()
 end
 
-local function ensurePlayerMap(player: Player): { [string]: ComboState }
-	local m = state[player]
+local function ensureCasterMap(caster: Caster): { [string]: ComboState }
+	local m = state[caster]
 	if not m then
 		m = {}
-		state[player] = m
+		state[caster] = m
 	end
 	return m
 end
 
 -- stepDelays: array where index = current step, value = min seconds before accepting NEXT advance
 function ComboService.nextStep(
-	player: Player,
+	caster: Caster,
 	skillName: string,
 	steps: number,
 	window: number,
 	stepDelays: { number }?
 ): (number, number, boolean)
-	local m = ensurePlayerMap(player)
+	local m = ensureCasterMap(caster)
 	local s = m[skillName]
 	local t = now()
 	if s and t <= s.expiresAt then
@@ -79,8 +80,8 @@ function ComboService.nextStep(
 	end
 end
 
-function ComboService.isExpired(player: Player, skillName: string, token: number): boolean
-	local m = state[player]
+function ComboService.isExpired(caster: Caster, skillName: string, token: number): boolean
+	local m = state[caster]
 	local s = m and m[skillName]
 	if not s then
 		return true
@@ -95,12 +96,12 @@ function ComboService.isExpired(player: Player, skillName: string, token: number
 	return false
 end
 
-function ComboService.clear(player: Player, skillName: string)
-	local m = state[player]
+function ComboService.clear(caster: Caster, skillName: string)
+	local m = state[caster]
 	if m then
 		m[skillName] = nil
 		if next(m) == nil then
-			state[player] = nil
+			state[caster] = nil
 		end
 	end
 end

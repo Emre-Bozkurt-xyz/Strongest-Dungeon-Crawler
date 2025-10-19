@@ -84,7 +84,9 @@ type PanelConfig = {
 	camSpaceOffset: Vector3?, -- Optional camera-space offset (X=right, Y=up, Z=forward)
 	playerSpaceOffset: Vector3?, -- Optional player-space offset (X=right, Y=up, Z=forward)
 	faceCamera: boolean?, -- Whether panel should face the camera (default true)
-	followMode: "player" | "camera"?, -- New: explicit follow mode (default "player")
+	followMode: "player" | "camera" | "target"?, -- New: explicit follow mode (default "player"). 'target' follows a provided BasePart
+	followTarget: BasePart?, -- When followMode is 'target', this part is used as the anchor
+	lerpSpeed: number?, -- Optional per-panel lerp speed (defaults to BASE_LERP_SPEED)
 	visible: boolean?, -- Current visibility state
 }
 
@@ -120,6 +122,8 @@ function WorldGUIManager:registerPanel(config: PanelConfig)
 	config.faceCamera = config.faceCamera ~= false -- Default true
 	-- Default followMode to player when not provided
 	config.followMode = config.followMode or "player"
+	-- Default per-panel lerp speed
+	(config :: any).lerpSpeed = (config :: any).lerpSpeed or BASE_LERP_SPEED
 	config.offset = config.offset or Vector3.new(0, 0, 0)
 	config.camSpaceOffset = config.camSpaceOffset or Vector3.new(0, 0, 0)
 	local cfgAny = config :: any
@@ -202,6 +206,18 @@ function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: nu
 
 	-- Camera-relative follow mode: keep panel readable in front of the camera
 	local mode = (config.followMode or "player") :: any
+	if mode == "target" then
+		local tgt = config.followTarget
+		if not tgt or not tgt.Parent then return end
+		local desired: Vector3 = tgt.Position
+		local off: Vector3 = config.offset or Vector3.new(0, 0, 0)
+		desired += off
+		local targetCF = self:_getIdealPanelRotation(desired)
+		local speed = (config :: any).lerpSpeed or BASE_LERP_SPEED
+		local frameRateLerp = 1 - math.exp(-speed * deltaTime)
+		config.part.CFrame = config.part.CFrame:Lerp(targetCF, frameRateLerp)
+		return
+	end
 	if mode == "camera" then
 		local cam = self.camera
 		if cam then
@@ -253,7 +269,8 @@ function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: nu
 			end
 
 			local targetCF = self:_getIdealPanelRotation(desired)
-			local frameRateLerp = 1 - math.exp(-BASE_LERP_SPEED * deltaTime)
+			local speed = (config :: any).lerpSpeed or BASE_LERP_SPEED
+			local frameRateLerp = 1 - math.exp(-speed * deltaTime)
 			config.part.CFrame = config.part.CFrame:Lerp(targetCF, frameRateLerp)
 		end
 		return
@@ -283,7 +300,8 @@ function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: nu
 			local panelRotation: CFrame = self:_getIdealPanelRotation(targetPosition)
 
 			-- Use delta time for frame-rate independent lerping
-			local frameRateLerp = 1 - math.exp(-BASE_LERP_SPEED * deltaTime)
+			local speed = (config :: any).lerpSpeed or BASE_LERP_SPEED
+			local frameRateLerp = 1 - math.exp(-speed * deltaTime)
 
 			config.part.CFrame = config.part.CFrame:Lerp(panelRotation, frameRateLerp)
 		end
@@ -298,6 +316,13 @@ function WorldGUIManager:_snapPanelToTarget(config: PanelConfig)
 		return
 	end
 	local mode = (config.followMode or "player") :: any
+	if mode == "target" then
+		local tgt = config.followTarget
+		if not tgt or not tgt.Parent then return end
+		local desired: Vector3 = tgt.Position + (config.offset or Vector3.new(0, 0, 0))
+		config.part.CFrame = self:_getIdealPanelRotation(desired)
+		return
+	end
 	if mode == "camera" then
 		local cam = self.camera
 		if not cam then
@@ -368,6 +393,20 @@ function WorldGUIManager:_snapPanelToTarget(config: PanelConfig)
 		targetPosition += r2 * pso.X + u2 * pso.Y + f2 * pso.Z
 	end
 	config.part.CFrame = self:_getIdealPanelRotation(targetPosition)
+end
+
+function WorldGUIManager:setPanelFollowTarget(panelName: string, followTarget: BasePart?)
+	local cfg = self.panels[panelName]
+	if not cfg then return end
+	(cfg :: any).followTarget = followTarget
+end
+
+-- Adjust a panel's lerp speed at runtime
+function WorldGUIManager:setPanelLerpSpeed(panelName: string, speed: number)
+	local cfg = self.panels[panelName]
+	if not cfg then return end
+	if type(speed) ~= "number" then return end
+	(cfg :: any).lerpSpeed = speed
 end
 
 -- Main update loop

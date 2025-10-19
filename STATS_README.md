@@ -1,6 +1,6 @@
 # Player Attributes System
 
-A comprehensive player attributes management system for Roblox games using the NetRay networking library.
+A comprehensive player attributes management system for Roblox games using the custom dispatcher networking layer.
 
 ## Features
 
@@ -10,7 +10,7 @@ A comprehensive player attributes management system for Roblox games using the N
 - **Equipment bonuses** - Easily apply/remove equipment modifiers
 - **Type safety** - Luau type annotations for better code quality
 - **Extensible design** - Easy to add new attributes or modify existing ones
-- **NetRay-based networking** - Per-service events/requests with delta-based updates
+- **Dispatcher-based networking** - Per-service events/requests with delta-based updates
 
 ## Available Attributes
 
@@ -40,11 +40,11 @@ src/
 ### Data Flow
 
 1. **Server** modifies player attributes using `AttributesManager` (authoritative)
-2. **Server → Client (NetRay event)**: Deltas are sent via `AttributesDelta` to relevant client(s)
+2. **Server → Client (dispatcher event)**: Deltas are sent via `AttributesDelta` to relevant client(s)
 3. **Client** receives updates and refreshes the UI display
-4. **Client → Server (NetRay request)**: On spawn or when needed, the client requests a full sync via `AttributesRequest`. Clients spend points with `AttributesSpendPoint`.
+4. **Client → Server (dispatcher request)**: On spawn or when needed, the client requests a full sync via `AttributesRequest`. Clients spend points with `AttributesSpendPoint`.
 
-### Networking (NetRay)
+### Networking (Dispatcher)
 
 - Events
   - `AttributesDelta` (Server → Client): Sends attribute deltas, including optional `{ type = "full_sync", data = ... }` payloads for initial sync
@@ -134,7 +134,7 @@ local damage = math.random() < critChance and baseDamage * 2 or baseDamage
 - `getCurrentAttributes()` - Get cached player attributes
 - `getAttribute(attributeType)` - Get specific attribute value
 - `requestAttributesData()` - Request fresh attributes from server (full sync)
-- `spendPoint(attributeType)` - Ask server to spend a point (via NetRay request)
+- `spendPoint(attributeType)` - Ask server to spend a point (via dispatcher request)
 
 ## Configuration
 
@@ -185,13 +185,13 @@ A quick demo runs automatically when a player joins, showcasing:
 - All attribute modifications are server-authoritative
 - Client cannot directly modify attributes
 - Input validation on all server functions
-- Optional rate limiting via NetRay middleware
+- Optional rate limiting via dispatcher middleware
 
 ## Performance Notes
 
 - Attributes are synced only when changed, not continuously
 - Client-side caching reduces network requests
-- NetRay handles efficient networking and delta-based updates
+- The dispatcher handles efficient networking and delta-based updates
 - Minimal memory footprint per player
 
 ## Extending the System

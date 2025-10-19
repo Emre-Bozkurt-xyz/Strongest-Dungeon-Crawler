@@ -1,8 +1,11 @@
 --!strict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local BaseSkill = require(script.Parent:WaitForChild("BaseSkill"))
 local StatsManager = require(script.Parent.Parent.Parent:WaitForChild("StatsManager"))
 local HitboxService = require(script.Parent.Parent.HitboxService)
 local CombatService = require(script.Parent.Parent.Parent:WaitForChild("CombatService"))
+local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
 local DEBUG_VIS = false
 
@@ -11,30 +14,23 @@ TripleStrike.__index = TripleStrike
 
 setmetatable(TripleStrike, { __index = BaseSkill })
 
-function TripleStrike.new(player: Player, data: any)
-	local self = BaseSkill.new(player, data)
+function TripleStrike.new(caster: Instance, data: any)
+	local self = BaseSkill.new(caster, data)
 	setmetatable(self, TripleStrike)
 	self.cooldown = data.cooldown or 5
 	self.gcd = data.gcd or 1.0
 	return self
 end
 
-local function casterOriginCFrame(player: Player, yawOffsetDeg: number?): CFrame?
-	local character = player.Character
-	local hrp = character and (character:FindFirstChild("HumanoidRootPart") :: BasePart?)
-	if not hrp then
-		return nil
-	end
-	local yaw = math.rad(yawOffsetDeg or 0)
-	local baseCf = (hrp :: BasePart).CFrame
-	return baseCf * CFrame.Angles(0, yaw, 0)
-end
-
 function TripleStrike:use()
-	local stats = StatsManager.getAllStats(self.player)
+	local stats = StatsManager.getAllStats(self.caster)
 	local base = 0
-	if stats and stats.PhysicalDamage then
-		base = stats.PhysicalDamage:getValue(stats)
+	local physKey = StatTypes.StaticStats.PhysicalDamage
+	if stats then
+		local physicalDamage = stats[physKey]
+		if physicalDamage and physicalDamage.getValue then
+			base = physicalDamage:getValue(stats)
+		end
 	end
 
 	-- Determine total planned execution duration (last hit time + small tail)
@@ -61,14 +57,15 @@ function TripleStrike:use()
 					local range = (h.coneRange or 8) :: number
 					local mult = (h.damageMult or 1.0) :: number
 
-					local originCf = casterOriginCFrame(self.player, yaw)
+					local originCf = self:getCasterOriginCFrame(yaw)
 					local targets = {}
 					if originCf then
 						if DEBUG_VIS then
 							HitboxService.debugDrawRay(originCf, range, 0.25)
 						end
+						local casterPlayer = self:getCasterPlayer()
 						local q = HitboxService.newQuery(originCf)
-							:caster(self.player)
+							:caster(casterPlayer)
 							:teamRelation("enemy")
 							:playersOnly(false)
 							:cone(angle, range)
@@ -76,7 +73,7 @@ function TripleStrike:use()
 					end
 					self:emitFX(i, { cframe = originCf, lifetime = 1 })
 					for _, model in ipairs(targets) do
-						CombatService.applyDamage(model, base * mult, self.player)
+						CombatService.applyDamage(model, base * mult, self.caster)
 						print(
 							`TripleStrike hit {model.Name} for {base} * {mult} = {base * mult} damage (base {base}, mult {mult})`
 						)

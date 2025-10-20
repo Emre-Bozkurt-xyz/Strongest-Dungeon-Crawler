@@ -61,8 +61,7 @@ export type ActiveEffectState = {
 }
 
 -- Load central registry
-local registry: { [string]: EffectDef } =
-	require(script.Parent:WaitForChild("StatusEffects"):WaitForChild("EffectsIndex"))
+local registry: { [string]: EffectDef } = require(script.Parent.EffectsIndex)
 -- Active table keyed by root model (or instance) to map of effectId -> state
 local active: { [Instance]: { [string]: ActiveEffectState } } = {}
 

@@ -1,10 +1,11 @@
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Server = game:GetService("ServerScriptService").Server
 
 local BaseSkill = require(script.Parent:WaitForChild("BaseSkill"))
-local StatsManager = require(script.Parent.Parent.Parent:WaitForChild("StatsManager"))
-local HitboxService = require(script.Parent.Parent.HitboxService)
-local CombatService = require(script.Parent.Parent.Parent:WaitForChild("CombatService"))
+local StatsManager = require(Server.Stats.StatsManager)
+local HitboxService = require(Server.SkillsFramework.HitboxService)
+local CombatService = require(Server.Services.CombatService)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
 local DEBUG_VIS = false
@@ -23,15 +24,7 @@ function TripleStrike.new(caster: Instance, data: any)
 end
 
 function TripleStrike:use()
-	local stats = StatsManager.getAllStats(self.caster)
-	local base = 0
-	local physKey = StatTypes.StaticStats.PhysicalDamage
-	if stats then
-		local physicalDamage = stats[physKey]
-		if physicalDamage and physicalDamage.getValue then
-			base = physicalDamage:getValue(stats)
-		end
-	end
+	local base = StatsManager.getStatValue(self.caster, StatTypes.StaticStats.PhysicalDamage) or 0
 
 	-- Determine total planned execution duration (last hit time + small tail)
 	local hits = (self.config and self.config.hits) :: { any }?

@@ -95,7 +95,7 @@ AttributesConfig.ScalingFormulas = {
 -- SCALING RELATIONSHIPS
 -- ========================================
 
-local StatsManager = require(game.ServerScriptService.Server.Managers.StatsManager)
+local StatsManager = require(script.Parent.Parent.Managers.StatsManager)
 local function addOrUpdateScalingModifier(player: Player, statName: StatTypes.StatType, modifierId: string, value: number, description: string)
 	
 	if StatsManager.hasModifier(player, statName, modifierId) then

@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Stat = require(ReplicatedStorage.Shared.StatClass)
 local PoolStat = require(ReplicatedStorage.Shared.PoolStatClass)
+local ResourceStat = require(ReplicatedStorage.Shared.ResourceStatClass)
 local Types = require(ReplicatedStorage.Shared.StatTypes)
 
 local StatsConfig = {}
@@ -66,6 +67,18 @@ StatsConfig.DEFAULT_STATS = {
 	},
 }
 
+StatsConfig.DEFAULT_RESOURCES = {
+	[Types.ResourceStats.Energy] = {
+		baseValue = 100,
+		minValue = 0,
+		maxValue = 100,
+		name = "Energy",
+		description = "Skill resource",
+		regenerationRate = 15,
+		depletionThreshold = 0,
+	},
+}
+
 -- Helper function to create a new set of stats using Stat and PoolStat classes
 function StatsConfig.createDefaultStats(): Types.PlayerStats
 	local stats = {} :: any
@@ -78,6 +91,10 @@ function StatsConfig.createDefaultStats(): Types.PlayerStats
 	-- Create stats using enum constants
 	for statName, config in pairs(StatsConfig.DEFAULT_STATS) do
 		stats[statName] = Stat.new(config)
+	end
+
+	for resourceName, config in pairs(StatsConfig.DEFAULT_RESOURCES) do
+		stats[resourceName] = ResourceStat.new(config)
 	end
 
 	return stats :: Types.PlayerStats

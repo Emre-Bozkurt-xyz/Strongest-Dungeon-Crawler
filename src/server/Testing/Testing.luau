@@ -1,13 +1,14 @@
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Server = game:GetService("ServerScriptService").Server
 local RunService = game:GetService("RunService")
 -- Comprehensive Testing for Stats and Delta System
 
 local AttributeTypes = require(ReplicatedStorage.Shared.AttributeTypes)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
-local StatsManager = require(script.Parent.StatsManager)
-local AttributesManager = require(script.Parent.AttributesManager)
-local RegenerationService = require(script.Parent.RegenerationService)
+local StatsManager = require(Server.Stats.StatsManager)
+local AttributesManager = require(Server.Stats.AttributesManager)
+local RegenerationService = require(Server.Services.RegenerationService)
 
 local Testing = {}
 Testing.testResults = {} -- Track test results
@@ -75,6 +76,10 @@ function Testing.runAllTests(player: Player)
 	-- Test 7: Regeneration System
 	Testing.testRegenerationSystem(player)
 
+	-- Test 8: Resource Stats
+	Testing.testResourceStats(player)
+
+
 	-- Wait a bit then run continuous tests
 	wait(2)
 	Testing.startContinuousTests(player)
@@ -109,8 +114,8 @@ function Testing.testAttributeScaling(player: Player)
 
 	wait(0.1) -- Allow scaling to process
 
-	-- Intelligence should add +5 mana per point (10 * 5 = 50), so 150 + 50 = 200
-	verifyStatValue(player, StatTypes.PoolStats.Mana, 200, "Intelligence Mana Scaling")
+	-- Intelligence should add +5 mana per 5 points, so 150 + 10 = 160
+	verifyStatValue(player, StatTypes.PoolStats.Mana, 160, "Intelligence Mana Scaling")
 
 	-- Test Strength -> Physical Damage scaling
 	AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Strength, 8)
@@ -268,6 +273,77 @@ function Testing.testRegenerationSystem(player: Player)
 	recordTest("Mana Regeneration", newMana > initialMana, `Mana: {initialMana} -> {newMana}`)
 
 	print("RegenerationService status:", RegenerationService.isRunning() and "RUNNING" or "STOPPED")
+end
+
+local function captureResourceEventLog()
+	local log = {}
+	return log,
+		function(eventName: string)
+			return function(_stat, payload)
+				table.insert(log, {
+					event = eventName,
+					payload = payload,
+					timestamp = os.clock(),
+				})
+			end
+		end
+end
+
+local function hasEvent(log, eventName: string): boolean
+	for _, entry in ipairs(log) do
+		if entry.event == eventName then
+			return true
+		end
+	end
+	return false
+end
+
+function Testing.testResourceStats(player: Player)
+	print("\n🔋 Testing Resource Stats...")
+
+	local resourceType: StatTypes.ResourceStatType = StatTypes.ResourceStats.Energy
+	local resourceStat = StatsManager.getStat(player, resourceType)
+	if not resourceStat then
+		recordTest("Resource Available", false, "Energy resource missing")
+		return
+	end
+
+	local log, loggerFactory = captureResourceEventLog()
+	StatsManager.onResourceEvent(player, resourceType, "threshold", "test_threshold", loggerFactory("threshold"))
+	StatsManager.onResourceEvent(player, resourceType, "depleted", "test_depleted", loggerFactory("depleted"))
+	StatsManager.onResourceEvent(player, resourceType, "restored", "test_restored", loggerFactory("restored"))
+
+	StatsManager.setResourceDepletionThreshold(player, resourceType, 10)
+	StatsManager.addResourceThreshold(player, resourceType, "low_energy", {
+		value = 30,
+		type = "percentage",
+		comparison = "<=",
+		once = true,
+	})
+	StatsManager.setResourceRegeneration(player, resourceType, 25)
+
+	StatsManager.removeFromResource(player, resourceType, 120)
+	wait(0.2)
+
+	recordTest("Resource Depletion Event", hasEvent(log, "depleted"), `Events captured: {#log}`)
+	recordTest("Resource Threshold Event", hasEvent(log, "threshold"), `Events captured: {#log}`)
+
+	wait(1)
+
+	local currentEnergy = StatsManager.getResourceCurrentValue(player, resourceType) or 0
+	recordTest("Resource Regeneration", currentEnergy > 10, `Energy value: {math.floor(currentEnergy)}`)
+	recordTest("Resource Restored Event", hasEvent(log, "restored"), hasEvent(log, "restored") and "Restored fired" or "Restored missing")
+
+	local maxEnergy = StatsManager.getResourceMaxValue(player, resourceType)
+	if maxEnergy then
+		StatsManager.setResourceValue(player, resourceType, maxEnergy)
+	end
+	StatsManager.setResourceDepletionThreshold(player, resourceType, 0)
+
+	StatsManager.offResourceEvent(player, resourceType, "threshold", "test_threshold")
+	StatsManager.offResourceEvent(player, resourceType, "depleted", "test_depleted")
+	StatsManager.offResourceEvent(player, resourceType, "restored", "test_restored")
+	StatsManager.removeResourceThreshold(player, resourceType, "low_energy")
 end
 
 function Testing.startContinuousTests(player: Player)

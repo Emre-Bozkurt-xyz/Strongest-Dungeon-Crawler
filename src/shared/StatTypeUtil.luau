@@ -5,6 +5,7 @@
 local Types = require(script.Parent.StatTypes)
 local Stat = require(script.Parent.StatClass)
 local PoolStat = require(script.Parent.PoolStatClass)
+local ResourceStat = require(script.Parent.ResourceStatClass)
 
 local StatTypeUtil = {}
 
@@ -19,6 +20,10 @@ end
 
 function StatTypeUtil.isStaticStat(stat): boolean
 	return stat.statType == Types.StatClassTypes.Static
+end
+
+function StatTypeUtil.isResourceStat(stat): boolean
+	return stat.statType == Types.StatClassTypes.Resource
 end
 
 -- Method 2: Check using stat name against PoolType enum
@@ -40,6 +45,15 @@ function StatTypeUtil.isStaticStatName(statName: string): boolean
 	return false
 end
 
+function StatTypeUtil.isResourceName(statName: string): boolean
+	for _, resourceName in pairs(Types.AllResourceStatNames) do
+		if statName == resourceName then
+			return true
+		end
+	end
+	return false
+end
+
 -- Method 3: Duck typing - check for pool-specific methods
 function StatTypeUtil.hasPoolMethods(stat): boolean
 	return stat.getCurrentValue ~= nil and stat.addReservation ~= nil
@@ -47,7 +61,7 @@ end
 
 -- Helper function to get the appropriate value from any stat
 function StatTypeUtil.getStatValue(stat, allStats): number
-	if StatTypeUtil.isPoolStat(stat) then
+	if StatTypeUtil.isPoolStat(stat) or StatTypeUtil.isResourceStat(stat) then
 		return stat:getCurrentValue()
 	else
 		return stat:getValue(allStats)
@@ -56,7 +70,7 @@ end
 
 -- Helper function to get the max value from any stat
 function StatTypeUtil.getMaxValue(stat, allStats): number
-	if StatTypeUtil.isPoolStat(stat) then
+	if StatTypeUtil.isPoolStat(stat) or StatTypeUtil.isResourceStat(stat) then
 		return stat:getMaxValue(allStats)
 	else
 		return stat:getValue(allStats)
@@ -72,7 +86,25 @@ function StatTypeUtil.serializeStats(stats: Types.PlayerStats)
 
 	-- Serialize all stats (both pools and static) with FULL state
 	for statName, stat in pairs(stats) do
-		if StatTypeUtil.isPoolStat(stat) then
+		if StatTypeUtil.isResourceStat(stat) then
+			-- Resource stat - hybrid pool with metadata
+			serialized[statName] = {
+				statType = "resource",
+				name = stat.name,
+				description = stat.description,
+				baseValue = stat:getBaseValue(),
+				minValue = stat.minValue,
+				maxValue = stat.maxValue,
+				currentValue = stat:getCurrentValue(),
+				reservations = stat.reservations or {},
+				metadata = stat:getMetadataSnapshot(),
+				modifiers = StatTypeUtil._serializeModifiers(stat.modifiers or {}),
+				_cachedValue = stat._cachedValue,
+				_cachedMaxValue = stat._maxCachedValue,
+				_isDirty = stat._isDirty or true,
+				_maxIsDirty = stat._maxIsDirty or true,
+			}
+		elseif StatTypeUtil.isPoolStat(stat) then
 			-- Pool stat - capture ALL state including reservations and modifiers
 			serialized[statName] = {
 				-- Class identification
@@ -159,8 +191,8 @@ function StatTypeUtil.deserializeStats(serialized: any): Types.PlayerStats
 	local StatModifier = require(game.ReplicatedStorage.Shared.Modifiers.StatModifier)
 	local PercentOfStatModifier = require(game.ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
 
-	-- Store current values for pool stats to restore AFTER modifiers
-	local poolCurrentValues = {}
+	-- Store current values for pool/resource stats to restore AFTER modifiers
+	local pendingCurrentValues = {} :: { [string]: { value: number, statType: string } }
 
 	-- First pass: Create all stat instances with basic properties
 	for statName, data in pairs(serialized) do
@@ -176,7 +208,7 @@ function StatTypeUtil.deserializeStats(serialized: any): Types.PlayerStats
 			})
 
 			-- Store current value for later restoration (after modifiers are added)
-			poolCurrentValues[statName] = data.currentValue
+			pendingCurrentValues[statName] = { value = data.currentValue, statType = "pool" }
 			poolStat.reservations = data.reservations or {}
 
 			-- DON'T restore cache state - let it recalculate fresh on client
@@ -186,6 +218,25 @@ function StatTypeUtil.deserializeStats(serialized: any): Types.PlayerStats
 			-- poolStat._maxIsDirty = data._maxIsDirty
 
 			stats[statName] = poolStat
+		elseif data.statType == "resource" then
+			local metadata = data.metadata or {}
+			local resourceStat = ResourceStat.new({
+				name = data.name,
+				baseValue = data.baseValue,
+				minValue = data.minValue,
+				maxValue = data.maxValue,
+				description = data.description,
+				startAtMax = false,
+				regenerationRate = metadata.regenerationRate,
+				regenPaused = metadata.regenerationPaused,
+				depletionThreshold = metadata.depletionThreshold,
+			})
+
+			resourceStat:applyMetadataSnapshot(metadata)
+			resourceStat.reservations = data.reservations or {}
+			pendingCurrentValues[statName] = { value = data.currentValue, statType = "resource" }
+
+			stats[statName] = resourceStat
 		else
 			-- Create StaticStat instance
 			local staticStat = Stat.new({
@@ -242,12 +293,11 @@ function StatTypeUtil.deserializeStats(serialized: any): Types.PlayerStats
 		end
 	end
 
-	-- Third pass: Restore current values for pool stats (now that all modifiers are in place)
-	for statName, currentValue in pairs(poolCurrentValues) do
-		local poolStat = stats[statName]
-		if poolStat then
-			-- Now that modifiers are restored, set current value with correct maximum
-			poolStat:setCurrentValue(currentValue, stats)
+	-- Third pass: Restore current values for pool/resource stats (now that modifiers are in place)
+	for statName, payload in pairs(pendingCurrentValues) do
+		local stat = stats[statName]
+		if stat then
+			stat:setCurrentValue(payload.value, stats)
 		end
 	end
 
@@ -268,6 +318,8 @@ StatTypeUtil.DeltaTypes = {
 	RESERVATION_ADDED = "reservation_added",
 	RESERVATION_REMOVED = "reservation_removed",
 	FULL_SYNC = "full_sync", -- Fallback for initial sync or major changes
+	RESOURCE_STATE_CHANGED = "resource_state_changed",
+	RESOURCE_EVENT = "resource_event",
 }
 
 -- Create a delta update for a specific change
@@ -354,18 +406,26 @@ function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): bo
 	elseif delta.type == StatTypeUtil.DeltaTypes.MODIFIER_UPDATED then
 		stat:updateModifier(deltaData.source_id, deltaData.value)
 	elseif delta.type == StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED then
-		if StatTypeUtil.isPoolStat(stat) then
+		if StatTypeUtil.isPoolStat(stat) or StatTypeUtil.isResourceStat(stat) then
 			stat:setCurrentValue(deltaData.currentValue, clientStats)
 		end
 	elseif delta.type == StatTypeUtil.DeltaTypes.BASE_VALUE_CHANGED then
 		stat:setBaseValue(deltaData.baseValue)
 	elseif delta.type == StatTypeUtil.DeltaTypes.RESERVATION_ADDED then
-		if StatTypeUtil.isPoolStat(stat) then
+		if StatTypeUtil.isPoolStat(stat) or StatTypeUtil.isResourceStat(stat) then
 			stat:addReservation(deltaData)
 		end
 	elseif delta.type == StatTypeUtil.DeltaTypes.RESERVATION_REMOVED then
-		if StatTypeUtil.isPoolStat(stat) then
+		if StatTypeUtil.isPoolStat(stat) or StatTypeUtil.isResourceStat(stat) then
 			stat:removeReservation(deltaData.source_id)
+		end
+	elseif delta.type == StatTypeUtil.DeltaTypes.RESOURCE_STATE_CHANGED then
+		if StatTypeUtil.isResourceStat(stat) then
+			stat:applyMetadataSnapshot(deltaData)
+		end
+	elseif delta.type == StatTypeUtil.DeltaTypes.RESOURCE_EVENT then
+		if StatTypeUtil.isResourceStat(stat) and deltaData then
+			stat:applyRemoteEvent(deltaData.event, deltaData.data)
 		end
 	else
 		warn(`Unknown delta type: {delta.type}`)

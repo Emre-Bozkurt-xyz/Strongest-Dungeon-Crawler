@@ -27,6 +27,7 @@ TYPE ARCHITECTURE OVERVIEW:
 -- Import the class types
 local Stat = require(script.Parent.StatClass)
 local PoolStat = require(script.Parent.PoolStatClass)
+local ResourceStat = require(script.Parent.ResourceStatClass)
 
 local Types = {}
 
@@ -49,8 +50,11 @@ export type StaticStatType =
 -- Pool stat names (current/max values like health, mana)
 export type PoolType = "Health" | "Mana" | "Stamina" | "ManaShield"
 
+-- Resource stat names (hybrid pools with regeneration + callbacks)
+export type ResourceStatType = "Energy"
+
 -- All stat names combined
-export type StatType = StaticStatType | PoolType
+export type StatType = StaticStatType | PoolType | ResourceStatType
 
 -- ========================================
 -- CLASS INSTANCE TYPES
@@ -63,6 +67,8 @@ export type PlayerStats = {
 	Mana: typeof(PoolStat.new({ baseValue = 0, name = "" })),
 	Stamina: typeof(PoolStat.new({ baseValue = 0, name = "" })),
 	ManaShield: typeof(PoolStat.new({ baseValue = 0, name = "" })),
+	-- Resource stats
+	Energy: typeof(ResourceStat.new({ baseValue = 0, name = "" })),
 
 	-- Static stats (calculated values only)
 	PhysicalDamage: typeof(Stat.new({ baseValue = 0, name = "" })),
@@ -78,7 +84,8 @@ export type PlayerStats = {
 
 export type StaticStatInstance = typeof(Stat.new({ baseValue = 0, name = "" }))
 export type PoolStatInstance = typeof(PoolStat.new({ baseValue = 0, name = "" }))
-export type StatInstance = StaticStatInstance | PoolStatInstance
+export type ResourceStatInstance = typeof(ResourceStat.new({ baseValue = 0, name = "" }))
+export type StatInstance = StaticStatInstance | PoolStatInstance | ResourceStatInstance
 
 -- ========================================
 -- CONFIGURATION TYPES (for creating stats)
@@ -141,6 +148,10 @@ Types.PoolStats = {
 	ManaShield = "ManaShield" :: PoolType,
 }
 
+Types.ResourceStats = {
+	Energy = "Energy" :: ResourceStatType,
+}
+
 -- Modifier types
 Types.ModifierTypes = {
 	Flat = "flat",
@@ -151,6 +162,7 @@ Types.ModifierTypes = {
 Types.StatClassTypes = {
 	Static = "static",
 	Pool = "pool",
+	Resource = "resource",
 }
 
 -- ========================================
@@ -176,12 +188,18 @@ Types.AllPoolStatNames = {
 	"ManaShield",
 } :: { PoolType }
 
+Types.AllResourceStatNames = {
+	"Energy",
+} :: { ResourceStatType }
+
 Types.AllStatNames = {
 	-- Pool stats
 	"Health",
 	"Mana",
 	"Stamina",
 	"ManaShield",
+	-- Resource stats
+	"Energy",
 	-- Static stats
 	"PhysicalDamage",
 	"MagicDamage",

@@ -3,8 +3,9 @@
 -- Leverages Roblox native storage (Attributes + Folders) for performance and debugging ease
 
 local RunService = game:GetService("RunService")
+local Server = game:GetService("ServerScriptService").Server
 
-local StatsManager = require(script.Parent.Parent.StatsManager)
+local StatsManager = require(Server.Stats.StatsManager)
 
 type StatsRegisterOptions = StatsManager.RegisterOptions
 export type RegisterOptions = StatsRegisterOptions & {

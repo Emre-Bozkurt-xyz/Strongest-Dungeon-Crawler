@@ -3,9 +3,10 @@
 -- Handles health, shields, defense, etc. via stats system
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Server = game:GetService("ServerScriptService").Server
 
-local StatsManager = require(script.Parent.Parent.Parent.StatsManager)
-local CombatService = require(script.Parent.Parent.Parent.CombatService)
+local StatsManager = require(Server.Stats.StatsManager)
+local CombatService = require(script.Parent.Parent.Parent.Services.CombatService)
 local NPCManager = require(script.Parent.Parent.NPCManager)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
@@ -19,14 +20,6 @@ export type DamageableConfig = {
 
 local Damageable = {}
 Damageable.__index = Damageable
-
-local function getHealthPool(model: Model)
-	local pool = StatsManager.getStat(model, StatTypes.PoolStats.Health)
-	if pool and pool.getCurrentValue then
-		return pool
-	end
-	return nil
-end
 
 function Damageable.new(entityModel: Model, config: DamageableConfig?): any
 	local component = NPCManager.addComponent(entityModel, "Damageable")
@@ -57,17 +50,11 @@ function Damageable.get(entityModel: Model): any?
 end
 
 function Damageable:getHealth(): number
-	local pool = getHealthPool(self.model)
-	return pool and pool:getCurrentValue() or 0
+	return StatsManager.getPoolCurrentValue(self.model, StatTypes.PoolStats.Health) or 0
 end
 
 function Damageable:getMaxHealth(): number
-	local pool = getHealthPool(self.model)
-	local stats = StatsManager.getAllStats(self.model)
-	if pool and pool.getValue and stats then
-		return pool:getValue(stats)
-	end
-	return 0
+	return StatsManager.getPoolMaxValue(self.model, StatTypes.PoolStats.Health) or 0
 end
 
 function Damageable:applyDamage(amount: number, source: DamageSource?, damageType: string?)

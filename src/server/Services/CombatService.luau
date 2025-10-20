@@ -3,10 +3,11 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Server = game:GetService("ServerScriptService").Server
 
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
-local StatsManager = require(script.Parent:WaitForChild("StatsManager"))
-local StatusEffectsService = require(script.Parent:WaitForChild("StatusEffectsService"))
+local StatsManager = require(Server.Stats.StatsManager)
+local StatusEffectsService = require(script.Parent.Parent.StatusEffects.StatusEffectsService)
 
 local CombatService = {}
 
@@ -114,19 +115,16 @@ local function resolveStatic(name: string): any
 	return (StatTypes.StaticStats :: any)[name]
 end
 
-local function getStatValue(stats: any, key: any): number
-	if not stats or not key then
+local function getEntityStatValue(entity: Instance?, statKey: any): number
+	if not entity or not statKey then
 		return 0
 	end
-	local s = stats[key]
-	if s and s.getValue then
-		return s:getValue(stats)
-	end
-	return 0
+	local value = StatsManager.getStatValue(entity, statKey)
+	return value or 0
 end
 
-local function getStatValueByName(stats: any, name: string): number
-	return getStatValue(stats, resolveStatic(name))
+local function getEntityStatValueByName(entity: Instance?, name: string): number
+	return getEntityStatValue(entity, resolveStatic(name))
 end
 
 local ARMOR_K = 100 -- tuning constant for armor diminishing returns
@@ -198,8 +196,7 @@ function CombatService.applyDamageDetailed(
 
 	-- Pre-hit: dodge (target stat) if present
 	if targetPlayer then
-		local tStats = StatsManager.getAllStats(targetPlayer)
-		local dodge = normalizeChance(getStatValueByName(tStats, "DodgeChance"))
+		local dodge = normalizeChance(getEntityStatValueByName(targetPlayer, "DodgeChance"))
 		if roll(dodge) then
 			result.dodged = true
 			return result
@@ -210,9 +207,8 @@ function CombatService.applyDamageDetailed(
 
 	-- Attacker crit (optional, if stats exist)
 	if opts == nil or opts.critAllowed ~= false then
-		local sStats = effectiveSourceForStats and StatsManager.getAllStats(effectiveSourceForStats) or nil
-		local critChance = normalizeChance(getStatValueByName(sStats, "CriticalHitChance"))
-		local critDamage = getStatValueByName(sStats, "CriticalHitDamage")
+		local critChance = normalizeChance(getEntityStatValueByName(effectiveSourceForStats, "CriticalHitChance"))
+		local critDamage = getEntityStatValueByName(effectiveSourceForStats, "CriticalHitDamage")
 		if roll(critChance) then
 			result.crit = true
 			-- Interpret CriticalHitDamage flexibly:
@@ -238,10 +234,9 @@ function CombatService.applyDamageDetailed(
 	-- Mitigation (armor/reduction) if present
 	if not (opts and opts.bypassArmor) then
 		if targetPlayer then
-			local tStats2 = StatsManager.getAllStats(targetPlayer)
-			local damageReduction = getStatValueByName(tStats2, "DamageReduction")
+			local damageReduction = getEntityStatValueByName(targetPlayer, "DamageReduction")
 			local dr = (damageReduction > 1) and (damageReduction / 100) or damageReduction
-			local armor = getStatValueByName(tStats2, "Armor")
+			local armor = getEntityStatValueByName(targetPlayer, "Armor")
 			local armorFactor = (armor > 0) and (armor / (armor + ARMOR_K)) or 0
 			local reduceFactor = math.clamp(dr + armorFactor, 0, 0.9)
 			local reduced = amount * reduceFactor
@@ -253,17 +248,13 @@ function CombatService.applyDamageDetailed(
 	-- Absorption (ManaShield) for players
 	if not (opts and opts.bypassShield) then
 		if targetEntity then
-			local stats = StatsManager.getAllStats(targetEntity)
-			local shield = stats and stats[StatTypes.PoolStats.ManaShield]
-			if shield and shield.getCurrentValue then
-				local cur = shield:getCurrentValue()
-				if cur > 0 then
-					local absorb = math.min(cur, amount)
-					if absorb > 0 then
-						StatsManager.removeFromPool(targetEntity, StatTypes.PoolStats.ManaShield, absorb)
-						result.absorbed = absorb
-						amount -= absorb
-					end
+			local currentShield = StatsManager.getPoolCurrentValue(targetEntity, StatTypes.PoolStats.ManaShield) or 0
+			if currentShield > 0 then
+				local absorb = math.min(currentShield, amount)
+				if absorb > 0 then
+					StatsManager.removeFromPool(targetEntity, StatTypes.PoolStats.ManaShield, absorb)
+					result.absorbed = absorb
+					amount -= absorb
 				end
 			end
 		end

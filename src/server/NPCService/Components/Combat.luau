@@ -2,14 +2,15 @@
 -- Combat Component: Handles NPC combat abilities, targeting, and attack patterns
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Server = game:GetService("ServerScriptService").Server
 
 local NPCManager = require(script.Parent.Parent.NPCManager)
-local StatsManager = require(script.Parent.Parent.Parent.StatsManager)
+local StatsManager = require(Server.Stats.StatsManager)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local NPCAnimationController = require(script.Parent.Parent.NPCAnimationController)
-local SkillsManager = require(script.Parent.Parent.Parent.SkillsFramework.SkillsManager)
-local SkillsConfig = require(script.Parent.Parent.Parent.SkillsFramework.SkillsConfig)
-local ExecutionService = require(script.Parent.Parent.Parent.SkillsFramework.ExecutionService)
+local SkillsManager = require(Server.SkillsFramework.SkillsManager)
+local SkillsConfig = require(Server.SkillsFramework.SkillsConfig)
+local ExecutionService = require(Server.SkillsFramework.ExecutionService)
 
 type SkillData = SkillsConfig.SkillData
 type ComboData = {
@@ -532,18 +533,15 @@ end
 -- Private: Apply damage to target
 function Combat:_applyDamageToTarget(target: Model, damage: number)
 -- Always use CombatService to apply damage, regardless of target type
-	local CombatService = require(script.Parent.Parent.Parent.CombatService)
+	local CombatService = require(script.Parent.Parent.Parent.Services.CombatService)
 	CombatService.applyDamage(target, damage, self.model)
 	print(`{self.model.Name} dealt {damage} damage to {target.Name}`)
 end
 
 function Combat:_getBaseDamage(): number
-	local stats = StatsManager.getAllStats(self.model)
-	if stats then
-		local damageStat = stats[StatTypes.StaticStats.PhysicalDamage]
-		if damageStat and damageStat.getValue then
-			return damageStat:getValue(stats)
-		end
+	local base = StatsManager.getStatValue(self.model, StatTypes.StaticStats.PhysicalDamage)
+	if base and base > 0 then
+		return base
 	end
 	return self.model:GetAttribute("BaseDamage") or 10
 end

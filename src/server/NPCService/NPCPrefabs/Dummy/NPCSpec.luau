@@ -43,8 +43,6 @@ return {
 		idleHoldMax = 3,
 		fleeHealthThreshold = 0.2,
 		resumeHealthThreshold = 0.5,
-		debugReturnHome = true,
-		debugStateTransitions = true,
 	}),
 	damageable = {
 		configure = function(stats)

@@ -6,7 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Networking = require(ReplicatedStorage.Shared.Networking)
-local AttributesConfig = require(game.ServerScriptService.Server.AttributesConfig)
+local AttributesConfig = require(script.Parent.Parent.Config.AttributesConfig)
 local AttributeTypes = require(game.ReplicatedStorage.Shared.AttributeTypes)
 
 -- Import types from central location
@@ -40,6 +40,28 @@ local ATTRIBUTES_CHANNEL_NAME = "Attributes"
 local dispatcher = Networking.server()
 local dispatcherAny = dispatcher :: any
 dispatcherAny:_ensureChannel(ATTRIBUTES_CHANNEL_NAME)
+
+local profilingEnabled = false
+
+type ProfileToken = { label: string, start: number }
+
+local function profileBegin(label: string): ProfileToken?
+	if not profilingEnabled then
+		return nil
+	end
+	return {
+		label = label,
+		start = os.clock(),
+	}
+end
+
+local function profileEnd(token: ProfileToken?)
+	if not token then
+		return
+	end
+	local durationMs = (os.clock() - token.start) * 1000
+	print(string.format("[AttributesManager][PROFILE] %s took %.3f ms", token.label, durationMs))
+end
 
 -- Serialize attributes for network transmission
 function AttributesManager.serializeAttributes(attributes: PlayerAttributes)
@@ -116,10 +138,12 @@ local function sendFullSync(player: Player)
 		timestamp = os.clock(),
 		version = attrVersionByPlayer[player] or 0,
 	}
+	local profileToken = profileBegin("sendFullSync")
 	dispatcherAny:emit("AttributesDelta", delta, {
 		targets = player,
 		qos = "HIGH",
 	})
+	profileEnd(profileToken)
 end
 
 -- Add a modifier to a player's attribute
@@ -297,6 +321,7 @@ function AttributesManager.applyAllScaling(player: Player)
 	end
 
 	-- Apply milestones; individual stat updates will send their own deltas
+	local profileToken = profileBegin("applyAllScaling")
 	for _, attributeMilestone in pairs(AttributesConfig.AttributeMilestones) do
 		local attribute = AttributesManager.getAttribute(player, attributeMilestone.attribute)
 		if not attribute then
@@ -309,6 +334,11 @@ function AttributesManager.applyAllScaling(player: Player)
 		-- Apply the scaling formula defined in the milestone
 		attributeMilestone.applyScaling(player, intelligenceValue)
 	end
+	profileEnd(profileToken)
+end
+
+function AttributesManager.setProfilingEnabled(enabled: boolean)
+	profilingEnabled = enabled
 end
 
 -- Connect player events

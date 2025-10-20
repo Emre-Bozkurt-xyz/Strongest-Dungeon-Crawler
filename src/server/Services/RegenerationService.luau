@@ -4,11 +4,12 @@
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Server = game:GetService("ServerScriptService").Server
 
-local StatsManager = require(script.Parent.StatsManager)
-local Types = require(game.ReplicatedStorage.Shared.StatTypes)
+local StatsManager = require(Server.Stats.StatsManager)
+local Types = require(ReplicatedStorage.Shared.StatTypes)
 local StatTypeUtil = require(ReplicatedStorage.Shared.StatTypeUtil)
-local NPCManager = require(script.Parent.NPCService.NPCManager)
+local NPCManager = require(Server.NPCService.NPCManager)
 
 local RegenerationService = {}
 
@@ -48,7 +49,7 @@ local function regenerateEntity(entity: Instance, deltaTime: number)
 
 		if pool and regenStat then
 			-- Get regeneration rate (per second)
-			local regenPerSecond = regenStat:getValue(stats)
+			local regenPerSecond = StatsManager.getStatValue(entity, regenStatType) or 0
 
 			if regenPerSecond > 0 then
 				-- Calculate regeneration for this tick (smooth over the tick interval)
@@ -98,14 +99,15 @@ local function onRegenerationTick()
 				for poolType, _ in pairs(REGEN_MAPPING) do
 					local pool = stats[poolType]
 					if pool then
-						local currentValue = pool:getCurrentValue()
+						local currentValue = StatsManager.getPoolCurrentValue(player, poolType) or pool:getCurrentValue()
 						local lastValue = lastSentValues[player][poolType]
+						local maxValue = StatsManager.getPoolMaxValue(player, poolType) or pool:getValue(stats)
 
 						-- Only send delta if the value actually changed
 						if not lastValue or math.abs(currentValue - lastValue) > 0.01 then
 							StatsManager.emitDelta(player, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, poolType, {
 								currentValue = currentValue,
-								maxValue = pool:getValue(stats),
+								maxValue = maxValue,
 							})
 							lastSentValues[player][poolType] = currentValue
 						end

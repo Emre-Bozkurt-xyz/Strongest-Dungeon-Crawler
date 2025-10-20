@@ -6,10 +6,11 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
+local Server = game:GetService("ServerScriptService").Server
 
 local Networking = require(ReplicatedStorage.Shared.Networking)
-local NPCManager = require(script.Parent.NPCService.NPCManager)
-local StatsManager = require(script.Parent.StatsManager)
+local NPCManager = require(Server.NPCService.NPCManager)
+local StatsManager = require(Server.Stats.StatsManager)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
 export type EntityKind = "player" | "npc"

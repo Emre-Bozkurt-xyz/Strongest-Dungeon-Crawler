@@ -2,11 +2,11 @@
 print("Server starting...")
 
 -- Initialize the stats management system
-local StatsManager = require(script.StatsManager)
-local AttributesManager = require(script.AttributesManager)
+local StatsManager = require(script.Managers.StatsManager)
+local AttributesManager = require(script.Managers.AttributesManager)
 
 -- Initialize the regeneration service
-local RegenerationService = require(script.RegenerationService)
+local RegenerationService = require(script.Services.RegenerationService)
 RegenerationService.start()
 
 local Players = game:GetService("Players")
@@ -19,13 +19,13 @@ local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local NPCSpawner = require(script.NPCService.NPCSpawner)
 local ComponentManager = require(script.NPCService.ComponentManager)
 local NPCManager = require(script.NPCService.NPCManager)
-local EntityInfoService = require(script.EntityInfoService)
+local EntityInfoService = require(script.Services.EntityInfoService)
 local ChannelRegistry = require(ReplicatedStorage.Shared.Networking.ChannelRegistry)
 local ChannelDefinitions = require(ReplicatedStorage.Shared.Networking.Channels)
 
 ChannelRegistry.load(ChannelDefinitions)
 
-local Testing = require(script.Testing)
+local Testing = require(script.Testing.Testing)
 
 local function _removeBundles(_character)
 	local humanoid = _character:FindFirstChildOfClass("Humanoid")
@@ -89,39 +89,49 @@ local function setupPlayerCommands(player: Player)
 	-- Apply attribute scaling after stats and attributes are initialized
 	AttributesManager.applyAllScaling(player)
 
+	-- StatsManager.setProfilingEnabled(true)
+	-- AttributesManager.setProfilingEnabled(true)
+
+	-- require(script.Testing.TestStatsProfiler).run({ iterations = 50000 })
+
+	-- StatsManager.setProfilingEnabled(false)
+	-- AttributesManager.setProfilingEnabled(false)
+
 	-- Testing.runAllTests(player)
+
+
 	-- small scale testing
 
-	print(`🧪 Server: Testing attribute operations for {player.Name}`)
+	-- print(`🧪 Server: Testing attribute operations for {player.Name}`)
 
-	-- Test adding intelligence
-	AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Intelligence, 5)
-	print(`Added 5 Intelligence to {player.Name}`)
+	-- -- Test adding intelligence
+	-- AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Intelligence, 5)
+	-- print(`Added 5 Intelligence to {player.Name}`)
 
-	-- Debug available points
-	local availablePoints = AttributesManager.getAvailableAttributePoints(player)
-	print(`{player.Name} has {availablePoints} available attribute points`)
+	-- -- Debug available points
+	-- local availablePoints = AttributesManager.getAvailableAttributePoints(player)
+	-- print(`{player.Name} has {availablePoints} available attribute points`)
 
-	StatsManager.removeFromPool(player, StatTypes.PoolStats.Mana, 30)
-	StatsManager.removeFromPool(player, StatTypes.PoolStats.Health, 30)
-	StatsManager.removeFromPool(player, StatTypes.PoolStats.Stamina, 30)
+	-- StatsManager.removeFromPool(player, StatTypes.PoolStats.Mana, 30)
+	-- StatsManager.removeFromPool(player, StatTypes.PoolStats.Health, 30)
+	-- StatsManager.removeFromPool(player, StatTypes.PoolStats.Stamina, 30)
 
-	wait(2)
+	-- wait(2)
 
-	-- Test spending an attribute point
-	AttributesManager.spendAttributePoint(player, AttributeTypes.Attributes.Intelligence)
-	print(`{player.Name} spent 1 attribute point on Intelligence`)
+	-- -- Test spending an attribute point
+	-- AttributesManager.spendAttributePoint(player, AttributeTypes.Attributes.Intelligence)
+	-- print(`{player.Name} spent 1 attribute point on Intelligence`)
 
-	AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Perception, 20)
+	-- AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Perception, 20)
 
-	wait(2)
+	-- wait(2)
 
-	-- Add intelligence modifier
-	AttributesManager.addModifier(player, AttributeTypes.Attributes.Intelligence, {
-		value = 3, -- +3 Intelligence
-		source_id = "intelligence_modifier_test",
-		description = "Test Intelligence Modifier",
-	})
+	-- -- Add intelligence modifier
+	-- AttributesManager.addModifier(player, AttributeTypes.Attributes.Intelligence, {
+	-- 	value = 3, -- +3 Intelligence
+	-- 	source_id = "intelligence_modifier_test",
+	-- 	description = "Test Intelligence Modifier",
+	-- })
 end
 
 -- Connect to new players for demo purposes

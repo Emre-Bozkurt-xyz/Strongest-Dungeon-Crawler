@@ -12,5 +12,6 @@ local data = {
         stepDelays = { 0.3, 0.4, 1 },
         hitDelays = { 0.4, 0.4, 0.4 },
     },
+    staminaCost = { 14, 18, 24 },
 }
 return data

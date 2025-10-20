@@ -134,15 +134,15 @@ function WorldGUIManager:registerPanel(config: PanelConfig)
 
 	-- Initial positioning (use 1/60 as default deltaTime for initial setup)
 	self:_updatePanelPosition(config, 1 / 60)
-
-	print(`🌐 WorldGUIManager: Registered panel '{config.name}'`)
+	
+	-- print(`🌐 WorldGUIManager: Registered panel '{config.name}'`)
 end
 
 -- Unregister a panel
 function WorldGUIManager:unregisterPanel(name: string)
 	if self.panels[name] then
 		self.panels[name] = nil
-		print(`🌐 WorldGUIManager: Unregistered panel '{name}'`)
+		-- print(`🌐 WorldGUIManager: Unregistered panel '{name}'`)
 	end
 end
 

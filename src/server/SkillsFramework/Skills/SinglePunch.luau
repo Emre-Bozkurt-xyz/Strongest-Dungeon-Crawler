@@ -1,10 +1,11 @@
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Server = game:GetService("ServerScriptService").Server
 
-local BaseSkill = require(script.Parent:WaitForChild("BaseSkill"))
-local StatsManager = require(script.Parent.Parent.Parent:WaitForChild("StatsManager"))
-local HitboxService = require(script.Parent.Parent:WaitForChild("HitboxService"))
-local CombatService = require(script.Parent.Parent.Parent:WaitForChild("CombatService"))
+local BaseSkill = require(script.Parent.BaseSkill)
+local StatsManager = require(Server.Stats.StatsManager)
+local HitboxService = require(script.Parent.Parent.HitboxService)
+local CombatService = require(Server.Services.CombatService)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
 local SinglePunch = {}
@@ -28,15 +29,8 @@ local function resolveHits(config: any?): { [number]: any }
 end
 
 local function computeBaseDamage(caster: Instance): number
-	local stats = StatsManager.getAllStats(caster)
-	if not stats then
-		return 0
-	end
-	local damageStat = stats[StatTypes.StaticStats.PhysicalDamage]
-	if damageStat and damageStat.getValue then
-		return damageStat:getValue(stats)
-	end
-	return 0
+	local value = StatsManager.getStatValue(caster, StatTypes.StaticStats.PhysicalDamage)
+	return value or 0
 end
 
 function SinglePunch.new(caster: Instance, data: any)

@@ -63,8 +63,60 @@ export type RegisterOptions = {
 	skipSync: boolean?,
 }
 
+type MediatorQueryOptionsInternal = StatsMediator.QueryOptions
+
+export type MediatorQueryOptions = MediatorQueryOptionsInternal
+export type QueryOptions = MediatorQueryOptionsInternal
+
 local StatsManager = {}
 local entityStats: { [Instance]: PlayerStats } = {}
+
+local function cloneOptions(source: MediatorQueryOptionsInternal?): MediatorQueryOptionsInternal
+	local target: MediatorQueryOptionsInternal = {}
+	if not source then
+		return target
+	end
+	for key, value in pairs(source) do
+		(target :: any)[key] = value
+	end
+	return target
+end
+
+local function mergeQueryOptions(baseContext: string, baseCacheKey: string, options: MediatorQueryOptionsInternal?): MediatorQueryOptionsInternal
+	local merged = cloneOptions(options)
+	if not merged.context then
+		merged.context = baseContext
+	end
+	if not merged.cacheKey then
+		merged.cacheKey = baseCacheKey
+	end
+	if merged.event == nil then
+		merged.event = merged.context
+	end
+	return merged
+end
+
+type PoolOperationMetadata = { [string]: any }
+
+type PoolOperationContext = {
+	entity: Instance,
+	stats: PlayerStats,
+	basePoolName: PoolType,
+	currentPoolName: PoolType,
+	pool: any,
+	options: MediatorQueryOptions,
+	metadata: PoolOperationMetadata,
+	applyOverride: (string?) -> boolean,
+}
+
+export type PoolCostResolution = {
+	originalPool: PoolType,
+	poolName: PoolType,
+	finalCost: number,
+	metadata: PoolOperationMetadata,
+	currentValue: number,
+	maxValue: number,
+}
 
 local RESOURCE_TICK_INTERVAL = 0.1
 local RESOURCE_DELTA_EPSILON = 1e-4
@@ -269,6 +321,131 @@ function StatsManager.setBaseStat(entity: Instance, statName: StatType, newValue
 	return true
 end
 
+local function preparePoolOperation(
+	entity: Instance,
+	poolName: PoolType,
+	amount: number,
+	options: MediatorQueryOptionsInternal?,
+	baseContext: string?,
+	cacheKey: string?
+): PoolOperationContext?
+	local stats = entityStats[entity]
+	if not stats then
+		warn(`Attempted to access pool {poolName} for entity {entity.Name} who has no stats initialized`)
+		return nil
+	end
+
+	local pool = stats[poolName]
+	if not pool or not StatTypeUtil.isPoolStat(pool) then
+		warn(`Pool {poolName} not found for entity {entity.Name}`)
+		return nil
+	end
+
+	local resolvedOptions = mergeQueryOptions(baseContext or "removeFromPool", cacheKey or "removed", options)
+	resolvedOptions.cacheEnabled = false
+	resolvedOptions.originalStat = resolvedOptions.originalStat or poolName
+
+	local metadata: PoolOperationMetadata = if resolvedOptions.metadata then resolvedOptions.metadata else ({} :: PoolOperationMetadata)
+	resolvedOptions.metadata = metadata
+
+	local context: PoolOperationContext = {
+		entity = entity,
+		stats = stats,
+		basePoolName = poolName,
+		currentPoolName = poolName,
+		pool = pool,
+		options = resolvedOptions,
+		metadata = metadata,
+		applyOverride = function(_target: string?)
+			return true
+		end,
+	}
+
+	metadata.originalStat = metadata.originalStat or poolName
+	metadata.targetStat = metadata.targetStat or poolName
+	metadata.pool = metadata.pool or poolName
+	metadata.baseCost = metadata.baseCost or amount
+	metadata.finalCost = nil
+
+	local function applyOverride(target: string?): boolean
+		if not target or target == context.currentPoolName then
+			return true
+		end
+		local overridePool = stats[target]
+		if not overridePool or not StatTypeUtil.isPoolStat(overridePool) then
+			warn(`Override stat {target} for entity {entity.Name} is not a valid pool; keeping {context.currentPoolName}`)
+			return false
+		end
+		context.pool = overridePool
+		context.currentPoolName = target :: PoolType
+		if context.currentPoolName ~= context.basePoolName then
+			resolvedOptions.overrideStat = context.currentPoolName
+			metadata.overrideStat = context.currentPoolName
+		else
+			resolvedOptions.overrideStat = nil
+			metadata.overrideStat = nil
+		end
+		metadata.targetStat = context.currentPoolName
+		metadata.pool = context.currentPoolName
+		return true
+	end
+
+	context.applyOverride = applyOverride
+	applyOverride(resolvedOptions.overrideStat)
+
+	if context.currentPoolName == context.basePoolName then
+		metadata.overrideStat = nil
+	end
+
+	return context
+end
+
+local function executePoolOperation(
+	context: PoolOperationContext,
+	amount: number,
+	executor: (number) -> any
+): (any, boolean)
+	local metadata = context.metadata
+	metadata.baseCost = metadata.baseCost or amount
+	metadata.finalCost = nil
+
+	local executed = false
+	local statTypeForQuery = context.currentPoolName
+	local result = StatsMediator.resolve(context.entity, statTypeForQuery, function()
+		local requestedOverride = context.options.overrideStat
+		if requestedOverride and requestedOverride ~= context.currentPoolName then
+			local applied = context.applyOverride(requestedOverride)
+			if not applied then
+				if context.currentPoolName ~= context.basePoolName then
+					context.options.overrideStat = context.currentPoolName
+					metadata.overrideStat = context.currentPoolName
+				else
+					context.options.overrideStat = nil
+					metadata.overrideStat = nil
+				end
+			end
+		end
+
+		local finalAmount = amount
+		if metadata.adjustedCost ~= nil then
+			finalAmount = metadata.adjustedCost
+		end
+
+		if context.currentPoolName ~= context.basePoolName then
+			metadata.overrideStat = context.currentPoolName
+		elseif metadata.overrideStat ~= nil then
+			metadata.overrideStat = nil
+		end
+		metadata.targetStat = context.currentPoolName
+		metadata.pool = context.currentPoolName
+		metadata.finalCost = finalAmount
+		executed = true
+		return executor(finalAmount)
+	end, context.options)
+
+	return result, executed
+end
+
 function StatsManager.addToPool(entity: Instance, poolName: PoolType, amount: number): boolean
 	local stats = entityStats[entity]
 	if not stats then
@@ -293,28 +470,63 @@ function StatsManager.addToPool(entity: Instance, poolName: PoolType, amount: nu
 	return added
 end
 
-function StatsManager.removeFromPool(entity: Instance, poolName: PoolType, amount: number)
-	local stats = entityStats[entity]
-	if not stats then
-		warn(`Attempted to remove from pool for entity {entity.Name} who has no stats initialized`)
+function StatsManager.removeFromPool(entity: Instance, poolName: PoolType, amount: number, options: MediatorQueryOptionsInternal?): boolean
+	local context = preparePoolOperation(entity, poolName, amount, options, "removeFromPool", "removed")
+	if not context then
 		return false
 	end
 
-	local pool = (stats :: any)[poolName]
-	if not pool or not StatTypeUtil.isPoolStat(pool) then
-		warn(`Pool {poolName} not found for entity {entity.Name}`)
-		return false
-	end
+	local removed, executed = executePoolOperation(context, amount, function(finalAmount)
+		return context.pool:removeFromCurrentValue(finalAmount, context.stats)
+	end)
 
-	local removed = pool:removeFromCurrentValue(amount)
-	if removed and entity:IsA("Player") then
-		sendStatDelta(entity, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, poolName, {
-			currentValue = pool:getCurrentValue(),
-			maxValue = pool:getValue(stats),
+	if executed and removed ~= nil and entity:IsA("Player") then
+		sendStatDelta(entity, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, context.currentPoolName, {
+			currentValue = context.pool:getCurrentValue(),
+			maxValue = context.pool:getValue(context.stats),
 		})
 	end
 
-	return removed
+	return removed ~= nil
+end
+
+function StatsManager.resolvePoolCost(
+	entity: Instance,
+	poolName: PoolType,
+	amount: number,
+	options: MediatorQueryOptionsInternal?
+): PoolCostResolution?
+	local context = preparePoolOperation(entity, poolName, amount, options, "resolvePoolCost", "costPreview")
+	if not context then
+		return nil
+	end
+
+	local _, executed = executePoolOperation(context, amount, function(finalAmount)
+		return finalAmount
+	end)
+
+	if not executed then
+		return nil
+	end
+
+	local finalCost = context.metadata.finalCost or amount
+	local currentValue = if context.pool.getCurrentValue then context.pool:getCurrentValue() else 0
+
+	local maxValue = 0
+	if context.pool.getValue then
+		maxValue = context.pool:getValue(context.stats)
+	elseif context.pool.getMaxValue then
+		maxValue = context.pool:getMaxValue(context.stats)
+	end
+
+	return {
+		originalPool = context.basePoolName,
+		poolName = context.currentPoolName,
+		finalCost = finalCost,
+		metadata = context.metadata,
+		currentValue = currentValue,
+		maxValue = maxValue,
+	}
 end
 
 function StatsManager.addReservation(entity: Instance, poolName: PoolType, reservation)
@@ -481,25 +693,29 @@ function StatsManager.offResourceEvent(entity: Instance, resourceName: ResourceT
 	return true
 end
 
-function StatsManager.getResourceCurrentValue(entity: Instance, resourceName: ResourceType): number?
+function StatsManager.getResourceCurrentValue(entity: Instance, resourceName: ResourceType, queryOptions: MediatorQueryOptionsInternal?): number?
 	local resource, _ = getResourceStat(entity, resourceName)
 	if not resource then
 		return nil
 	end
-	return resource:getCurrentValue()
+	local resolvedOptions = mergeQueryOptions("getResourceCurrentValue", "current", queryOptions)
+	if resolvedOptions.cacheEnabled == nil then
+		resolvedOptions.cacheEnabled = false
+	end
+	return StatsMediator.resolve(entity, resourceName, function()
+		return resource:getCurrentValue()
+	end, resolvedOptions)
 end
 
-function StatsManager.getResourceMaxValue(entity: Instance, resourceName: ResourceType): number?
+function StatsManager.getResourceMaxValue(entity: Instance, resourceName: ResourceType, queryOptions: MediatorQueryOptionsInternal?): number?
 	local resource, stats = getResourceStat(entity, resourceName)
 	if not resource or not stats then
 		return nil
 	end
+	local resolvedOptions = mergeQueryOptions("getResourceMaxValue", "max", queryOptions)
 	return StatsMediator.resolve(entity, resourceName, function()
 		return resource:getMaxValue(stats)
-	end, {
-		context = "getResourceMaxValue",
-		cacheKey = "max",
-	})
+	end, resolvedOptions)
 end
 
 function StatsManager.addModifier(entity: Instance, statType: StatType, modifier)
@@ -590,7 +806,7 @@ function StatsManager.getStat(entity: Instance, statType: StatType): Types.StatI
 	return stats[statType]
 end
 
-function StatsManager.getStatValue(entity: Instance, statType: StatType): number?
+function StatsManager.getStatValue(entity: Instance, statType: StatType, queryOptions: MediatorQueryOptionsInternal?): number?
 	local stats = entityStats[entity]
 	if not stats then
 		return nil
@@ -599,12 +815,10 @@ function StatsManager.getStatValue(entity: Instance, statType: StatType): number
 	if not stat then
 		return nil
 	end
+	local resolvedOptions = mergeQueryOptions("getStatValue", "value", queryOptions)
 	return StatsMediator.resolve(entity, statType, function()
 		return stat:getValue(stats)
-	end, {
-		context = "getStatValue",
-		cacheKey = "value",
-	})
+	end, resolvedOptions)
 end
 
 function StatsManager.getAllStats(entity: Instance): PlayerStats?
@@ -612,19 +826,25 @@ function StatsManager.getAllStats(entity: Instance): PlayerStats?
 end
 
 -- Convenience getters for pool stats (current vs max)
-function StatsManager.getPoolCurrentValue(entity: Instance, poolName: PoolType): number?
+function StatsManager.getPoolCurrentValue(entity: Instance, poolName: PoolType, queryOptions: MediatorQueryOptionsInternal?): number?
 	local stats = entityStats[entity]
 	if not stats then
 		return nil
 	end
 	local pool = (stats :: any)[poolName]
 	if pool and pool.getCurrentValue then
-		return pool:getCurrentValue()
+		local resolvedOptions = mergeQueryOptions("getPoolCurrentValue", "current", queryOptions)
+		if resolvedOptions.cacheEnabled == nil then
+			resolvedOptions.cacheEnabled = false
+		end
+		return StatsMediator.resolve(entity, poolName, function()
+			return pool:getCurrentValue()
+		end, resolvedOptions)
 	end
 	return nil
 end
 
-function StatsManager.getPoolMaxValue(entity: Instance, poolName: PoolType): number?
+function StatsManager.getPoolMaxValue(entity: Instance, poolName: PoolType, queryOptions: MediatorQueryOptionsInternal?): number?
 	local stats = entityStats[entity]
 	if not stats then
 		return nil
@@ -633,12 +853,10 @@ function StatsManager.getPoolMaxValue(entity: Instance, poolName: PoolType): num
 	if not pool or not pool.getValue then
 		return nil
 	end
+	local resolvedOptions = mergeQueryOptions("getPoolMaxValue", "max", queryOptions)
 	return StatsMediator.resolve(entity, poolName, function()
 		return pool:getValue(stats)
-	end, {
-		context = "getPoolMaxValue",
-		cacheKey = "max",
-	})
+	end, resolvedOptions)
 end
 
 function StatsManager.getPoolPercentage(entity: Instance, poolName: PoolType): number?

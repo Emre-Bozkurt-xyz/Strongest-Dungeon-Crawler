@@ -8,34 +8,50 @@ Keep responses concise, reference concrete files, and follow the established exe
   - `SkillsManager.luau`: Entry point for processing skill use requests (dispatcher request `SkillsRequest`). Handles gating: cooldowns, execution lock, and combo chaining.
   - `ExecutionService.luau`: Provides an execution lock per player+skill; supports optional auto-complete via duration and allows chaining the same combo skill.
   - `CooldownService.luau`: Authoritative per-skill cooldown + global cooldown (GCD) management; uses `os.clock()` style monotonic time.
-  - `ComboService.luau`: Tracks combo progression (step, expiry window, per-step delays) and issues tokens to validate presses.
-  - `SkillsConfig.luau`: Declarative definitions for skills (cooldown, gcd, combo metadata, per-hit timelines for non-combo skills).
+  - `ComboService.luau`: Stateful combo controller. Handles `requestStep`/`registerStepTiming`, enforces busy/until windows, handles expiry, and tracks tokens for sequencing (see `docs/skills/timing.md`).
+  - `SkillTimingService.luau`: Resolves tempo based on timing categories and stats before each execution.
+  - `SkillsConfig.luau`: Loads declarative definitions under `SkillsData/` and instantiates skill classes.
   - `HitboxService.luau`: Cone/box spatial queries with optional debug visualization.
   - `ProjectileService.luau`: Projectile spawning and lifecycle management.
   - `Timeline.luau`: Generic scheduling system for timed sequences.
   - Individual skills in `Skills/` (`BaseSkill.luau`, `BaseComboSkill.luau`, `Punch.luau`, `TripleStrike.luau`): Encapsulate skill-specific logic and hit application.
 
 - **Stats System (server/shared)**: Character progression and derived values.
-  - `StatsManager.luau`: Server-authoritative stat management with dispatcher sync to clients. Handles base values, modifiers, pools (Health/Mana/Stamina).
+  - `StatsManager.luau`: Server-authoritative stat management with dispatcher sync to clients. Handles base values, modifiers, pools, resources, and regeneration ticks.
+  - `StatsMediator.luau`: Central query/observer layer with caching used by skills (`resolveSkillTempo`, `resolveSkillCost`, etc.).
+  - `Config/StatsConfig.luau`: Builds default stats (`StatClass`, `PoolStatClass`, `ResourceStatClass`).
   - `AttributesManager.luau`: RPG-style attributes (Strength, Agility, etc.) with point allocation and modifier system.
-  - `StatClass.luau`, `PoolClass.luau`, `AttributeClass.luau`: Core stat computation with modifier chains.
   - `CombatService.luau`: Damage application using stat-derived values.
   - `RegenerationService.luau`: Pool regeneration over time.
 
 - **Status Effects System**: `StatusEffectsService.luau` handles timed buffs/debuffs with complex stacking modes ("aggregate", "multi", "charges"), duration policies, and tick behaviors.
 
+- **Server Services**: `src/server/Services/` contains gameplay services beyond skills/stats.
+  - `EntityInfoService.luau`: Streams presence info to clients and handles reveal RPCs (see `docs/client/entity-presence.md`).
+  - `RegenerationService.luau`: Periodically restores pools using stats.
+  - `CombatService.luau`: Applies damage using stat outputs.
+
+- **NPC System**: `src/server/NPCService/` manages AI-controlled characters.
+  - `NPCManager.luau`: Registers models, tracks active components, and initializes stats.
+  - `ComponentManager.luau`: Runs `Behavior`, `Movement`, `Combat`, and `Damageable` components each heartbeat (see `docs/npc/overview.md`).
+  - `NPCSpawner.luau`: Spawns prefabs and attaches common component sets.
+
 - **Input System (client)**: `InputManager.luau` provides action-based input binding with context switching. `ActionConfig.luau` defines key mappings.
 
 - **Client FX/UI**: 
   - `FXPlayer.luau`: Asset-based particle/sound effects with pooling and automatic cleanup.
-  - `SkillsClient.luau`: Receives skill events and coordinates animations/FX via `ClientSpec.luau` definitions.
+  - `SkillsClient.luau`: Receives skill events, forwards authoritative timing metadata (`targetDuration`, `baseDuration`, per-step flags) to the animation layer, and coordinates FX via `ClientSpec.luau` definitions.
+  - `EntityRevealStore.luau`: Presence cache driven by `EntityInfoDelta` events.
+  - `OverheadHealthService.luau`: Spawns world-space HP bars for revealed entities.
+  - `WorldGUIManager.luau`: Centralises camera-facing world panels.
   - UI controllers for health/mana bars, skill slots with cooldown overlays.
-  - `AnimationPlayer.luau`: Animation state management and marker-driven FX triggers.
+  - `AnimationPlayer.luau`: Animation state management and marker-driven FX triggers; pulls cached track metadata from `AssetLoader` and scales animation tempo from server durations.
+  - `AssetLoader.luau`: Client-side asset bootstrapper that preloads animations at startup, caches references, and records native lengths by consulting `AnimationClipProvider` or a dummy animator fallback. Exposes `getLength(animationId)` for deterministic tempo scaling.
 
 ## 2. Core Runtime Concepts
 - **Execution Phase vs Cooldown**: Cooldown **starts only after execution completes** (see `ExecutionService.onCompleted` listener in `SkillsManager`). Never start cooldown inside an individual skill now.
 - **Execution Lock**: While executing, other skills are blocked. Combo chaining of the SAME skill is allowed (flag passed in `beginExecution(nil, true)` for combos). Non-combo skills cannot re-enter while locked (anti-spam logic in `SkillsManager.useSkill`).
-- **Combos**: Steps advance through `ComboService.nextStep(...)`, which enforces: window timeout, per-step minimum delay (`stepDelays`), and token sequencing.
+- **Combos**: Steps advance through `ComboService.requestStep(...)` followed by registering authoritative durations via `registerStepTiming`. The controller enforces busy windows, per-step minimum delay (`stepDelays`), token sequencing, and expiry.
 - **Hit Timing**: Combo skills optionally delay damage via `combo.hitDelays[step]`. Non-combo timeline skills (e.g. `TripleStrike`) use a `hits` array of `{ t, yaw, coneAngle, coneRange, damageMult }` and schedule each impact.
 - **Recovery**: Optional `combo.recovery` extends execution AFTER the final hit before cooldown/GCD start (implemented in `BaseComboSkill`).
 
@@ -46,7 +62,10 @@ Keep responses concise, reference concrete files, and follow the established exe
 - For new combo skills: inherit from `BaseComboSkill`, implement `onComboStep(step, requestData)`; DO NOT start cooldown manually.
 - For timeline (multi-hit) single skills: inherit `BaseSkill`, compute total duration (last hit time + tail), call `beginExecution(totalDuration, false)`, schedule hits, and call or schedule `completeExecution()` if no duration auto-complete.
 - Always defer completion until after final impact logic. If impact delay is zero, use `task.defer` before `completeExecution()` (see current `BaseComboSkill` logic).
+- Combo skills must call `ComboService.registerStepTiming` (handled in `BaseComboSkill`) so controller windows line up with execution duration metadata.
 - Prevent spam: rely on `ExecutionService.isLocked` + gating in `SkillsManager` not ad-hoc checks in each skill.
+- Animation playback depends on server metadata: `SkillsClient` always passes both `targetDuration` (authoritative tempo) and `baseDuration` (original length) to `AnimationPlayer`, which divides by the native clip length fetched from `AssetLoader` before playing.
+- Boot `AssetLoader` during client startup (`src/client/init.client.luau`) so animation lengths are cached before the first skill event tries to play them.
 - **Stats/Attributes**: Use `StatsManager.setBaseStat()` and `AttributesManager.addModifier()` for server changes. Client receives deltas via dispatcher events.
 - **Status Effects**: Register effects in `StatusEffects/EffectsIndex.luau` with stacking modes. Apply via `StatusEffectsService.apply(target, effectId, params)`.
 - **Input Handling**: Define actions in `ActionConfig.luau`, bind callbacks via `InputManager.on(actionName, callback)`.
@@ -103,7 +122,7 @@ return NewSkill
 - Re-implementing spam gating inside individual skills instead of central `SkillsManager`.
 
 ## 6. Execution / Combo Timing Reference
-- Combo advance allowed only if: within `window` AND after `stepDelays[currentStep]` has elapsed.
+- Combo advance allowed only if `requestStep` grants a new token (i.e., within window AND past busy/step-delay gates tracked inside `ComboService`).
 - Final combo completion delay = `hitDelays[lastStep] + recovery` (if present) before `completeExecution()`.
 - Global Cooldown (GCD) & per-skill cooldown both start from `ExecutionService.onCompleted` callback.
 
@@ -140,9 +159,17 @@ return NewSkill
 - **Build**: Use `rojo build -o "Strongest Dungeon Crawler.rbxlx"` then `rojo serve` for live sync.
 - **Debugging Skills**: Toggle `DEBUG_VIS = true` in skills for hitbox visualization. Add prints in `SkillsManager.useSkill` for gating traces.
 - **Testing Combos**: Verify step advancement with different timing patterns. Check execution lock prevents spam clicks.
-- **Client FX**: Animation markers in `ClientSpec` automatically trigger FX. Use `FXPlayer.playAt` for manual placement.
+- **Client FX**: Animation markers in `ClientSpec` automatically trigger FX. Use `FXPlayer.playAt` for manual placement. Ensure new animations are added under `ReplicatedStorage/Assets/Animations` so `AssetLoader` can preload them.
 
-## 11. Glossary
+## 11. Reference Documents
+- `docs/skills/overview.md` – server/client skill architecture and flow.
+- `docs/skills/timing.md` – combo controller and tempo resolver details.
+- `docs/stats/overview.md` – stats, mediator, and resource cost pipeline.
+- `docs/networking/overview.md` – dispatcher usage and channel guidelines.
+- `docs/npc/overview.md` – NPC manager, components, and prefab workflow.
+- `docs/client/entity-presence.md` – presence streaming and world UI pipeline.
+
+## 12. Glossary
 - Execution: Active phase from `beginExecution` until `completeExecution`.
 - Recovery: Optional post-impact lock still counted as execution time.
 - GCD: Global Cooldown preventing any skill use while active (separate from execution lock).

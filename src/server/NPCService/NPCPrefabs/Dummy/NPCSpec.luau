@@ -26,7 +26,7 @@ return {
 	},
 	combat = {
 		damage = 12,
-		attackRange = 6,
+		attackRange = 7,
 		attackCooldown = 1.4,
 		aggroRange = 24,
 		skills = { "SinglePunch" },
@@ -54,12 +54,12 @@ return {
 
 			local healthRegen = stats[StatTypes.StaticStats.HealthRegeneration]
 			if healthRegen and healthRegen.setBaseValue then
-				healthRegen:setBaseValue(10)
+				healthRegen:setBaseValue(5)
 			end
 
 			local physicalDamage = stats[StatTypes.StaticStats.PhysicalDamage]
 			if physicalDamage and physicalDamage.setBaseValue then
-				physicalDamage:setBaseValue(1)
+				physicalDamage:setBaseValue(12)
 			end
 		end,
 	},

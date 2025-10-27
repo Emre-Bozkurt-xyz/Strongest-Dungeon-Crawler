@@ -10,6 +10,11 @@ export type SkillData = {
 	gcd: number,
 	level: number,
 	animCategory: string?, -- category tag for NPC animation selection
+	tags: { string }?,
+	cost: number?,
+	costs: { number }?,
+	baseResource: any?,
+	baseDuration: number?,
 	combo: {
 		steps: number,
 		window: number,
@@ -17,6 +22,7 @@ export type SkillData = {
 		hitDelays: { number }?,
 		recovery: number?, -- optional post-final-hit lock before execution completes (keeps GCD/cooldown from starting early)
 		comboCooldown: number?,
+		stepDurations: { number }?,
 	}?,
 	hits: {
 		{
@@ -37,6 +43,11 @@ export type SkillConfigOverride = {
 	gcd: number?,
 	level: number?,
 	animCategory: string?,
+	tags: { string }?,
+	cost: number?,
+	costs: { number }?,
+	baseResource: any?,
+	baseDuration: number?,
 	combo: {
 		steps: number?,
 		window: number?,
@@ -44,6 +55,7 @@ export type SkillConfigOverride = {
 		hitDelays: { number }?,
 		recovery: number?,
 		comboCooldown: number?,
+		stepDurations: { number }?,
 	}?,
 	hits: {
 		{

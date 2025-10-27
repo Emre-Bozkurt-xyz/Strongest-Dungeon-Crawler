@@ -2,8 +2,8 @@
 print("Server starting...")
 
 -- Initialize the stats management system
-local StatsManager = require(script.Managers.StatsManager)
-local AttributesManager = require(script.Managers.AttributesManager)
+local StatsManager = require(script.Stats.StatsManager)
+local AttributesManager = require(script.Stats.AttributesManager)
 
 -- Initialize the regeneration service
 local RegenerationService = require(script.Services.RegenerationService)
@@ -22,6 +22,7 @@ local NPCManager = require(script.NPCService.NPCManager)
 local EntityInfoService = require(script.Services.EntityInfoService)
 local ChannelRegistry = require(ReplicatedStorage.Shared.Networking.ChannelRegistry)
 local ChannelDefinitions = require(ReplicatedStorage.Shared.Networking.Channels)
+local StatsMediator = require(script.Stats.StatsMediator)
 
 ChannelRegistry.load(ChannelDefinitions)
 
@@ -64,6 +65,7 @@ local function setupPlayerCommands(player: Player)
 
 	SkillsManager.addSkill(player, "Punch")
 	SkillsManager.addSkill(player, "TripleStrike")
+	SkillsManager.addSkill(player, "Dash")
 
 	StatsManager.addModifier(
 		player,
@@ -76,9 +78,32 @@ local function setupPlayerCommands(player: Player)
 		})
 	)
 
-	
-
     wait(5)
+
+	-- StatsMediator.observe("resolveSkillCost", function(ctx)
+	-- 	print("Observing skill cost resolution for", ctx.entity.Name)
+	-- 	local meta = ctx.options and ctx.options.metadata
+	-- 	if not meta then return end
+
+	-- 	if meta.skillTags and typeof(meta.skillTags) == "table" and table.find(meta.skillTags, "melee")  then
+	-- 		local cost = meta.adjustedCost or meta.baseCost or ctx.compute()
+	-- 		meta.adjustedCost = math.max(0, cost * 1.5)
+	-- 		meta.overrideStat = StatTypes.PoolStats.Health
+	-- 		local options = ctx.options
+	-- 		if options then
+	-- 			options.overrideStat = StatTypes.PoolStats.Health
+	-- 		end
+	-- 	end
+	-- 	return nil
+	-- end)
+
+	StatsManager.setBaseStat(player, StatTypes.StaticStats.AttackSpeed, 1)
+	StatsManager.addModifier(player, StatTypes.StaticStats.HealthRegeneration, PercentOfStatModifier.new({
+		value = 0.2, -- 20% of max health
+		source_id = "health_regen_test",
+		targetStat = StatTypes.PoolStats.Health,
+		description = "Base health regeneration",
+	}))
 	
 
 	print("Starting in 5s...")
@@ -98,7 +123,8 @@ local function setupPlayerCommands(player: Player)
 	-- AttributesManager.setProfilingEnabled(false)
 
 	-- Testing.runAllTests(player)
-
+	-- Testing.testCombatLogCoverage(player)
+	-- Testing.testModifierOperations(player)
 
 	-- small scale testing
 

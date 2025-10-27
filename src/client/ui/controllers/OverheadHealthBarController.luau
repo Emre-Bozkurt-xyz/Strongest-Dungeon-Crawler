@@ -11,6 +11,7 @@ export type OverheadHealthBarController = {
     nameLabel: TextLabel?,
     curLabel: TextLabel?,
     maxLabel: TextLabel?,
+    percentageLabel: TextLabel?,
     _tween: Tween?,
     _fadeTween: Tween?,
     _fadeToken: number,
@@ -100,6 +101,7 @@ function OverheadHealthBarController.new(rootPart: BasePart)
     self.nameLabel = frame:FindFirstChild("NameLabel") :: TextLabel?
     self.curLabel = frame:FindFirstChild("CurLabel") :: TextLabel?
     self.maxLabel = frame:FindFirstChild("MaxLabel") :: TextLabel?
+    self.percentageLabel = frame:FindFirstChild("PercentageLabel") :: TextLabel?
 
     self._tween = nil
     self._fadeTween = nil
@@ -108,12 +110,12 @@ function OverheadHealthBarController.new(rootPart: BasePart)
     self._densityAlpha = 1.0 -- set by service crowding logic
     self._isHidden = true
     -- cache base transparencies
-    self._baseFrameBgT = (self.frame and (self.frame :: any).BackgroundTransparency) or 0
-    self._baseProgressBgT = (self.progress and (self.progress :: any).BackgroundTransparency) or 0
-    self._baseFillBgT = (self.fill and (self.fill :: any).BackgroundTransparency) or 0
-    self._baseNameTextT = (self.nameLabel and (self.nameLabel :: any).TextTransparency) or 0
-    self._baseCurTextT = (self.curLabel and (self.curLabel :: any).TextTransparency) or 0
-    self._baseMaxTextT = (self.maxLabel and (self.maxLabel :: any).TextTransparency) or 0
+    self._baseFrameBgT = (self.frame and self.frame.BackgroundTransparency) or 0
+    self._baseProgressBgT = (self.progress and self.progress.BackgroundTransparency) or 0
+    self._baseFillBgT = (self.fill and self.fill.BackgroundTransparency) or 0
+    self._baseNameTextT = (self.nameLabel and self.nameLabel.TextTransparency) or 0
+    self._baseCurTextT = (self.curLabel and self.curLabel.TextTransparency) or 0
+    self._baseMaxTextT = (self.maxLabel and self.maxLabel.TextTransparency) or 0
     self._fadeToken = 0
 
     -- Start hidden (final alpha 0)
@@ -278,10 +280,13 @@ function OverheadHealthBarController:setPercent(p: number)
     })
     self._tween:Play()
     if self.curLabel then
-        (self.curLabel :: any).Text = tostring(math.floor(p * 100)) .. "%"
+        self.curLabel.Text = ""
     end
     if self.maxLabel then
-        (self.maxLabel :: any).Text = ""
+        self.maxLabel.Text = ""
+    end
+    if self.percentageLabel then
+        self.percentageLabel.Text = tostring(math.floor(p * 100)) .. "%"
     end
 end
 
@@ -298,11 +303,16 @@ function OverheadHealthBarController:setCurrentMax(cur: number, max: number)
         Size = UDim2.fromScale(p, 1),
     })
     self._tween:Play()
+
+    if self.percentageLabel then
+        self.percentageLabel.Text = ""
+    end
+
     if self.curLabel then
-        (self.curLabel :: any).Text = tostring(math.floor(cur))
+        self.curLabel.Text = tostring(math.floor(cur))
     end
     if self.maxLabel then
-        (self.maxLabel :: any).Text = "/" .. tostring(math.floor(max))
+        self.maxLabel.Text = "/" .. tostring(math.floor(max))
     end
 end
 

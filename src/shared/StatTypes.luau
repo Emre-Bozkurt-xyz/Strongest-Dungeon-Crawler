@@ -39,6 +39,8 @@ local Types = {}
 export type StaticStatType =
 	"PhysicalDamage"
 	| "MagicDamage"
+	| "AttackSpeed"
+	| "SpellCastSpeed"
 	| "CriticalHitChance"
 	| "CriticalHitDamage"
 	| "HealthRegeneration"
@@ -73,6 +75,8 @@ export type PlayerStats = {
 	-- Static stats (calculated values only)
 	PhysicalDamage: typeof(Stat.new({ baseValue = 0, name = "" })),
 	MagicDamage: typeof(Stat.new({ baseValue = 0, name = "" })),
+	AttackSpeed: typeof(Stat.new({ baseValue = 0, name = "" })),
+	SpellCastSpeed: typeof(Stat.new({ baseValue = 0, name = "" })),
 	CriticalHitChance: typeof(Stat.new({ baseValue = 0, name = "" })),
 	CriticalHitDamage: typeof(Stat.new({ baseValue = 0, name = "" })),
 	HealthRegeneration: typeof(Stat.new({ baseValue = 0, name = "" })),
@@ -110,10 +114,21 @@ export type PoolConfig = {
 }
 
 export type ModifierConfig = {
-	value: number,
-	type: "flat" | "percent",
-	condition: ((stats: any) -> boolean)?,
+	value: number?,
+	type: "flat" | "percent"?,
+	condition: ((stats: any, context: any?) -> boolean)?,
 	source_id: string,
+	description: string?,
+	strategy: any?,
+	strategyKind: string?,
+	strategyParams: { [string]: any }?,
+	payload: { [string]: any }?,
+	tags: { string }?,
+	stackGroup: string?,
+	priority: number?,
+	metadata: { [string]: any }?,
+	duration: number?,
+	expiresAt: number?,
 }
 
 export type PoolReservation = {
@@ -131,6 +146,8 @@ export type PoolReservation = {
 Types.StaticStats = {
 	PhysicalDamage = "PhysicalDamage" :: StaticStatType,
 	MagicDamage = "MagicDamage" :: StaticStatType,
+	AttackSpeed = "AttackSpeed" :: StaticStatType,
+	SpellCastSpeed = "SpellCastSpeed" :: StaticStatType,
 	CriticalHitChance = "CriticalHitChance" :: StaticStatType,
 	CriticalHitDamage = "CriticalHitDamage" :: StaticStatType,
 	HealthRegeneration = "HealthRegeneration" :: StaticStatType,

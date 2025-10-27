@@ -4,6 +4,7 @@
 
 local PathfindingService = game:GetService("PathfindingService")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local NPCManager = require(script.Parent.Parent.NPCManager)
 
@@ -61,6 +62,8 @@ function Movement.new(npcModel: Model, config: MovementConfig): any
 		humanoid.WalkSpeed = config.walkSpeed or 8
 		humanoid.JumpHeight = config.jumpHeight or 7.2
 	end
+
+	self._rotationTween = nil
 	
 	_register(npcModel)
 	return self
@@ -174,6 +177,35 @@ function Movement:pathfindTo(targetPosition: Vector3): boolean
 	return true
 end
 
+function Movement:rotateToPosition(targetPosition: Vector3, time: number?)
+	local humanoidRootPart = self.model:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not humanoidRootPart then return end
+	
+	local direction = (targetPosition - humanoidRootPart.Position).Unit
+	direction = Vector3.new(direction.X, 0, direction.Z)
+	local targetCFrame = CFrame.new(humanoidRootPart.Position, humanoidRootPart.Position + direction)
+	
+	-- Smoothly rotate towards target (use tween, check if already tweening and replace)
+	if self._rotationTween then
+		self._rotationTween:Cancel()
+	end
+
+	if not time then
+		time = 0.3
+	end
+
+	local info = TweenInfo.new(
+		time, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out
+	)
+
+	local goal = {
+		CFrame = CFrame.new(humanoidRootPart.Position, targetCFrame.LookVector + humanoidRootPart.Position)
+	}
+
+	self._rotationTween = TweenService:Create(humanoidRootPart, info, goal)
+	self._rotationTween:Play()
+end
+
 -- Start patrolling around the spawn point
 function Movement:startPatrolling()
 	local patrolRadius = self.model:GetAttribute("PatrolRadius") or 10
@@ -196,10 +228,6 @@ end
 
 -- Stop all movement
 function Movement:stop()
-	local humanoid = self.model:FindFirstChild("Humanoid") :: Humanoid?
-	if humanoid then
-		humanoid:MoveTo(self:getPosition())
-	end
 	
 	self.currentPath = nil
 	self:setState("idle")

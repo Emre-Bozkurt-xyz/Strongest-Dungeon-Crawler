@@ -23,6 +23,18 @@ StatsConfig.DEFAULT_POOLS = {
 StatsConfig.DEFAULT_STATS = {
 	[Types.StaticStats.PhysicalDamage] = { baseValue = 10, minValue = 0, maxValue = 9999, name = "Physical Damage" },
 	[Types.StaticStats.MagicDamage] = { baseValue = 0, minValue = 0, maxValue = 9999, name = "Magic Damage" },
+	[Types.StaticStats.AttackSpeed] = {
+		baseValue = 1.0,
+		minValue = 0.1,
+		maxValue = 10.0,
+		name = "Attack Speed",
+	}, -- multiplier
+	[Types.StaticStats.SpellCastSpeed] = {
+		baseValue = 1.0,
+		minValue = 0.1,
+		maxValue = 10.0,
+		name = "Spell Cast Speed",
+	}, -- multiplier
 	[Types.StaticStats.CriticalHitChance] = {
 		baseValue = 5,
 		minValue = 0,
@@ -65,6 +77,7 @@ StatsConfig.DEFAULT_STATS = {
 		maxValue = 10,
 		name = "Perception Tier",
 	},
+
 }
 
 StatsConfig.DEFAULT_RESOURCES = {

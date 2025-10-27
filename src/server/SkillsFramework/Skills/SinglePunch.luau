@@ -3,7 +3,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = game:GetService("ServerScriptService").Server
 
 local BaseSkill = require(script.Parent.BaseSkill)
-local StatsManager = require(Server.Stats.StatsManager)
 local HitboxService = require(script.Parent.Parent.HitboxService)
 local CombatService = require(Server.Services.CombatService)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
@@ -28,11 +27,6 @@ local function resolveHits(config: any?): { [number]: any }
 	return {}
 end
 
-local function computeBaseDamage(caster: Instance): number
-	local value = StatsManager.getStatValue(caster, StatTypes.StaticStats.PhysicalDamage)
-	return value or 0
-end
-
 function SinglePunch.new(caster: Instance, data: any)
 	local self = BaseSkill.new(caster, data)
 	setmetatable(self, SinglePunch)
@@ -43,25 +37,78 @@ function SinglePunch:use()
 	local hits = resolveHits(self.config)
 	local tail = 0.05
 	local totalDuration = 0.25
-	if #hits > 0 then
+	local baseOverride = if self.config and typeof(self.config.baseDuration) == "number" then self.config.baseDuration else nil
+	if baseOverride and baseOverride > 0 then
+		totalDuration = baseOverride
+	elseif #hits > 0 then
 		local last = hits[#hits]
 		totalDuration = math.max((last.t or 0) + tail, totalDuration)
 	end
 
-	self:beginExecution(totalDuration, false)
+	local timing = self:resolveTiming({
+		metadata = {
+			baseDuration = totalDuration,
+			tail = tail,
+			hitCount = #hits,
+		},
+	})
 
-	local baseDamage = computeBaseDamage(self.caster)
+	if not self:applyResourceCost({ timing = timing }) then
+		return
+	end
+
+	local tempo = timing.tempo
+	local durationScale = timing.durationScale
+	local executionDuration = totalDuration * durationScale
+	local planned = executionDuration > 0 and executionDuration or nil
+	local targetDuration = planned or executionDuration
+
+	self:beginExecution(planned, {
+		lockJump = true,
+		allowChain = false,
+		autoComplete = false,
+		timing = timing,
+	})
+	self:_updateExecutionState({
+		timing = timing,
+		tempo = tempo,
+		durationScale = durationScale,
+		plannedDuration = planned,
+		targetDuration = planned,
+	})
+
+	local baseDamage = self:queryStatValue(StatTypes.StaticStats.PhysicalDamage, {
+		event = "skillDamageQuery",
+		metadata = {
+			skill = self.name,
+			stepCount = #hits,
+		},
+	}) or 0
+
 	if #hits == 0 then
-		self:emitStep(1)
+		self:emitStep(1, {
+			tempo = tempo,
+			speed = tempo,
+			durationScale = durationScale,
+			targetDuration = targetDuration,
+		})
 		self:_applyHit(baseDamage, 1, nil)
 	else
 		local steps = {}
 		for index, hitSpec in ipairs(hits) do
-			local delay = hitSpec.t or 0
+			local baseTime = hitSpec.t or 0
+			local delay = baseTime * durationScale
 			steps[#steps + 1] = {
 				t = delay,
 				fn = function()
-					self:emitStep(index)
+					self:emitStep(index, {
+						tempo = tempo,
+						speed = tempo,
+						durationScale = durationScale,
+						baseTime = baseTime,
+						scheduledTime = delay,
+						targetDuration = targetDuration,
+					})
 					self:_applyHit(baseDamage, index, hitSpec)
 				end,
 			}
@@ -69,9 +116,15 @@ function SinglePunch:use()
 		self:schedule(steps)
 	end
 
-	task.delay(totalDuration, function()
-		self:completeExecution()
-	end)
+	if planned and planned > 0 then
+		task.delay(planned, function()
+			self:completeExecution()
+		end)
+	else
+		task.defer(function()
+			self:completeExecution()
+		end)
+	end
 end
 
 function SinglePunch:_applyHit(baseDamage: number, step: number, hitSpec: any?)

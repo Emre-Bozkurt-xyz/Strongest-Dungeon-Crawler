@@ -6,7 +6,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Networking = require(ReplicatedStorage.Shared.Networking)
-local AttributesConfig = require(script.Parent.Parent.Config.AttributesConfig)
+local AttributesConfig = require(script.Parent.Config.AttributesConfig)
 local AttributeTypes = require(game.ReplicatedStorage.Shared.AttributeTypes)
 
 -- Import types from central location

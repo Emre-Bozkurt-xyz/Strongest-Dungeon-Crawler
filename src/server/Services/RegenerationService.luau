@@ -49,7 +49,14 @@ local function regenerateEntity(entity: Instance, deltaTime: number)
 
 		if pool and regenStat then
 			-- Get regeneration rate (per second)
-			local regenPerSecond = StatsManager.getStatValue(entity, regenStatType) or 0
+			local regenPerSecond = StatsManager.getStatValue(entity, regenStatType, {
+				event = "regenerationStatQuery",
+				metadata = {
+					entity = entity,
+					pool = poolType,
+					stat = regenStatType,
+				},
+			}) or 0
 
 			if regenPerSecond > 0 then
 				-- Calculate regeneration for this tick (smooth over the tick interval)
@@ -99,9 +106,23 @@ local function onRegenerationTick()
 				for poolType, _ in pairs(REGEN_MAPPING) do
 					local pool = stats[poolType]
 					if pool then
-						local currentValue = StatsManager.getPoolCurrentValue(player, poolType) or pool:getCurrentValue()
+						local currentValue = StatsManager.getPoolCurrentValue(player, poolType, {
+							event = "regenerationResourceQuery",
+							metadata = {
+								entity = player,
+								pool = poolType,
+								stage = "sync",
+							},
+						}) or pool:getCurrentValue()
 						local lastValue = lastSentValues[player][poolType]
-						local maxValue = StatsManager.getPoolMaxValue(player, poolType) or pool:getValue(stats)
+						local maxValue = StatsManager.getPoolMaxValue(player, poolType, {
+							event = "regenerationResourceMax",
+							metadata = {
+								entity = player,
+								pool = poolType,
+								stage = "sync",
+							},
+						}) or pool:getValue(stats)
 
 						-- Only send delta if the value actually changed
 						if not lastValue or math.abs(currentValue - lastValue) > 0.01 then

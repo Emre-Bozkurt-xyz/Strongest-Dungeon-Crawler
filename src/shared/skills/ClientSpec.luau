@@ -8,7 +8,11 @@ local ClientSpec = {
 		label = "Punch",
 		anim = {
 			-- Body animations for each combo step in order
-			comboSteps = { "Punch_Combo_1", "Punch_Combo_2", "Punch_Combo_3" },
+			comboSteps = {
+				{ key = "Punch_Combo_1" },
+				{ key = "Punch_Combo_2" },
+				{ key = "Punch_Combo_3" },
+			},
 			-- Note: FX/SFX per impact are still configured under fx/sfx.impact below.
 			comboIdle = "Punch_Idle", -- optional idle during combo wait
 		},
@@ -43,8 +47,8 @@ local ClientSpec = {
 		icon = "rbxassetid://13050670424",
 		label = "Triple",
 		anim = {
-			start = "TripleStrike_Start",
-			finish = "TripleStrike_End",
+			start = { key = "TripleStrike_Start" },
+			finish = { key = "TripleStrike_End" },
 		},
 		fx = {
 			-- impact list aligns by step index: 1,2,3
@@ -52,6 +56,26 @@ local ClientSpec = {
 		},
 		sfx = {
 			impact = { "TS_Hit_1", "TS_Hit_2", "TS_Hit_3" },
+		},
+	},
+
+	Dash = {
+		icon = "rbxassetid://13050670424",
+		label = "Dash",
+		anim = {
+			start = { key = "Dash" },
+		},
+		fx = {
+			anchor = { name = "FX_Waist", fallback = "HumanoidRootPart" },
+			markers = {
+				dash_explosive = "Dash_Explosive",
+				dash_wind = "Dash_Wind"
+			}
+		},
+		sfx = {
+			start = { "Dash_Start_SFX" },
+			loop = { "Dash_Loop_SFX" },
+			finish = { "Dash_End_SFX" },
 		},
 	},
 }

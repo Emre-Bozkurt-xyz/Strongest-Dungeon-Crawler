@@ -330,6 +330,19 @@ function Behavior:pathHomeIfReturning(ctx: BehaviorContext?)
 	self:pathToSpawn(ctx)
 end
 
+function Behavior:rotateToTarget(ctx: BehaviorContext?)
+	local combat = (ctx and ctx.combat) or Combat.get(self.model)
+	local movement = (ctx and ctx.movement) or Movement.get(self.model)
+	if not combat or not movement then
+		return
+	end
+	local target = combat:getTarget()
+	if not target then
+		return
+	end
+	movement:rotateToPosition(combat:getTargetPosition(target))
+end
+
 function Behavior:acquireTarget(ctx: BehaviorContext?)
 	local combat = (ctx and ctx.combat) or Combat.get(self.model)
 	if not combat then
@@ -373,6 +386,7 @@ function Behavior:attemptAttack(ctx: BehaviorContext?)
 		return
 	end
 	if combat:canAttack() then
+		self:rotateToTarget(ctx)
 		task.spawn(function()
 			combat:attack()
 		end)

@@ -6,6 +6,7 @@ local Types = require(script.Parent.StatTypes)
 local Stat = require(script.Parent.StatClass)
 local PoolStat = require(script.Parent.PoolStatClass)
 local ResourceStat = require(script.Parent.ResourceStatClass)
+local ModifierFactories = require(script.Parent.Modifiers.Factories)
 
 local StatTypeUtil = {}
 
@@ -161,6 +162,11 @@ function StatTypeUtil._serializeModifiers(modifiers: { any })
 	local serializedModifiers = {}
 
 	for _, modifier in ipairs(modifiers) do
+		local payloadCopy = modifier.payload and table.clone(modifier.payload) or nil
+		local strategyParamsCopy = modifier.strategyParams and table.clone(modifier.strategyParams) or nil
+		local tagsCopy = modifier.tags and table.clone(modifier.tags) or nil
+		local metadataCopy = modifier.metadata and table.clone(modifier.metadata) or nil
+
 		local modifierData = {
 			-- Core modifier properties
 			value = modifier.value,
@@ -168,6 +174,15 @@ function StatTypeUtil._serializeModifiers(modifiers: { any })
 			source_id = modifier.source_id,
 			description = modifier.description,
 			isActive = modifier.isActive,
+			strategyKind = modifier.strategyKind,
+			payload = payloadCopy,
+			strategyParams = strategyParamsCopy,
+			tags = tagsCopy,
+			stackGroup = modifier.stackGroup,
+			priority = modifier.priority,
+			duration = modifier.duration,
+			expiresAt = modifier.expiresAt,
+			metadata = metadataCopy,
 
 			-- Store the modifier class type for reconstruction
 			modifierType = modifier.modifierType or "StatModifier",
@@ -186,10 +201,6 @@ end
 
 function StatTypeUtil.deserializeStats(serialized: any): Types.PlayerStats
 	local stats = {} :: any
-
-	-- Import modifier classes for reconstruction
-	local StatModifier = require(game.ReplicatedStorage.Shared.Modifiers.StatModifier)
-	local PercentOfStatModifier = require(game.ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
 
 	-- Store current values for pool/resource stats to restore AFTER modifiers
 	local pendingCurrentValues = {} :: { [string]: { value: number, statType: string } }
@@ -264,32 +275,12 @@ function StatTypeUtil.deserializeStats(serialized: any): Types.PlayerStats
 
 		-- Restore each modifier
 		for _, modifierData in ipairs(data.modifiers or {}) do
-			local modifier
-
-			-- Reconstruct the appropriate modifier type
-			if modifierData.modifierType == "PercentOfStatModifier" then
-				modifier = PercentOfStatModifier.new({
-					value = modifierData.value,
-					condition = nil, -- Functions can't be serialized, will need special handling if needed
-					description = modifierData.description or "",
-					source_id = modifierData.source_id,
-					targetStat = modifierData.targetStat,
-				})
-			else
-				-- Default to StatModifier
-				modifier = StatModifier.new({
-					value = modifierData.value,
-					type = modifierData.type,
-					source_id = modifierData.source_id,
-				})
+			local modifier = ModifierFactories.hydrate(modifierData)
+			if modifier then
+				modifier.description = modifierData.description
+				modifier.isActive = modifierData.isActive
+				table.insert(stat.modifiers, modifier)
 			end
-
-			-- Restore modifier state
-			modifier.description = modifierData.description
-			modifier.isActive = modifierData.isActive
-
-			-- Add to stat
-			table.insert(stat.modifiers, modifier)
 		end
 	end
 
@@ -334,6 +325,11 @@ end
 
 -- Create modifier delta
 function StatTypeUtil.createModifierDelta(deltaType: string, statName: string, modifierObj: any)
+	local payloadCopy = modifierObj.payload and table.clone(modifierObj.payload) or nil
+	local strategyParamsCopy = modifierObj.strategyParams and table.clone(modifierObj.strategyParams) or nil
+	local tagsCopy = modifierObj.tags and table.clone(modifierObj.tags) or nil
+	local metadataCopy = modifierObj.metadata and table.clone(modifierObj.metadata) or nil
+
 	return StatTypeUtil.createDelta(deltaType, statName, {
 		source_id = modifierObj.source_id,
 		value = modifierObj.value,
@@ -342,6 +338,15 @@ function StatTypeUtil.createModifierDelta(deltaType: string, statName: string, m
 		isActive = modifierObj.isActive,
 		modifierType = modifierObj.modifierType or "StatModifier",
 		targetStat = modifierObj.targetStat, -- For PercentOfStatModifier
+		strategyKind = modifierObj.strategyKind,
+		payload = payloadCopy,
+		strategyParams = strategyParamsCopy,
+		tags = tagsCopy,
+		stackGroup = modifierObj.stackGroup,
+		priority = modifierObj.priority,
+		metadata = metadataCopy,
+		duration = modifierObj.duration,
+		expiresAt = modifierObj.expiresAt,
 	})
 end
 
@@ -372,35 +377,13 @@ function StatTypeUtil.applyDelta(clientStats: Types.PlayerStats, delta: any): bo
 	local deltaData = delta.data
 
 	if delta.type == StatTypeUtil.DeltaTypes.MODIFIER_ADDED then
-		-- Import modifier classes
-		local StatModifier = require(game.ReplicatedStorage.Shared.Modifiers.StatModifier)
-		local PercentOfStatModifier = require(game.ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
-
 		local modifierData = deltaData
-		local modifier
-
-		-- Create appropriate modifier type
-		if modifierData.modifierType == "PercentOfStatModifier" then
-			modifier = PercentOfStatModifier.new({
-				value = modifierData.value,
-				condition = nil,
-				description = modifierData.description or "",
-				source_id = modifierData.source_id,
-				targetStat = modifierData.targetStat,
-			})
-		else
-			modifier = StatModifier.new({
-				value = modifierData.value,
-				type = modifierData.type,
-				source_id = modifierData.source_id,
-			})
+		local modifier = ModifierFactories.hydrate(modifierData)
+		if modifier then
+			modifier.description = modifierData.description
+			modifier.isActive = modifierData.isActive
+			stat:addModifier(modifier)
 		end
-
-		modifier.description = modifierData.description
-		modifier.isActive = modifierData.isActive
-
-		-- Add modifier to existing stat (no recreation needed)
-		stat:addModifier(modifier)
 	elseif delta.type == StatTypeUtil.DeltaTypes.MODIFIER_REMOVED then
 		stat:removeModifier(deltaData.source_id)
 	elseif delta.type == StatTypeUtil.DeltaTypes.MODIFIER_UPDATED then

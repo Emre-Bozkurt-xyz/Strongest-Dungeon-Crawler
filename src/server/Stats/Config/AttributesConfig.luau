@@ -5,7 +5,7 @@
 local Attribute = require(game.ReplicatedStorage.Shared.AttributeClass)
 local AttributeTypes = require(game.ReplicatedStorage.Shared.AttributeTypes)
 local StatTypes = require(game.ReplicatedStorage.Shared.StatTypes)
-local StatModifier = require(game.ReplicatedStorage.Shared.Modifiers.StatModifier)
+local ModifierFactories = require(game.ReplicatedStorage.Shared.Modifiers.Factories)
 
 -- Re-export the main types from AttributeTypes (single source of truth)
 export type PlayerAttributes = AttributeTypes.PlayerAttributes
@@ -95,22 +95,20 @@ AttributesConfig.ScalingFormulas = {
 -- SCALING RELATIONSHIPS
 -- ========================================
 
-local StatsManager = require(script.Parent.Parent.Managers.StatsManager)
+local StatsManager = require(script.Parent.Parent.StatsManager)
 local function addOrUpdateScalingModifier(player: Player, statName: StatTypes.StatType, modifierId: string, value: number, description: string)
 	
 	if StatsManager.hasModifier(player, statName, modifierId) then
 		StatsManager.updateModifier(player, statName, modifierId, value)
 	else
-		StatsManager.addModifier(
-			player,
-			statName,
-			StatModifier.new({
-				source_id = modifierId,
-				type = "flat",
-				value = value,
-				description = description,
-			})
-		)
+		local modifier = ModifierFactories.flatAdd({
+			sourceId = modifierId,
+			amount = value,
+			description = description,
+			tags = { "attribute", "scaling" },
+			stackGroup = modifierId,
+		})
+		StatsManager.addModifier(player, statName, modifier)
 	end
 end
 

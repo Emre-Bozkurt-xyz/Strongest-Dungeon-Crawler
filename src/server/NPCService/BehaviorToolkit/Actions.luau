@@ -11,6 +11,10 @@ local function behaviorCall(methodName: string): ()
 	end
 end
 
+function Actions.rotateToTarget(): ()
+	return behaviorCall("rotateToTarget")
+end
+
 function Actions.stopMovement(): ()
 	return behaviorCall("stopMovement")
 end

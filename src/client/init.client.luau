@@ -4,8 +4,10 @@ print("Client starting...")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ChannelRegistry = require(ReplicatedStorage.Shared.Networking.ChannelRegistry)
 local ChannelDefinitions = require(ReplicatedStorage.Shared.Networking.Channels)
+local AssetLoader = require(script.AssetLoader)
 
 ChannelRegistry.load(ChannelDefinitions)
+AssetLoader.init()
 
 -- Initialize the client systems (they auto-initialize when required)
 local StatsClient = require(script.StatsClient)

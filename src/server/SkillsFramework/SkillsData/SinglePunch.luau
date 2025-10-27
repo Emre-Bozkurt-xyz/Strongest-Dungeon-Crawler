@@ -1,6 +1,7 @@
 --!strict
 local data = {
 	name = "SinglePunch",
+    tags = {"melee", "light"},
 	description = "A quick melee strike.",
 	cooldown = 1.5,
 	gcd = 0.6,

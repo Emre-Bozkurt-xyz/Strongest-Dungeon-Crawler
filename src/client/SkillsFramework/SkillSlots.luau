@@ -197,6 +197,7 @@ createProfileInternal()
 SkillSlots.setActiveProfile(1)
 SkillSlots.assign(1, "Punch")
 SkillSlots.assign(2, "TripleStrike")
+SkillSlots.assign(3, "Dash")
 
 -- Public: explicit API to expand beyond default 5 via assign or setSlotCount.
 

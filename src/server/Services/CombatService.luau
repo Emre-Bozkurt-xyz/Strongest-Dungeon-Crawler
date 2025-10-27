@@ -23,6 +23,11 @@ export type DamageOptions = {
 	effects: { DamageEffect }?,
 }
 
+type ResourceMetaSnapshot = {
+	shield: { [any]: any }?,
+	health: { [any]: any }?,
+}
+
 export type DamageResult = {
 	dodged: boolean,
 	crit: boolean,
@@ -38,6 +43,7 @@ export type DamageResult = {
 	sourceEntity: Instance?,
 	-- IDs of any status effects that were applied by this damage instance
 	effectsApplied: { string }?,
+	resourceMeta: ResourceMetaSnapshot?,
 }
 
 local function modelOf(inst: Instance): Model?
@@ -115,17 +121,73 @@ local function resolveStatic(name: string): any
 	return (StatTypes.StaticStats :: any)[name]
 end
 
-local function getEntityStatValue(entity: Instance?, statKey: any): number
+	local function getEntityStatValue(entity: Instance?, statKey: any, queryOptions: any?): number
 	if not entity or not statKey then
 		return 0
 	end
-	local value = StatsManager.getStatValue(entity, statKey)
+	local value = StatsManager.getStatValue(entity, statKey, queryOptions)
 	return value or 0
 end
 
-local function getEntityStatValueByName(entity: Instance?, name: string): number
-	return getEntityStatValue(entity, resolveStatic(name))
+local function getEntityStatValueByName(entity: Instance?, name: string, queryOptions: any?): number
+	return getEntityStatValue(entity, resolveStatic(name), queryOptions)
 end
+
+	local function copyTable(source: { [any]: any }?): { [any]: any }
+		local target: { [any]: any } = {}
+		if not source then
+			return target
+		end
+		for key, value in pairs(source) do
+			target[key] = value
+		end
+		return target
+	end
+
+	local function buildResourceQueryOptions(eventName: string, poolType: any, stage: string, base: { [any]: any }?, overrides: { [any]: any }?)
+		local meta = copyTable(base)
+		meta.pool = poolType
+		meta.stage = stage
+		if overrides then
+			for key, value in pairs(overrides) do
+				meta[key] = value
+			end
+		end
+		return {
+			event = eventName,
+			context = eventName,
+			cacheKey = stage,
+			metadata = meta,
+			cacheEnabled = false,
+			allowObservers = nil,
+			instrument = nil,
+			originalStat = poolType,
+			overrideStat = nil,
+		}
+	end
+
+	local function buildResourceSpendOptions(poolType: any, amount: number, stage: string, base: { [any]: any }?, overrides: { [any]: any }?)
+		local meta = copyTable(base)
+		meta.pool = poolType
+		meta.stage = stage
+		meta.baseCost = amount
+		if overrides then
+			for key, value in pairs(overrides) do
+				meta[key] = value
+			end
+		end
+		return {
+			event = "resolveCombatCost",
+			context = "resolveCombatCost",
+			cacheKey = stage,
+			metadata = meta,
+			cacheEnabled = false,
+			allowObservers = nil,
+			instrument = nil,
+			originalStat = poolType,
+			overrideStat = nil,
+		}
+	end
 
 local ARMOR_K = 100 -- tuning constant for armor diminishing returns
 
@@ -187,6 +249,8 @@ function CombatService.applyDamageDetailed(
 	result.sourceModel = sourceModel
 	result.sourceEntity = sourceEntity
 
+	local damageKind = (opts and opts.kind) or "generic"
+
 	local effectiveSourceForStats = sourceEntity
 	if not effectiveSourceForStats and sourcePlayer then
 		effectiveSourceForStats = sourcePlayer
@@ -196,7 +260,15 @@ function CombatService.applyDamageDetailed(
 
 	-- Pre-hit: dodge (target stat) if present
 	if targetPlayer then
-		local dodge = normalizeChance(getEntityStatValueByName(targetPlayer, "DodgeChance"))
+		local dodge = normalizeChance(getEntityStatValueByName(targetPlayer, "DodgeChance", {
+			event = "preDamageQuery",
+			metadata = {
+				stat = "DodgeChance",
+				phase = "avoidance",
+				target = targetPlayer,
+				source = sourceEntity,
+			},
+		}))
 		if roll(dodge) then
 			result.dodged = true
 			return result
@@ -207,8 +279,24 @@ function CombatService.applyDamageDetailed(
 
 	-- Attacker crit (optional, if stats exist)
 	if opts == nil or opts.critAllowed ~= false then
-		local critChance = normalizeChance(getEntityStatValueByName(effectiveSourceForStats, "CriticalHitChance"))
-		local critDamage = getEntityStatValueByName(effectiveSourceForStats, "CriticalHitDamage")
+		local critChance = normalizeChance(getEntityStatValueByName(effectiveSourceForStats, "CriticalHitChance", {
+			event = "preDamageQuery",
+			metadata = {
+				stat = "CriticalHitChance",
+				phase = "attack",
+				target = targetEntity,
+				source = effectiveSourceForStats,
+			},
+		}))
+		local critDamage = getEntityStatValueByName(effectiveSourceForStats, "CriticalHitDamage", {
+			event = "preDamageQuery",
+			metadata = {
+				stat = "CriticalHitDamage",
+				phase = "attack",
+				target = targetEntity,
+				source = effectiveSourceForStats,
+			},
+		})
 		if roll(critChance) then
 			result.crit = true
 			-- Interpret CriticalHitDamage flexibly:
@@ -234,9 +322,25 @@ function CombatService.applyDamageDetailed(
 	-- Mitigation (armor/reduction) if present
 	if not (opts and opts.bypassArmor) then
 		if targetPlayer then
-			local damageReduction = getEntityStatValueByName(targetPlayer, "DamageReduction")
+			local damageReduction = getEntityStatValueByName(targetPlayer, "DamageReduction", {
+				event = "preDamageQuery",
+				metadata = {
+					stat = "DamageReduction",
+					phase = "mitigation",
+					target = targetPlayer,
+					source = sourceEntity,
+				},
+			})
 			local dr = (damageReduction > 1) and (damageReduction / 100) or damageReduction
-			local armor = getEntityStatValueByName(targetPlayer, "Armor")
+			local armor = getEntityStatValueByName(targetPlayer, "Armor", {
+				event = "preDamageQuery",
+				metadata = {
+					stat = "Armor",
+					phase = "mitigation",
+					target = targetPlayer,
+					source = sourceEntity,
+				},
+			})
 			local armorFactor = (armor > 0) and (armor / (armor + ARMOR_K)) or 0
 			local reduceFactor = math.clamp(dr + armorFactor, 0, 0.9)
 			local reduced = amount * reduceFactor
@@ -246,15 +350,43 @@ function CombatService.applyDamageDetailed(
 	end
 
 	-- Absorption (ManaShield) for players
-	if not (opts and opts.bypassShield) then
-		if targetEntity then
-			local currentShield = StatsManager.getPoolCurrentValue(targetEntity, StatTypes.PoolStats.ManaShield) or 0
-			if currentShield > 0 then
-				local absorb = math.min(currentShield, amount)
-				if absorb > 0 then
-					StatsManager.removeFromPool(targetEntity, StatTypes.PoolStats.ManaShield, absorb)
-					result.absorbed = absorb
-					amount -= absorb
+	local resourceMetaBase = {
+		target = targetEntity,
+		targetPlayer = targetPlayer,
+		targetModel = targetModel,
+		targetHumanoid = result.targetHumanoid,
+		source = sourceEntity,
+		sourcePlayer = sourcePlayer,
+		sourceModel = sourceModel,
+		damageKind = damageKind,
+		crit = result.crit,
+		dodged = result.dodged,
+		mitigated = result.mitigated,
+	}
+
+	if not (opts and opts.bypassShield) and targetEntity then
+		local damageBeforeAbsorb = amount
+		local shieldQuery = buildResourceQueryOptions("combatResourceQuery", StatTypes.PoolStats.ManaShield, "shield_check", resourceMetaBase, {
+			incomingDamage = damageBeforeAbsorb,
+		})
+		local currentShield = StatsManager.getPoolCurrentValue(targetEntity, StatTypes.PoolStats.ManaShield, shieldQuery) or 0
+		if currentShield > 0 then
+			local absorb = math.min(currentShield, amount)
+			if absorb > 0 then
+				local shieldSpend = buildResourceSpendOptions(StatTypes.PoolStats.ManaShield, absorb, "shield_absorb", resourceMetaBase, {
+					reason = "shield_absorb",
+					incomingDamage = damageBeforeAbsorb,
+					absorbAmount = absorb,
+				})
+				StatsManager.removeFromPool(targetEntity, StatTypes.PoolStats.ManaShield, absorb, shieldSpend)
+				result.absorbed = absorb
+				amount -= absorb
+				if result.resourceMeta == nil then
+					result.resourceMeta = { shield = nil, health = nil }
+				end
+				local resourceMeta = result.resourceMeta
+				if resourceMeta then
+					resourceMeta.shield = copyTable(shieldSpend.metadata)
 				end
 			end
 		end
@@ -263,15 +395,39 @@ function CombatService.applyDamageDetailed(
 	-- Apply to health or humanoid
 	if targetPlayer then
 		if amount > 0 then
-			StatsManager.removeFromPool(targetPlayer, StatTypes.PoolStats.Health, amount)
+			local healthSpend = buildResourceSpendOptions(StatTypes.PoolStats.Health, amount, "health_damage", resourceMetaBase, {
+				reason = "damage",
+				absorbed = result.absorbed,
+				appliedAmount = amount,
+			})
+			StatsManager.removeFromPool(targetPlayer, StatTypes.PoolStats.Health, amount, healthSpend)
 			result.appliedToHealth = amount
 			result.finalAmount = amount
+			if result.resourceMeta == nil then
+				result.resourceMeta = { shield = nil, health = nil }
+			end
+			local resourceMeta = result.resourceMeta
+			if resourceMeta then
+				resourceMeta.health = copyTable(healthSpend.metadata)
+			end
 		end
 	elseif targetEntity then
 		if amount > 0 then
-			StatsManager.removeFromPool(targetEntity, StatTypes.PoolStats.Health, amount)
+			local healthSpend = buildResourceSpendOptions(StatTypes.PoolStats.Health, amount, "health_damage", resourceMetaBase, {
+				reason = "damage",
+				absorbed = result.absorbed,
+				appliedAmount = amount,
+			})
+			StatsManager.removeFromPool(targetEntity, StatTypes.PoolStats.Health, amount, healthSpend)
 			result.appliedToHealth = amount
 			result.finalAmount = amount
+			if result.resourceMeta == nil then
+				result.resourceMeta = { shield = nil, health = nil }
+			end
+			local resourceMeta = result.resourceMeta
+			if resourceMeta then
+				resourceMeta.health = copyTable(healthSpend.metadata)
+			end
 		end
 	else
 		if amount > 0 and result.targetHumanoid then

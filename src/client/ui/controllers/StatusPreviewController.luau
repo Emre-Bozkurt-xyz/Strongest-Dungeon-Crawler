@@ -23,7 +23,7 @@ function StatusPreviewController.new()
     self.player = Players.LocalPlayer
 
     -- Require a prebuilt BasePart similar to SystemPanel, e.g., ReplicatedStorage.Assets.StatusPreviewPanel
-    local template = ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("StatusPreviewPanel")
+    local template = ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("WorldUI") and ReplicatedStorage.Assets.WorldUI:FindFirstChild("StatusPreviewPanel")
     assert(template and template:IsA("BasePart"), "StatusPreviewController: ReplicatedStorage.Assets.StatusPreviewPanel BasePart is required")
     self.panelPart = (template :: BasePart):Clone()
     self.panelPart.Parent = workspace

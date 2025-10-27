@@ -1,109 +1,196 @@
---!strict
--- ComboService: Tracks per-player per-skill combo state and windows + per-step lockouts
+-- ComboService: Centralized combo controller that enforces step timing, windows, and gating.
 
-export type ComboState = {
+export type ComboAdvance = {
 	step: number,
-	expiresAt: number,
 	token: number,
+	total: number,
+	isNewChain: boolean,
+	startedAt: number,
+}
+
+export type StepTimingInfo = {
+	stepDuration: number?, -- execution time locked to this step (already scaled)
+	stepDelay: number?, -- additional delay before the next step may begin
+	windowDuration: number?, -- duration of the follow-up window once open
+	isFinal: boolean?,
+	startedAt: number?,
+}
+
+export type StepTimingResult = {
+	busyUntil: number?,
+	windowOpenAt: number?,
+	windowCloseAt: number?,
+}
+
+type ComboState = {
+	step: number,
 	steps: number,
-	window: number,
-	nextAllowedTime: number?, -- earliest time next input can advance
-	lastAdvanceTime: number?,
+	token: number,
+	lastAdvanceTime: number,
+	nextAllowedAt: number?,
+	windowCloseAt: number?,
+	busyUntil: number?,
+	completed: boolean?,
+	pendingToken: number?,
 }
 
 local ComboService = {}
 type Caster = Instance
-local state: { [Caster]: { [string]: ComboState } } = {}
+local states: { [Caster]: { [string]: ComboState } } = {}
 
--- Use os.clock for monotonic timing (align with CooldownService)
 local function now(): number
 	return os.clock()
 end
 
 local function ensureCasterMap(caster: Caster): { [string]: ComboState }
-	local m = state[caster]
+	local m = states[caster]
 	if not m then
 		m = {}
-		state[caster] = m
+		states[caster] = m
 	end
 	return m
 end
 
--- stepDelays: array where index = current step, value = min seconds before accepting NEXT advance
-function ComboService.nextStep(
-	caster: Caster,
-	skillName: string,
-	steps: number,
-	window: number,
-	stepDelays: { number }?
-): (number, number, boolean)
-	local m = ensureCasterMap(caster)
-	local s = m[skillName]
-	local t = now()
-	if s and t <= s.expiresAt then
-		-- Enforce per-step delay gate
-		if s.nextAllowedTime and t < s.nextAllowedTime then
-			-- Still locked; do not advance; return current step without changing token
-			return s.step, s.token, false
-		end
-		if s.step < s.steps then
-			s.step += 1
-		else
-			s.step = 1 -- restart chain if pressed after completion but still within window
-		end
-		s.expiresAt = t + window
-		s.token += 1
-		s.steps = steps
-		s.window = window
-		s.lastAdvanceTime = t
-		if stepDelays then
-			local delay = stepDelays[s.step] or 0
-			if delay > 0 then
-				s.nextAllowedTime = t + delay
-			else
-				s.nextAllowedTime = nil
-			end
-		end
-		return s.step, s.token, true
-	else
-		local newS: ComboState = {
-			step = 1,
-			expiresAt = t + window,
-			token = 1,
-			steps = steps,
-			window = window,
-			lastAdvanceTime = t,
-			nextAllowedTime = (stepDelays and stepDelays[1] and stepDelays[1] > 0) and (t + stepDelays[1]) or nil,
-		}
-		m[skillName] = newS
-		return 1, newS.token, true
+local function resetState(caster: Caster, skillName: string)
+	local m = states[caster]
+	if not m then
+		return
+	end
+	m[skillName] = nil
+	if next(m) == nil then
+		states[caster] = nil
 	end
 end
 
-function ComboService.isExpired(caster: Caster, skillName: string, token: number): boolean
-	local m = state[caster]
-	local s = m and m[skillName]
-	if not s then
-		return true
+function ComboService.requestStep(caster: Caster, skillName: string, steps: number): ComboAdvance?
+	if steps <= 0 then
+		return nil
 	end
-	if s.token ~= token then
+
+	local m = ensureCasterMap(caster)
+	local state = m[skillName]
+	local t = now()
+
+	if state then
+		if state.pendingToken ~= nil then
+			return nil
+		end
+		if state.completed then
+			return nil
+		end
+		if state.nextAllowedAt and t < state.nextAllowedAt then
+			return nil
+		end
+		if state.windowCloseAt and t > state.windowCloseAt then
+			state.completed = true
+			return nil
+		else
+			state.steps = steps
+			if state.step >= state.steps then
+				return nil
+			end
+		end
+	end
+
+	if not state then
+		local newState: ComboState = {
+			step = 1,
+			steps = steps,
+			token = 1,
+			lastAdvanceTime = t,
+			nextAllowedAt = nil,
+			windowCloseAt = nil,
+			busyUntil = nil,
+			completed = false,
+			pendingToken = 1,
+		}
+		m[skillName] = newState
+		return {
+			step = 1,
+			token = 1,
+			total = steps,
+			isNewChain = true,
+			startedAt = t,
+		}
+	end
+
+	state.step += 1
+	state.token += 1
+	state.lastAdvanceTime = t
+	state.pendingToken = state.token
+
+	if state.step >= state.steps then
+		state.completed = true
+	else
+		state.completed = false
+	end
+
+	return {
+		step = state.step,
+		token = state.token,
+		total = state.steps,
+		isNewChain = false,
+		startedAt = t,
+	}
+end
+
+function ComboService.registerStepTiming(
+	caster: Caster,
+	skillName: string,
+	token: number,
+	info: StepTimingInfo
+): StepTimingResult?
+	local m = states[caster]
+	local state = m and m[skillName]
+	if not state then
+		return nil
+	end
+	if state.token ~= token then
+		return nil
+	end
+	if state.pendingToken and state.pendingToken ~= token then
+		return nil
+	end
+
+	local startTime = info.startedAt or now()
+	local stepDuration = math.max(info.stepDuration or 0, 0)
+	local stepDelay = math.max(info.stepDelay or 0, 0)
+	local windowDuration = math.max(info.windowDuration or 0, 0)
+	local isFinal = info.isFinal or false
+
+	local busyUntil = startTime + stepDuration
+	local windowOpenAt = busyUntil + stepDelay
+	local windowCloseAt = if isFinal then nil else windowOpenAt + windowDuration
+
+	state.busyUntil = busyUntil
+	state.nextAllowedAt = if stepDelay > 0 or stepDuration > 0 then windowOpenAt else startTime
+	state.windowCloseAt = windowCloseAt
+	state.pendingToken = nil
+	state.completed = isFinal
+
+	return {
+		busyUntil = busyUntil,
+		windowOpenAt = windowOpenAt,
+		windowCloseAt = windowCloseAt,
+	}
+end
+
+function ComboService.isTokenCurrent(caster: Caster, skillName: string, token: number): boolean
+	local m = states[caster]
+	local state = m and m[skillName]
+	if not state then
 		return false
-	end -- superseded by newer press
-	if now() > s.expiresAt then
-		m[skillName] = nil
-		return true
 	end
-	return false
+	return state.token == token
 end
 
 function ComboService.clear(caster: Caster, skillName: string)
-	local m = state[caster]
-	if m then
-		m[skillName] = nil
-		if next(m) == nil then
-			state[caster] = nil
-		end
-	end
+	resetState(caster, skillName)
+end
+
+function ComboService.getState(caster: Caster, skillName: string): ComboState?
+	local m = states[caster]
+	return m and m[skillName] or nil
 end
 
 return ComboService

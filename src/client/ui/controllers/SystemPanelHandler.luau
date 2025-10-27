@@ -20,7 +20,7 @@ function SystemPanelHandler.new()
     local self = setmetatable({}, SystemPanelHandler)
 
     -- Create the system panel
-    self.systemPanel = ReplicatedStorage.Assets.SystemPanel:Clone()
+    self.systemPanel = ReplicatedStorage.Assets.WorldUI.SystemPanel:Clone()
 
     -- Initialize UI controllers
     self.statusPanel = self.systemPanel:FindFirstChild("StatusPanel", true)

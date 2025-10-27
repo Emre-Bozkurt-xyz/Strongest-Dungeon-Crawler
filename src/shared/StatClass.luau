@@ -22,15 +22,46 @@ function Stat.new(config: StatConfig)
 		modifiers = {},
 		_cachedValue = nil,
 		_isDirty = true,
+		_modifierCounter = 0,
 	}, Stat)
 
 	return self
 end
 
 -- Add a modifier to this stat
+local function getPriority(modifier): number
+	if modifier and typeof(modifier) == "table" then
+		return modifier.priority or 0
+	end
+	return 0
+end
+
+local function getOrderKey(modifier): number
+	if modifier and typeof(modifier) == "table" then
+		return modifier._orderKey or 0
+	end
+	return 0
+end
+
 function Stat:addModifier(modifier)
+	self._modifierCounter += 1
+	if typeof(modifier) == "table" then
+		modifier._orderKey = self._modifierCounter
+	end
 	table.insert(self.modifiers, modifier)
+	self:_sortModifiers()
 	self:_markDirty()
+end
+
+function Stat:_sortModifiers()
+	table.sort(self.modifiers, function(a, b)
+		local pa, pb = getPriority(a), getPriority(b)
+		if pa ~= pb then
+			return pa < pb
+		end
+		local oa, ob = getOrderKey(a), getOrderKey(b)
+		return oa < ob
+	end)
 end
 
 -- Remove a modifier by source_id
@@ -80,7 +111,12 @@ function Stat:getValue(allStats: any?): number
 	-- Apply modifiers using their apply method
 	for _, modifier in ipairs(self.modifiers) do
 		if modifier.apply then
-			finalValue = modifier:apply(finalValue, allStats)
+			finalValue = modifier:apply({
+				lastValue = finalValue,
+				baseValue = self.baseValue,
+				stat = self,
+				stats = allStats,
+			})
 		else
 			warn(`Modifier from {modifier.source_id} does not have an apply method`)
 		end
@@ -119,10 +155,14 @@ function Stat:getModifierBreakdown(): { { name: string, value: number, type: str
 
 	for _, modifier in ipairs(self.modifiers) do
 		if modifier.isActive then
-			-- Calculate the actual contribution of this modifier
-			local baseValue = self.baseValue
-			local modifiedValue = modifier:apply(baseValue, nil)
-			local contribution = modifiedValue - baseValue
+			local context = {
+				lastValue = self.baseValue,
+				baseValue = self.baseValue,
+				stat = self,
+				stats = nil,
+			}
+			local modifiedValue = modifier:apply(context)
+			local contribution = modifiedValue - self.baseValue
 
 			table.insert(breakdown, {
 				name = modifier.description or modifier.source_id,

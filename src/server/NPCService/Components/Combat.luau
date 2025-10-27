@@ -108,10 +108,6 @@ function Combat.new(npcModel: Model, config: CombatConfig): any
 		for _, skillName in ipairs(config.skills) do
 			table.insert(configuredSkills, skillName)
 		end
-	elseif SkillsConfig.skills.SinglePunch ~= nil then
-		table.insert(configuredSkills, "SinglePunch")
-	elseif SkillsConfig.skills.Punch ~= nil then
-		table.insert(configuredSkills, "Punch")
 	end
 
 	local existingCount = component:GetAttribute("skillCount")

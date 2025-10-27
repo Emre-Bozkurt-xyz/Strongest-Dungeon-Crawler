@@ -7,8 +7,11 @@ local RunService = game:GetService("RunService")
 local AttributeTypes = require(ReplicatedStorage.Shared.AttributeTypes)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local StatsManager = require(Server.Stats.StatsManager)
+local StatsMediator = require(Server.Stats.StatsMediator)
 local AttributesManager = require(Server.Stats.AttributesManager)
 local RegenerationService = require(Server.Services.RegenerationService)
+local CombatService = require(Server.Services.CombatService)
+local ModifierFactories = require(ReplicatedStorage.Shared.Modifiers.Factories)
 
 local Testing = {}
 Testing.testResults = {} -- Track test results
@@ -78,6 +81,9 @@ function Testing.runAllTests(player: Player)
 
 	-- Test 8: Resource Stats
 	Testing.testResourceStats(player)
+
+	-- Test 9: Combat metadata logging
+	Testing.testCombatLogCoverage(player)
 
 
 	-- Wait a bit then run continuous tests
@@ -202,11 +208,11 @@ function Testing.testModifierOperations(player: Player)
 	local initialMagicDamage = magicDamageStat:getValue()
 
 	-- Test direct modifier addition
-	local StatModifier = require(ReplicatedStorage.Shared.Modifiers.StatModifier)
-	local flatModifier = StatModifier.new({
-		value = 25,
-		type = "flat",
-		source_id = "test_equipment",
+	local flatModifier = ModifierFactories.flatAdd({
+		sourceId = "test_equipment",
+		amount = 25,
+		description = "Test equipment bonus",
+		tags = { "test", "equipment" },
 	})
 
 	StatsManager.addModifier(player, StatTypes.StaticStats.MagicDamage, flatModifier)
@@ -289,6 +295,17 @@ local function captureResourceEventLog()
 		end
 end
 
+local function shallowCopyDict(source: { [any]: any }?): { [any]: any }
+	local target: { [any]: any } = {}
+	if not source then
+		return target
+	end
+	for key, value in pairs(source) do
+		target[key] = value
+	end
+	return target
+end
+
 local function hasEvent(log, eventName: string): boolean
 	for _, entry in ipairs(log) do
 		if entry.event == eventName then
@@ -344,6 +361,111 @@ function Testing.testResourceStats(player: Player)
 	StatsManager.offResourceEvent(player, resourceType, "depleted", "test_depleted")
 	StatsManager.offResourceEvent(player, resourceType, "restored", "test_restored")
 	StatsManager.removeResourceThreshold(player, resourceType, "low_energy")
+end
+
+function Testing.testCombatLogCoverage(player: Player)
+	print("\n⚔️ Testing Combat Log Coverage...")
+
+	local character = player.Character
+	if not character then
+		recordTest("Combat Log Coverage Setup", false, "Player character missing")
+		return
+	end
+
+	local healthStat = StatsManager.getStat(player, StatTypes.PoolStats.Health)
+	local shieldStat = StatsManager.getStat(player, StatTypes.PoolStats.ManaShield)
+	if not healthStat or not shieldStat then
+		recordTest("Combat Log Stat Setup", false, "Health or shield stat missing")
+		return
+	end
+
+	local desiredHealth = 140
+	StatsManager.setBaseStat(player, StatTypes.PoolStats.Health, desiredHealth)
+	local currentHealth = healthStat:getCurrentValue()
+	if currentHealth < desiredHealth then
+		StatsManager.addToPool(player, StatTypes.PoolStats.Health, desiredHealth - currentHealth)
+	elseif currentHealth > desiredHealth then
+		StatsManager.removeFromPool(player, StatTypes.PoolStats.Health, currentHealth - desiredHealth)
+	end
+
+	local desiredShield = 30
+	StatsManager.setBaseStat(player, StatTypes.PoolStats.ManaShield, desiredShield)
+	local currentShield = shieldStat:getCurrentValue()
+	if currentShield < desiredShield then
+		StatsManager.addToPool(player, StatTypes.PoolStats.ManaShield, desiredShield - currentShield)
+	elseif currentShield > desiredShield then
+		StatsManager.removeFromPool(player, StatTypes.PoolStats.ManaShield, currentShield - desiredShield)
+	end
+
+	local logEntries = {}
+	local subscriptions = {}
+
+	local function subscribe(eventName: string)
+		local token = StatsMediator.observe(eventName, function(context)
+			table.insert(logEntries, {
+				event = eventName,
+				stage = context.options and context.options.metadata and context.options.metadata.stage,
+				statType = context.statType,
+				metadata = shallowCopyDict(context.options and context.options.metadata),
+				entity = context.entity,
+			})
+			return nil
+		end)
+		table.insert(subscriptions, {
+			event = eventName,
+			token = token,
+		})
+	end
+
+	subscribe("combatResourceQuery")
+	subscribe("resolveCombatCost")
+
+	local damageAmount = 45
+	local result = CombatService.applyDamageDetailed(character, damageAmount, nil, {
+		critAllowed = false,
+		bypassArmor = true,
+	})
+	local resourceMeta = result.resourceMeta
+	local shieldMeta: { [any]: any }? = nil
+	local healthMeta: { [any]: any }? = nil
+	if resourceMeta then
+		shieldMeta = resourceMeta.shield
+		healthMeta = resourceMeta.health
+	end
+
+	for _, sub in ipairs(subscriptions) do
+		StatsMediator.forget(sub.event, sub.token)
+	end
+
+	local shieldLogCaptured = false
+	local healthLogCaptured = false
+	for _, entry in ipairs(logEntries) do
+		if entry.event == "resolveCombatCost" and entry.stage == "shield_absorb" then
+			shieldLogCaptured = true
+		elseif entry.event == "resolveCombatCost" and entry.stage == "health_damage" then
+			healthLogCaptured = true
+		end
+	end
+
+	recordTest("Combat Shield Event Logged", shieldLogCaptured, `Shield entries: {#logEntries}`)
+	recordTest("Combat Health Event Logged", healthLogCaptured, `Health entries: {#logEntries}`)
+
+	local shieldFinal = shieldMeta and shieldMeta.finalCost
+	local healthFinal = healthMeta and healthMeta.finalCost
+	local shieldMessage = if shieldFinal then `Absorb final cost: {shieldFinal}` else "Shield metadata missing"
+	recordTest("Combat Shield Metadata", shieldFinal ~= nil, shieldMessage)
+	local healthMessage = if healthFinal then `Health final cost: {healthFinal}` else "Health metadata missing"
+	recordTest("Combat Health Metadata", healthFinal ~= nil, healthMessage)
+	local expectedApplied = if healthMeta then (healthMeta.appliedAmount or healthFinal) else healthFinal
+	local amountMatches = expectedApplied ~= nil and result.finalAmount == expectedApplied
+	recordTest("Combat Health Amount Match", amountMatches, `Damage result: {result.finalAmount}`)
+
+	if #logEntries > 0 then
+		print("Combat mediator events logged:")
+		for _, entry in ipairs(logEntries) do
+			print(` • {entry.event}:{entry.stage or "n/a"} final={entry.metadata and entry.metadata.finalCost}`)
+		end
+	end
 end
 
 function Testing.startContinuousTests(player: Player)

@@ -52,6 +52,9 @@ ExecutionService.onCompleted(function(caster: Caster, completedSkill: string, _r
 	if not skills then return end
 	local skill = skills[completedSkill]
 	if not skill then return end
+	if skill.config and skill.config.combo then
+		ComboService.clear(caster, completedSkill)
+	end
 	-- Start GCD & cooldown now (completion-based model)
 	if skill.gcd and skill.gcd > 0 then
 		CooldownService.startGCD(caster, skill.gcd)
@@ -98,14 +101,18 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 	end
 
 	if comboCfg then
-		local step, token, advanced = ComboService.nextStep(caster, skillName, comboCfg.steps, comboCfg.window, comboCfg.stepDelays)
-		if not advanced then return end
+		local advance = ComboService.requestStep(caster, skillName, comboCfg.steps)
+		if not advance then
+			return
+		end
 		local req = requestData or {}
 		req.combo = {
-			step = step,
+			step = advance.step,
 			total = comboCfg.steps,
-			token = token,
+			token = advance.token,
 			window = comboCfg.window,
+			startedAt = advance.startedAt,
+			isNewChain = advance.isNewChain,
 			finalCd = comboCfg.comboCooldown or skill.cooldown,
 		}
 		skill:use(req)

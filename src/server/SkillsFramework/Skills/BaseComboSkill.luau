@@ -15,45 +15,143 @@ function BaseComboSkill.new(caster: Instance, data: any)
 end
 
 function BaseComboSkill:use(requestData: any?)
-	local combo = requestData and requestData.combo or nil
+	local incomingCombo = requestData and requestData.combo or nil
+	local req = requestData or {}
+	if req.combo == nil and incomingCombo ~= nil then
+		req.combo = incomingCombo
+	end
+	local combo = req.combo or incomingCombo
+	local comboConfig = (self.config and self.config.combo) or nil
 	local step = combo and combo.step or 1
-	local total = combo and combo.total or 1
-	local window = combo and combo.window or 0
+	local total = combo and combo.total or (comboConfig and comboConfig.steps) or 1
 	local token = combo and combo.token or 0
-    local hitDelays: {number}? = (self.config and self.config.combo and self.config.combo.hitDelays) :: {number}?
 
-	local isFirst = (step == 1)
-	-- Proper boolean final step check (previous 'or 0' introduced truthiness issues)
+	local baseWindow = comboConfig and comboConfig.window or 0
+	local baseHitDelays: { number }? = comboConfig and comboConfig.hitDelays or nil
+	local baseStepDelays: { number }? = comboConfig and comboConfig.stepDelays or nil
+	local baseRecovery = comboConfig and comboConfig.recovery or 0
+	local baseStepDurations: { number }? = comboConfig and comboConfig.stepDurations or nil
+
+	local baseHitDelay = if baseHitDelays and baseHitDelays[step] then baseHitDelays[step] else 0
+	local timingResult = self:resolveTiming({
+		step = step,
+		comboStepCount = total,
+		metadata = {
+			baseHitDelay = baseHitDelay,
+			baseWindow = baseWindow,
+			baseRecovery = baseRecovery,
+			stepDelay = baseStepDelays and baseStepDelays[step] or 0,
+			baseStepDuration = baseStepDurations and baseStepDurations[step] or baseHitDelay + (step == total and baseRecovery or 0),
+		},
+	})
+	req.timing = timingResult
+
+	local tempo = timingResult.tempo
+	local durationScale = timingResult.durationScale
+
+	local hitDelay = baseHitDelay * durationScale
+	local stepDelay = (baseStepDelays and baseStepDelays[step] or 0) * durationScale
+	local window = (combo and combo.window or baseWindow) * durationScale
+	local recovery = baseRecovery * durationScale
+	local baseStepDuration = if baseStepDurations and baseStepDurations[step] then baseStepDurations[step] else baseHitDelay + (step == total and baseRecovery or 0)
+	local stepDuration = math.max(baseStepDuration * durationScale, 0)
+	
 	local isFinal = (step == total)
-	local recovery = (self.config and self.config.combo and self.config.combo.recovery) or 0
 
-	if not isFirst then
+	if step > 1 then
 		self:emitComboWaitEnd()
 	end
-	if isFirst then
-		-- Begin execution with manual completion (no auto-duration) so variable player timing / stepDelays
-		self:beginExecution(nil, true) -- allowChain = true for same-skill steps
+
+	if not self:applyResourceCost(req) then
+		self:completeExecution("insufficient_resources")
+		return
 	end
 
+	if step == 1 then
+		self:beginExecution(nil, {
+			allowChain = false, 
+			lockJump = true, 
+			timing = timingResult
+		})
+	end
+
+	self:_updateExecutionState({
+		timing = timingResult,
+		tempo = tempo,
+		durationScale = durationScale,
+		comboStep = step,
+		comboTotal = total,
+		hitDelay = hitDelay,
+		recovery = recovery,
+		window = window,
+		stepDelay = stepDelay,
+		stepDuration = stepDuration,
+		baseStepDuration = baseStepDuration,
+		targetDuration = stepDuration,
+	})
+
 	-- Let clients know the step started (to play the correct animation)
-	self:emitStep(step, { total = total })
+	self:emitStep(step, {
+		total = total,
+		tempo = tempo,
+		speed = tempo,
+		durationScale = durationScale,
+		hitDelay = hitDelay,
+		recovery = recovery,
+		stepDuration = stepDuration,
+		baseDuration = baseStepDuration,
+		targetDuration = stepDuration,
+		metadata = timingResult.metadata,
+	})
 
 	-- Delay server-side hit logic to align with animation
-	local delaySec = if hitDelays and hitDelays[step] then hitDelays[step] else 0
+	local delaySec = hitDelay
 	if delaySec > 0 then
 		task.delay(delaySec, function()
-			self:onComboStep(step, requestData)
+			self:onComboStep(step, req)
 		end)
 	else
 		-- Immediate hit
-		self:onComboStep(step, requestData)
+		self:onComboStep(step, req)
 	end
 
-	-- Open wait window (if more steps)
-	if not isFinal and window > 0 then
-		self:emitComboWaitStart(window, step, total)
-		task.delay(window, function()
-			if ComboService.isExpired(self.caster, self.name, token) then
+	local windowInfo = nil
+	if token and token ~= 0 then
+		windowInfo = ComboService.registerStepTiming(self.caster, self.name, token, {
+			stepDuration = stepDuration,
+			stepDelay = stepDelay,
+			windowDuration = if not isFinal then window else 0,
+			isFinal = isFinal,
+			startedAt = combo and combo.startedAt or nil,
+		})
+	end
+
+	if not isFinal and window > 0 and windowInfo then
+		local openAt = windowInfo.windowOpenAt
+		local closeAt = windowInfo.windowCloseAt
+		if openAt and closeAt and closeAt > openAt then
+			local nowClock = os.clock()
+			local openDelay = math.max(0, openAt - nowClock)
+			local waitDuration = math.max(0, closeAt - openAt)
+			if waitDuration > 0 then
+				task.delay(openDelay, function()
+					if ComboService.isTokenCurrent(self.caster, self.name, token) then
+						self:emitComboWaitStart(waitDuration, step, total)
+					end
+				end)
+				task.delay(openDelay + waitDuration, function()
+					if ComboService.isTokenCurrent(self.caster, self.name, token) then
+						self:emitComboWaitEnd()
+						self:completeExecution("expired")
+					end
+				end)
+			end
+		end
+	elseif not isFinal and window > 0 then
+		local waitDuration = window
+		self:emitComboWaitStart(waitDuration, step, total)
+		task.delay(waitDuration, function()
+			if ComboService.isTokenCurrent(self.caster, self.name, token) then
 				self:emitComboWaitEnd()
 				self:completeExecution("expired")
 			end
@@ -61,10 +159,10 @@ function BaseComboSkill:use(requestData: any?)
 	end
 
 	if isFinal then
-		-- Schedule completion strictly after the final hit delay + recovery, ensuring onComboStep executes first.
-		local totalDelay = delaySec + (recovery or 0)
-		if totalDelay > 0 then
-			task.delay(totalDelay, function()
+		-- Schedule completion after the authoritative step duration (fallback to hit+recovery), ensuring onComboStep executes first.
+		local completionDelay = if stepDuration > 0 then stepDuration else delaySec + recovery
+		if completionDelay > 0 then
+			task.delay(completionDelay, function()
 				self:completeExecution()
 			end)
 		else

@@ -10,8 +10,7 @@ local Server = game:GetService("ServerScriptService").Server
 local StatsConfig = require(Server.Stats.Config.StatsConfig)
 local StatsManager = require(Server.Stats.StatsManager)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
-local StatModifier = require(ReplicatedStorage.Shared.Modifiers.StatModifier)
-local PercentOfStatModifier = require(ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
+local ModifierFactories = require(ReplicatedStorage.Shared.Modifiers.Factories)
 
 export type BenchmarkResult = {
 	label: string,
@@ -52,10 +51,11 @@ local function buildStatWithModifiers(modCount: number)
 	local stats = StatsConfig.createDefaultStats()
 	local stat = stats[StatTypes.StaticStats.PhysicalDamage]
 	for i = 1, modCount do
-		stat:addModifier(StatModifier.new({
-			value = 5,
-			type = "flat",
-			source_id = string.format("bench_flat_%03d", i),
+		stat:addModifier(ModifierFactories.flatAdd({
+			sourceId = string.format("bench_flat_%03d", i),
+			amount = 5,
+			description = "Benchmark flat modifier",
+			tags = { "benchmark", "flat" },
 		}))
 	end
 	return stats, stat
@@ -83,10 +83,11 @@ local function benchmarkModifierMutation(baseModifiers: number, iterations: numb
 
 	return timeIt(string.format("Stat:add/remove modifier (base=%d)", baseModifiers), iterations, function(i)
 		local sourceId = string.format("bench_mut_%06d", i)
-		local modifier = StatModifier.new({
-			value = 2,
-			type = "flat",
-			source_id = sourceId,
+		local modifier = ModifierFactories.flatAdd({
+			sourceId = sourceId,
+			amount = 2,
+			description = "Benchmark mutation",
+			tags = { "benchmark", "mutation" },
 		})
 		stat:addModifier(modifier)
 		stat:removeModifier(sourceId)
@@ -108,11 +109,12 @@ local function benchmarkPercentModifier(iterations: number)
 	local sourceStat = stats[StatTypes.StaticStats.PhysicalDamage]
 	sourceStat:setBaseValue(120)
 	local targetStat = stats[StatTypes.StaticStats.MagicDamage]
-	local modifier = PercentOfStatModifier.new({
-		value = 0.25,
-		source_id = "bench_percent",
-		description = "Bench Percent",
+	local modifier = ModifierFactories.percentOfStat({
+		sourceId = "bench_percent",
 		targetStat = StatTypes.StaticStats.PhysicalDamage,
+		percent = 0.25,
+		description = "Bench Percent",
+		tags = { "benchmark", "percent" },
 	})
 	targetStat:addModifier(modifier)
 

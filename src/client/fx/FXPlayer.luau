@@ -20,6 +20,7 @@ local function buildChildPartOffsets(root: BasePart): { [BasePart]: CFrame }
 			-- Ensure they don't interfere with physics
 			bp.Anchored = true
 			bp.CanCollide = false
+			bp.Transparency = 1
 		end
 	end
 	return map

@@ -22,6 +22,129 @@ local markerConns: { [AnimationTrack]: { RBXScriptConnection } } = {}
 type FXHandle = { Instance: Instance, Stop: () -> () }
 local activeFX: { [number]: { [string]: FXHandle } } = {}
 
+local function resolveTempo(data: any?): number
+	if type(data) == "table" then
+		local tempo = data.tempo
+		if typeof(tempo) == "number" and tempo > 0 then
+			return tempo
+		end
+		local speed = data.speed
+		if typeof(speed) == "number" and speed > 0 then
+			return speed
+		end
+	end
+	return 1
+end
+
+local function resolveDurationScale(data: any?): number?
+	if type(data) ~= "table" then
+		return nil
+	end
+	local scale = data.durationScale
+	if typeof(scale) == "number" and scale > 0 then
+		return scale
+	end
+	return nil
+end
+
+local function resolveTargetDuration(data: any?): number?
+	if type(data) ~= "table" then
+		return nil
+	end
+	local candidates = {
+		data.targetDuration,
+		data.duration,
+		data.plannedDuration,
+		data.stepDuration,
+		data.executionDuration,
+	}
+	for _, candidate in ipairs(candidates) do
+		if typeof(candidate) == "number" and candidate > 0 then
+			return candidate
+		end
+	end
+	return nil
+end
+
+type AnimEntry = { key: string?, fade: number?, speed: number?, baseDuration: number? }
+
+local function toAnimEntry(value: any): AnimEntry
+	local entry: AnimEntry = { key = nil, fade = nil, speed = nil, baseDuration = nil }
+	if type(value) == "string" then
+		entry.key = value
+	elseif type(value) == "table" then
+		local keyCandidate = value.key or value.id or value.name or value[1]
+		if type(keyCandidate) == "string" then
+			entry.key = keyCandidate
+		end
+		local fadeCandidate = value.fade or value.transition or value.blend
+		if typeof(fadeCandidate) == "number" then
+			entry.fade = fadeCandidate
+		end
+		local speedCandidate = value.speed
+		if typeof(speedCandidate) == "number" then
+			entry.speed = speedCandidate
+		end
+		local baseDurationCandidate = value.baseDuration or value.length or value.duration
+		if typeof(baseDurationCandidate) == "number" and baseDurationCandidate > 0 then
+			entry.baseDuration = baseDurationCandidate
+		end
+	end
+	return entry
+end
+
+local function playConfiguredAnimation(entry: AnimEntry?, data: any?): AnimationTrack?
+	if not entry or not entry.key then
+		return nil
+	end
+	local tempo = resolveTempo(data)
+	local durationScale = resolveDurationScale(data)
+	local targetDuration = resolveTargetDuration(data)
+	local baseDuration = if entry and entry.baseDuration then entry.baseDuration elseif type(data) == "table" then data.baseDuration or data.baseStepDuration else nil
+	return AnimationPlayer.playTimed(entry.key, {
+		fade = entry.fade,
+		tempo = tempo,
+		durationScale = durationScale,
+		targetDuration = targetDuration,
+		baseDuration = baseDuration,
+		speed = entry.speed,
+	})
+end
+
+local function resolveStepAnimationEntry(animSpec: any, stepIdx: number): AnimEntry?
+	if type(animSpec) ~= "table" then
+		return nil
+	end
+	local steps = animSpec.comboSteps
+	if type(steps) == "table" then
+		local raw = steps[stepIdx] or steps[1]
+		if raw ~= nil then
+			local entry = toAnimEntry(raw)
+			if entry.key then
+				return entry
+			end
+		end
+	end
+	local legacy = animSpec.impact
+	if legacy ~= nil then
+		if type(legacy) == "table" then
+			local raw = legacy[stepIdx] or legacy[1]
+			if raw ~= nil then
+				local entry = toAnimEntry(raw)
+				if entry.key then
+					return entry
+				end
+			end
+		elseif type(legacy) == "string" then
+			local entry = toAnimEntry(legacy)
+			if entry.key then
+				return entry
+			end
+		end
+	end
+	return nil
+end
+
 local function getFXMapForCaster(casterId: number?): { [string]: FXHandle }
 	if not casterId then
 		return {}
@@ -181,15 +304,9 @@ local function onSkillsEvent(payload: any, _meta: any?)
 		return
 	end
 	if phase == "start" then
-		local anim = spec.anim and spec.anim.start
-		local startKey: string? = nil
-		if type(anim) == "string" then
-			startKey = anim
-		elseif type(anim) == "table" then
-			startKey = anim[1]
-		end
-		if startKey then
-			local track = AnimationPlayer.playReturn(startKey)
+		local startEntry = toAnimEntry(spec.anim and spec.anim.start)
+		if startEntry.key then
+			local track = playConfiguredAnimation(startEntry, payload.data)
 			local markersSpec = spec.fx and (spec.fx.markers or spec.fx.marker or spec.fx.markerFX)
 			if markersSpec then
 				bindMarkerFX(track, payload.casterId, markersSpec, spec.fx, nil)
@@ -197,20 +314,11 @@ local function onSkillsEvent(payload: any, _meta: any?)
 		end
 	elseif phase == "step" then
 		local idx = (payload.step or 1) :: number
-		-- Per-step body animation: prefer anim.comboSteps; fallback to legacy anim.impact string/table
-		local stepAnims = spec.anim and spec.anim.comboSteps
-		local legacyImpactAnim = (spec.anim and spec.anim.impact) --[[deprecated for animations]]
-		local animKeyToPlay: string? = nil
-		if type(stepAnims) == "table" then
-			animKeyToPlay = stepAnims[idx] or stepAnims[1]
-		elseif type(legacyImpactAnim) == "table" then
-			animKeyToPlay = legacyImpactAnim[idx] or legacyImpactAnim[1]
-		elseif type(legacyImpactAnim) == "string" then
-			animKeyToPlay = legacyImpactAnim
-		end
+		-- Per-step body animation: prefer structured comboSteps; fallback to legacy impact entries
+		local stepEntry = resolveStepAnimationEntry(spec.anim, idx)
 		local track: AnimationTrack? = nil
-		if animKeyToPlay then
-			track = AnimationPlayer.playReturn(animKeyToPlay)
+		if stepEntry then
+			track = playConfiguredAnimation(stepEntry, payload.data)
 		end
 
 		-- Bind marker-driven FX for this step animation, if configured
@@ -295,14 +403,9 @@ local function onSkillsEvent(payload: any, _meta: any?)
 			end
 		end
 	elseif phase == "end" or phase == "interrupt" then
-		local finishAnim = spec.anim and spec.anim.finish
-		if type(finishAnim) == "string" then
-			AnimationPlayer.play(finishAnim)
-		elseif type(finishAnim) == "table" then
-			local k2 = finishAnim[1]
-			if k2 then
-				AnimationPlayer.play(k2)
-			end
+		local finishEntry = toAnimEntry(spec.anim and spec.anim.finish)
+		if finishEntry.key then
+			playConfiguredAnimation(finishEntry, payload.data)
 		end
 		-- Ensure any lingering loop FX for this caster are stopped
 		if casterId and activeFX[casterId] then

@@ -1,5 +1,7 @@
 # AI Coding Agent Instructions
 
+**IMPORTANT:** All code must be free of TypeErrors (red errors) before completion. TypeErrors are not allowed in any committed or delivered code.
+
 These project-specific instructions help an AI assistant work effectively in this Roblox (Luau) codebase.
 Keep responses concise, reference concrete files, and follow the established execution / cooldown architecture.
 

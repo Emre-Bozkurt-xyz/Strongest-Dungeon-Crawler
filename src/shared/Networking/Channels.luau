@@ -66,6 +66,16 @@ local Channels: { [string]: ChannelDefinition } = {
 		intents = { "EntityInfoRequest" },
 		events = { "EntityInfoDelta" },
 	},
+	Projectiles = {
+		remote = "Projectiles",
+		remoteEvent = "ProjectileEvent",
+		remoteFunction = nil,
+		direction = "bidirectional",
+		qos = "HIGH",
+		-- Intents used for requests from client -> server (RequestShoot) and server -> client responses
+		intents = { "RequestShoot", "RequestShootResponse" },
+		events = { "ProjectileEvent" },
+	},
 }
 
 return Channels

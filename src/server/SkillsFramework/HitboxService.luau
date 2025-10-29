@@ -14,30 +14,29 @@
 --     :cone(60, 10)
 --     :collect()
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local EntityUtils = require(ReplicatedStorage.Shared.EntityUtils)
 
 local HitboxService = {}
 
--- Options controlling hitbox queries.
+-- Type definition for hitbox query options (shared by all queries)
 export type QueryOptions = {
 	caster: Player?,
-	-- If true, only returns player character models. If false, includes NPCs/other models.
 	playersOnly: boolean?,
 	excludeModels: { Model }?,
-	-- Max number of models to return (early exit).
 	maxTargets: number?,
-	-- when true, the caster's own character can be returned by queries (default false)
 	includeCaster: boolean?,
-	-- when true (default), enemy player-vs-player hits require both players to have PvPEnabled=true
 	respectPvP: boolean?,
-	-- team filtering
 	teamRelation: ("ally" | "enemy")?,
-	-- overlap filters
 	filterInstances: { Instance }?,
 	filterType: ("Include" | "Exclude")?,
 	collisionGroup: string?,
+	faction: string?,
 }
+
+-- Options controlling hitbox queries are defined in the export type QueryOptions below.
 
 -- Fluent builder types
 export type TeamRelation = "ally" | "enemy"
@@ -168,6 +167,17 @@ local function shouldExclude(model: Model, opts: QueryOptions?): boolean
 			if em == model then
 				return true
 			end
+		end
+	end
+	-- Faction filtering: skip if same faction as query/caster
+	local queryFaction = opts.faction
+	if not queryFaction and opts.caster then
+		queryFaction = EntityUtils.getFaction(opts.caster)
+	end
+	if queryFaction then
+		local targetFaction = EntityUtils.getFaction(model)
+		if targetFaction == queryFaction then
+			return true
 		end
 	end
 	-- team & PvP filtering (players only)
@@ -563,8 +573,20 @@ do
 					-- Approximate cone by drawing forward and boundary rays
 					local half = math.rad(shape.angleDeg * 0.5)
 					HitboxService.debugDrawRay(cf, shape.range)
-					HitboxService.debugDrawRay(cf * CFrame.Angles(0,  half, 0), shape.range, nil, Color3.fromRGB(0, 13, 255), 0.07)
-					HitboxService.debugDrawRay(cf * CFrame.Angles(0, -half, 0), shape.range, nil, Color3.fromRGB(0, 13, 255), 0.07)
+					HitboxService.debugDrawRay(
+						cf * CFrame.Angles(0, half, 0),
+						shape.range,
+						nil,
+						Color3.fromRGB(0, 13, 255),
+						0.07
+					)
+					HitboxService.debugDrawRay(
+						cf * CFrame.Angles(0, -half, 0),
+						shape.range,
+						nil,
+						Color3.fromRGB(0, 13, 255),
+						0.07
+					)
 				end
 				return HitboxService.queryCone(cf, shape.angleDeg, shape.range, opts)
 			elseif shape.kind == "box" then

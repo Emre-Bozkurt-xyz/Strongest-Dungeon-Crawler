@@ -4,7 +4,7 @@
 
 local ClientSpec = {
 	Punch = {
-		icon = "rbxassetid://13050670424", 
+		icon = "rbxassetid://13050670424",
 		label = "Punch",
 		anim = {
 			-- Body animations for each combo step in order
@@ -69,13 +69,24 @@ local ClientSpec = {
 			anchor = { name = "FX_Waist", fallback = "HumanoidRootPart" },
 			markers = {
 				dash_explosive = "Dash_Explosive",
-				dash_wind = "Dash_Wind"
-			}
+				dash_wind = "Dash_Wind",
+			},
 		},
 		sfx = {
 			start = { "Dash_Start_SFX" },
 			loop = { "Dash_Loop_SFX" },
 			finish = { "Dash_End_SFX" },
+		},
+	},
+
+	ManaBall = {
+		icon = "rbxassetid://13050670424",
+		label = "Mana Ball",
+		anim = {
+			start = { key = "SpellCast_Basic" },
+		},
+		fx = {
+			release = "release",
 		},
 	},
 }

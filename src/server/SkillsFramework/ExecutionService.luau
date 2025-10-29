@@ -78,12 +78,13 @@ end
 
 local function autoFinish(caster: Caster, token: number)
 	local st = active[caster]
-	if not st or st.token ~= token then return end
+	if not st or st.token ~= token then
+		return
+	end
 	st.completedAt = now()
 	st.reason = "auto"
 
 	if st.jumpLocked then
-		print("Unlocking Jump")
 		local humanoid = nil
 		if caster:IsA("Player") then
 			local char = caster.Character
@@ -135,7 +136,7 @@ function ExecutionService.begin(caster: Caster, skillName: string, opts: BeginOp
 			return nil, nil
 		end
 	end
-	local token = math.random(1, 2^31 - 1)
+	local token = math.random(1, 2 ^ 31 - 1)
 	local duration = opts and opts.duration or nil
 	local targetDuration = opts and opts.targetDuration or duration
 	local startedAt = now()
@@ -184,14 +185,14 @@ function ExecutionService.begin(caster: Caster, skillName: string, opts: BeginOp
 		end)
 	end
 
-	
-
 	return token, active[caster]
 end
 
 function ExecutionService.complete(caster: Caster, token: number, reason: string?)
 	local st = active[caster]
-	if not st or st.token ~= token then return end
+	if not st or st.token ~= token then
+		return
+	end
 	st.completedAt = now()
 	st.reason = reason or "normal"
 

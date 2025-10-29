@@ -177,7 +177,7 @@ end
 -- 	return StatsManager.removeFromPool(self.caster, poolType, amount, options)
 -- end
 
-function BaseSkill:getBaseCost(data: any?) : number
+function BaseSkill:getBaseCost(data: any?): number
 	local comboConfig = data and data.combo or nil
 
 	local cost = self.config.cost or 0
@@ -196,13 +196,13 @@ function BaseSkill:getBaseCost(data: any?) : number
 	return cost
 end
 
-function BaseSkill:applyResourceCost(data: any?) : boolean
+function BaseSkill:applyResourceCost(data: any?): boolean
 	local comboConfig = data and data.combo or nil
 
 	local cost = self:getBaseCost(data)
-	
+
 	-- Determine base resource to be consumed
-	local baseResource = data and data.baseResource or StatTypes.PoolStats.Stamina
+	local baseResource = self.config and self.config.baseResource or StatTypes.PoolStats.Stamina
 
 	-- No cost to apply
 	if cost <= 0 then
@@ -355,7 +355,9 @@ export type ExecutionOptions = {
 -- Execution helpers: wrap emitStart/emitEnd with execution lock semantics.
 -- duration: optional planned execution length (auto-completes). If nil, skill must call completeExecution manually.
 function BaseSkill:beginExecution(duration: number?, opts: ExecutionOptions)
-	if self._execToken then return end -- already executing
+	if self._execToken then
+		return
+	end -- already executing
 	local tempo = opts.speedMult or (opts.timing and opts.timing.tempo) or nil
 	local token, state = ExecutionService.begin(self.caster, self.name, {
 		duration = duration,
@@ -376,7 +378,10 @@ function BaseSkill:beginExecution(duration: number?, opts: ExecutionOptions)
 		self:_captureTiming(opts.timing)
 	end
 	local startTempo = tempo or 1
-	local startDuration = if state and state.targetDuration then state.targetDuration elseif duration and duration > 0 then duration else state and state.plannedDuration or nil
+	local startDuration = if state and state.targetDuration
+		then state.targetDuration
+		elseif duration and duration > 0 then duration
+		else state and state.plannedDuration or nil
 	local startData = {
 		tempo = startTempo,
 		speed = startTempo,
@@ -393,7 +398,9 @@ function BaseSkill:beginExecution(duration: number?, opts: ExecutionOptions)
 end
 
 function BaseSkill:completeExecution(reason: string?)
-	if not self._execToken then return end
+	if not self._execToken then
+		return
+	end
 	local tok = self._execToken
 	local state = self._execState
 	self._execToken = nil
@@ -447,12 +454,12 @@ function BaseSkill:getCasterRootPart(): BasePart?
 	return nil
 end
 
-function BaseSkill:getCasterOriginCFrame(yaw: number): CFrame?
+function BaseSkill:getCasterOriginCFrame(yaw: number?): CFrame?
 	local root = self:getCasterRootPart()
 	if not root then
 		return nil
 	end
-	return root.CFrame * CFrame.Angles(0, math.rad(yaw), 0)
+	return root.CFrame * CFrame.Angles(0, math.rad(yaw or 0), 0)
 end
 
 return BaseSkill

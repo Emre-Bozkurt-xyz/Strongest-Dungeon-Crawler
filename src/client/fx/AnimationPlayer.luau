@@ -3,7 +3,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-	local AssetLoader = require(script.Parent.Parent.AssetLoader)
+local AssetLoader = require(script.Parent.Parent.AssetLoader)
 
 local AnimationPlayer = {}
 
@@ -87,9 +87,15 @@ function AnimationPlayer.playTimed(key: string, options: { [string]: any }?): An
 	local opts = options or ({} :: { [string]: any })
 	local fade = if typeof(opts.fade) == "number" then opts.fade else nil
 	local tempo = if typeof(opts.tempo) == "number" and opts.tempo > 0 then opts.tempo else nil
-	local durationScale = if typeof(opts.durationScale) == "number" and opts.durationScale > 0 then opts.durationScale else nil
-	local baseDuration = if typeof(opts.baseDuration) == "number" and opts.baseDuration > 0 then opts.baseDuration else nil
-	local targetDuration = if typeof(opts.targetDuration) == "number" and opts.targetDuration > 0 then opts.targetDuration else nil
+	local durationScale = if typeof(opts.durationScale) == "number" and opts.durationScale > 0
+		then opts.durationScale
+		else nil
+	local baseDuration = if typeof(opts.baseDuration) == "number" and opts.baseDuration > 0
+		then opts.baseDuration
+		else nil
+	local targetDuration = if typeof(opts.targetDuration) == "number" and opts.targetDuration > 0
+		then opts.targetDuration
+		else nil
 	local speed = if typeof(opts.speed) == "number" and opts.speed > 0 then opts.speed else nil
 
 	local trackLength = track.Length
@@ -146,7 +152,6 @@ function AnimationPlayer.playTimed(key: string, options: { [string]: any }?): An
 		AssetLoader.cacheAnimationLength(key, track.Length)
 	end
 
-	print("Playing animation:", key, "with speed:", speed)
 	return track
 end
 

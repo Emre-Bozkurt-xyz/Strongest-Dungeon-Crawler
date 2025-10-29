@@ -2,9 +2,12 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Networking = require(ReplicatedStorage.Shared.Networking)
 
-local AnimationPlayer = require(script.Parent.Parent.Parent.Client.fx.AnimationPlayer)
-local FXPlayer = require(script.Parent.Parent.Parent.Client.fx.FXPlayer)
+local FXPlayer = require(script.Parent.Parent.fx.FXPlayer)
+-- AnimationCoordinator wraps AnimationPlayer usage for semantic marker events
+local _AnimationPlayer = require(script.Parent.Parent.fx.AnimationPlayer)
+local AnimationCoordinator = require(script.Parent.Parent.Animation.AnimationCoordinator)
 local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
+local ProjectilesClient = require(script.Parent.Parent.Services.ProjectilesClient)
 
 local SkillsClient = {}
 
@@ -13,7 +16,8 @@ local dispatcher = Networking.client()
 local dispatcherAny = dispatcher :: any
 dispatcherAny:_ensureChannel(SKILLS_CHANNEL_NAME)
 
-local activeComboIdle: { [number]: string } = {}
+-- store handles returned from AnimationCoordinator.playSkillAnimation so we can stop them
+local activeComboIdle: { [number]: any } = {}
 
 -- Track marker connections so we don't leak across replays
 local markerConns: { [AnimationTrack]: { RBXScriptConnection } } = {}
@@ -93,22 +97,46 @@ local function toAnimEntry(value: any): AnimEntry
 	return entry
 end
 
-local function playConfiguredAnimation(entry: AnimEntry?, data: any?): AnimationTrack?
+local function playConfiguredAnimation(entry: AnimEntry?, data: any?, skillName: string?): AnimationTrack?
 	if not entry or not entry.key then
 		return nil
 	end
 	local tempo = resolveTempo(data)
 	local durationScale = resolveDurationScale(data)
 	local targetDuration = resolveTargetDuration(data)
-	local baseDuration = if entry and entry.baseDuration then entry.baseDuration elseif type(data) == "table" then data.baseDuration or data.baseStepDuration else nil
-	return AnimationPlayer.playTimed(entry.key, {
+	local baseDuration = if entry and entry.baseDuration
+		then entry.baseDuration
+		elseif type(data) == "table" then data.baseDuration or data.baseStepDuration
+		else nil
+	-- Build options for the coordinator. Include any attach/ token info found in payload.data
+	local opts: { [string]: any } = {
 		fade = entry.fade,
 		tempo = tempo,
 		durationScale = durationScale,
 		targetDuration = targetDuration,
 		baseDuration = baseDuration,
 		speed = entry.speed,
-	})
+		playTimed = true,
+	}
+	if type(data) == "table" then
+		-- common fields that may carry attachment info from server payloads
+		opts.partName = data.partName or (data.attach and data.attach.partName) or nil
+		opts.token = data.token or (data.attach and data.attach.token) or nil
+	end
+	-- If we're the local player and no token was passed, try to fetch a locally-generated
+	-- attach token (ProjectilesClient may have created one when the server spawned the attach).
+	if not opts.token and opts.partName then
+		local localToken = ProjectilesClient.getAttachToken(opts.partName)
+		if type(localToken) == "string" then
+			opts.token = localToken
+		end
+	end
+	local handle =
+		AnimationCoordinator.playSkillAnimation(skillName or (data and data.skillName) or nil, entry.key, opts)
+	if handle and handle.getTrack then
+		return handle:getTrack()
+	end
+	return nil
 end
 
 local function resolveStepAnimationEntry(animSpec: any, stepIdx: number): AnimEntry?
@@ -300,13 +328,16 @@ local function onSkillsEvent(payload: any, _meta: any?)
 	local localUserId = localPlayer and localPlayer.UserId or nil
 	local isLocalCaster = (typeof(casterId) == "number" and casterId == localUserId)
 
-	if (phase == "start" or phase == "step" or phase == "combo_wait" or phase == "end" or phase == "interrupt") and not isLocalCaster then
+	if
+		(phase == "start" or phase == "step" or phase == "combo_wait" or phase == "end" or phase == "interrupt")
+		and not isLocalCaster
+	then
 		return
 	end
 	if phase == "start" then
 		local startEntry = toAnimEntry(spec.anim and spec.anim.start)
 		if startEntry.key then
-			local track = playConfiguredAnimation(startEntry, payload.data)
+			local track = playConfiguredAnimation(startEntry, payload.data, id)
 			local markersSpec = spec.fx and (spec.fx.markers or spec.fx.marker or spec.fx.markerFX)
 			if markersSpec then
 				bindMarkerFX(track, payload.casterId, markersSpec, spec.fx, nil)
@@ -318,7 +349,7 @@ local function onSkillsEvent(payload: any, _meta: any?)
 		local stepEntry = resolveStepAnimationEntry(spec.anim, idx)
 		local track: AnimationTrack? = nil
 		if stepEntry then
-			track = playConfiguredAnimation(stepEntry, payload.data)
+			track = playConfiguredAnimation(stepEntry, payload.data, id)
 		end
 
 		-- Bind marker-driven FX for this step animation, if configured
@@ -391,21 +422,25 @@ local function onSkillsEvent(payload: any, _meta: any?)
 		local idleKey = spec.anim and spec.anim.comboIdle
 		if open then
 			if type(idleKey) == "string" then
-				AnimationPlayer.play(idleKey)
-				if casterId then
-					activeComboIdle[casterId] = idleKey
+				-- Play idle animation via coordinator so we can stop it later
+				local handle = AnimationCoordinator.playSkillAnimation(id, idleKey, { playTimed = false })
+				if casterId and handle then
+					activeComboIdle[casterId] = handle
 				end
 			end
 		else
 			if casterId and activeComboIdle[casterId] then
-				AnimationPlayer.stop(activeComboIdle[casterId])
+				local handle = activeComboIdle[casterId]
+				pcall(function()
+					handle:stop()
+				end)
 				activeComboIdle[casterId] = nil
 			end
 		end
 	elseif phase == "end" or phase == "interrupt" then
 		local finishEntry = toAnimEntry(spec.anim and spec.anim.finish)
 		if finishEntry.key then
-			playConfiguredAnimation(finishEntry, payload.data)
+			playConfiguredAnimation(finishEntry, payload.data, id)
 		end
 		-- Ensure any lingering loop FX for this caster are stopped
 		if casterId and activeFX[casterId] then

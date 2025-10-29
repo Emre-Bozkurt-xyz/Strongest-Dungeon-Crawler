@@ -17,6 +17,8 @@ local StatusPreviewController = require(script.ui.controllers.StatusPreviewContr
 local SystemPanelHandler = require(script.ui.controllers.SystemPanelHandler)
 local SkillSlotUI = require(script.SkillsFramework.SkillSlotUI)
 local OverheadHealthService = require(script.OverheadHealthService)
+-- Ensure projectile visuals client is initialized
+local _ProjectilesClient = require(script.Services.ProjectilesClient)
 local UserInputService = game:GetService("UserInputService")
 
 -- Example: Add some client-side commands for testing

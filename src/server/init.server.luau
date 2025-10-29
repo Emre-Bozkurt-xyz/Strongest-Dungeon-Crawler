@@ -50,7 +50,7 @@ end
 local function setupPlayerCommands(player: Player)
 	NPCSpawner.spawn("Dummy", {
 		position = Vector3.new(90, 5, 0),
-		debug = true
+		debug = true,
 	})
 
 	-- NPCSpawner.spawn("Dummy", {
@@ -66,6 +66,7 @@ local function setupPlayerCommands(player: Player)
 	SkillsManager.addSkill(player, "Punch")
 	SkillsManager.addSkill(player, "TripleStrike")
 	SkillsManager.addSkill(player, "Dash")
+	SkillsManager.addSkill(player, "ManaBall")
 
 	StatsManager.addModifier(
 		player,
@@ -78,7 +79,7 @@ local function setupPlayerCommands(player: Player)
 		})
 	)
 
-    wait(5)
+	wait(5)
 
 	-- StatsMediator.observe("resolveSkillCost", function(ctx)
 	-- 	print("Observing skill cost resolution for", ctx.entity.Name)
@@ -98,13 +99,16 @@ local function setupPlayerCommands(player: Player)
 	-- end)
 
 	StatsManager.setBaseStat(player, StatTypes.StaticStats.AttackSpeed, 1)
-	StatsManager.addModifier(player, StatTypes.StaticStats.HealthRegeneration, PercentOfStatModifier.new({
-		value = 0.2, -- 20% of max health
-		source_id = "health_regen_test",
-		targetStat = StatTypes.PoolStats.Health,
-		description = "Base health regeneration",
-	}))
-	
+	StatsManager.addModifier(
+		player,
+		StatTypes.StaticStats.HealthRegeneration,
+		PercentOfStatModifier.new({
+			value = 0.2, -- 20% of max health
+			source_id = "health_regen_test",
+			targetStat = StatTypes.PoolStats.Health,
+			description = "Base health regeneration",
+		})
+	)
 
 	print("Starting in 5s...")
 	AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Perception, 1)

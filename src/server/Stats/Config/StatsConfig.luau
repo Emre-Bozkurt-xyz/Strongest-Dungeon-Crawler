@@ -22,7 +22,7 @@ StatsConfig.DEFAULT_POOLS = {
 -- Default stat configurations (using enum-like constants)
 StatsConfig.DEFAULT_STATS = {
 	[Types.StaticStats.PhysicalDamage] = { baseValue = 10, minValue = 0, maxValue = 9999, name = "Physical Damage" },
-	[Types.StaticStats.MagicDamage] = { baseValue = 0, minValue = 0, maxValue = 9999, name = "Magic Damage" },
+	[Types.StaticStats.MagicDamage] = { baseValue = 10, minValue = 0, maxValue = 9999, name = "Magic Damage" },
 	[Types.StaticStats.AttackSpeed] = {
 		baseValue = 1.0,
 		minValue = 0.1,
@@ -77,7 +77,6 @@ StatsConfig.DEFAULT_STATS = {
 		maxValue = 10,
 		name = "Perception Tier",
 	},
-
 }
 
 StatsConfig.DEFAULT_RESOURCES = {

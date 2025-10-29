@@ -75,27 +75,39 @@ end
 
 function SkillSlots.clear(index: number)
 	local p = profiles[activeProfile]
-	if not p then return end
-	if index < 1 then return end
-	if p.slots[index] == nil then return end
+	if not p then
+		return
+	end
+	if index < 1 then
+		return
+	end
+	if p.slots[index] == nil then
+		return
+	end
 	p.slots[index] = nil
 	fire(slotsChanged, activeProfile)
 end
 
 function SkillSlots.get(index: number): string?
 	local p = profiles[activeProfile]
-	if not p then return nil end
-	if index < 1 then return nil end
+	if not p then
+		return nil
+	end
+	if index < 1 then
+		return nil
+	end
 	return p.slots[index]
 end
 
 -- Deprecated: getAll with contiguous empty slots; kept for backward compatibility returning a dense array of filled entries only.
-function SkillSlots.getAll(): {string?}
+function SkillSlots.getAll(): { string? }
 	local p = profiles[activeProfile]
-	local out: {string?} = {}
-	if not p then return out end
+	local out: { string? } = {}
+	if not p then
+		return out
+	end
 	-- Collect filled slots only (order by index ascending)
-	local indices: {number} = {}
+	local indices: { number } = {}
 	for idx, skill in pairs(p.slots) do
 		if type(idx) == "number" and skill ~= nil then
 			table.insert(indices, idx)
@@ -113,7 +125,9 @@ export type FilledSlot = { index: number, skill: string }
 function SkillSlots.getFilledSlots(): { FilledSlot }
 	local p = profiles[activeProfile]
 	local list: { FilledSlot } = {}
-	if not p then return list end
+	if not p then
+		return list
+	end
 	for idx, skill in pairs(p.slots) do
 		if type(idx) == "number" and skill ~= nil then
 			table.insert(list, { index = idx, skill = skill :: string })
@@ -127,7 +141,9 @@ end
 
 function SkillSlots.activate(index: number)
 	local skill = SkillSlots.get(index)
-	if not skill then return end
+	if not skill then
+		return
+	end
 	SkillsClient.useSkill(skill)
 end
 
@@ -140,8 +156,12 @@ function SkillSlots.getActiveProfileId(): number
 end
 
 function SkillSlots.setActiveProfile(id: number)
-	if id == activeProfile then return end
-	if not profiles[id] then return end
+	if id == activeProfile then
+		return
+	end
+	if not profiles[id] then
+		return
+	end
 	activeProfile = id
 	fire(profileChanged, activeProfile)
 end
@@ -149,7 +169,9 @@ end
 function SkillSlots.cycleProfile(delta: number?)
 	delta = delta or 1
 	local count = SkillSlots.profileCount()
-	if count <= 1 then return end
+	if count <= 1 then
+		return
+	end
 	local d = delta :: number
 	local target = activeProfile + d
 	if target < 1 then
@@ -198,6 +220,7 @@ SkillSlots.setActiveProfile(1)
 SkillSlots.assign(1, "Punch")
 SkillSlots.assign(2, "TripleStrike")
 SkillSlots.assign(3, "Dash")
+SkillSlots.assign(4, "ManaBall")
 
 -- Public: explicit API to expand beyond default 5 via assign or setSlotCount.
 
@@ -228,8 +251,12 @@ function SkillSlots.serialize(): { [string]: any }
 end
 
 function SkillSlots.load(data: any)
-	if type(data) ~= "table" then return end
-	if type(data.profiles) ~= "table" then return end
+	if type(data) ~= "table" then
+		return
+	end
+	if type(data.profiles) ~= "table" then
+		return
+	end
 	profiles = {}
 	nextProfileId = 1
 	for id, prof in pairs(data.profiles) do

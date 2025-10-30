@@ -1,11 +1,12 @@
---!strict
 -- Server-side stat management system for players and NPCs
 -- Handles all stat modifications and syncing to clients (players only receive dispatcher deltas)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local ServerScriptService = game:GetService("ServerScriptService")
 
+local Registrar = require(ServerScriptService.Server.Services.Registrar)
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local StatsConfig = require(script.Parent.Config.StatsConfig)
 local StatsMediator = require(script.Parent.StatsMediator)
@@ -69,7 +70,9 @@ export type MediatorQueryOptions = MediatorQueryOptionsInternal
 export type QueryOptions = MediatorQueryOptionsInternal
 
 local StatsManager = {}
-local entityStats: { [Instance]: EntityStats } = {}
+
+-- EntityID to EntityStats map
+local entityStats: { [string]: EntityStats } = {}
 
 local function cloneOptions(source: MediatorQueryOptionsInternal?): MediatorQueryOptionsInternal
 	local target: MediatorQueryOptionsInternal = {}
@@ -103,7 +106,7 @@ end
 type PoolOperationMetadata = { [string]: any }
 
 type PoolOperationContext = {
-	entity: Instance,
+	entityId: string,
 	stats: EntityStats,
 	basePoolName: PoolType,
 	currentPoolName: PoolType,
@@ -133,11 +136,11 @@ local dispatcherAny = dispatcher :: any
 dispatcher:_ensureChannel(STATS_CHANNEL_NAME)
 
 -- Helper: send a delta to a player
-local function sendStatDelta(entity: Instance, deltaType: string, target: string, data: any)
-	if not entity:IsA("Player") then
+local function sendStatDelta(entityId: string, deltaType: string, target: string, data: any)
+	if not Registrar.isPlayerEntity(entityId) then
 		return
 	end
-	local player = entity :: Player
+	local player = Registrar.getPlayerById(entityId)
 	local delta: Delta = {
 		system = "stats",
 		type = deltaType,
@@ -145,19 +148,19 @@ local function sendStatDelta(entity: Instance, deltaType: string, target: string
 		data = data,
 		timestamp = os.clock(),
 	}
-	debugLog("Emit delta", delta.type, delta.target, entity.Name)
+	debugLog("Emit delta", delta.type, delta.target, player and player.Name or "<unknown>")
 	dispatcherAny:emit("StatsDelta", delta, {
 		targets = player,
 	})
 end
 
 -- Helper: send full sync
-local function sendFullSync(entity: Instance)
-	if not entity:IsA("Player") then
+local function sendFullSync(entityId: string)
+	if not Registrar.isPlayerEntity(entityId) then
 		return
 	end
-	local player = entity :: Player
-	local stats = entityStats[player]
+	local player = Registrar.getPlayerById(entityId)
+	local stats = entityStats[entityId]
 	if not stats then
 		return
 	end
@@ -169,7 +172,7 @@ local function sendFullSync(entity: Instance)
 		data = serialized,
 		timestamp = os.clock(),
 	}
-	debugLog("Emit full sync", entity.Name)
+	debugLog("Emit full sync", player and player.Name)
 	local profileToken = profileBegin("sendFullSync")
 	dispatcherAny:emit("StatsDelta", delta, {
 		targets = player,
@@ -177,19 +180,19 @@ local function sendFullSync(entity: Instance)
 	profileEnd(profileToken)
 end
 
-local function sendResourceMetadata(entity: Instance, resourceName: string, resourceStat: any)
-	if not entity:IsA("Player") then
+local function sendResourceMetadata(entityId: string, resourceName: string, resourceStat: any)
+	if not Registrar.isPlayerEntity(entityId) then
 		return
 	end
 	sendStatDelta(
-		entity,
+		entityId,
 		StatTypeUtil.DeltaTypes.RESOURCE_STATE_CHANGED,
 		resourceName,
 		resourceStat:getMetadataSnapshot()
 	)
 end
 
-local function propagateResourceEvents(entity: Instance, resourceName: string, resourceStat: any)
+local function propagateResourceEvents(entityId: string, resourceName: string, resourceStat: any)
 	local events = resourceStat:consumeQueuedEvents()
 	if not events or #events == 0 then
 		return
@@ -203,25 +206,25 @@ local function propagateResourceEvents(entity: Instance, resourceName: string, r
 
 		if eventPayload.event == "metadataChanged" then
 			metadataDirty = true
-		elseif entity:IsA("Player") then
-			sendStatDelta(entity, StatTypeUtil.DeltaTypes.RESOURCE_EVENT, resourceName, eventPayload)
+		elseif Registrar.isPlayerEntity(entityId) then
+			sendStatDelta(entityId, StatTypeUtil.DeltaTypes.RESOURCE_EVENT, resourceName, eventPayload)
 		end
 	end
 
 	if metadataDirty then
-		sendResourceMetadata(entity, resourceName, resourceStat)
+		sendResourceMetadata(entityId, resourceName, resourceStat)
 	end
 end
 
-local function getResourceStat(entity: Instance, resourceName: ResourceType): (any?, EntityStats?)
-	local stats = entityStats[entity]
+local function getResourceStat(entityId: string, resourceName: ResourceType): (any?, EntityStats?)
+	local stats = entityStats[entityId]
 	if not stats then
-		warn(`Attempted to access resource {resourceName} for entity {entity.Name} with no stats initialized`)
+		warn(`Attempted to access resource {resourceName} for entity {entityId} with no stats initialized`)
 		return nil, nil
 	end
 	local resource = (stats :: any)[resourceName]
 	if not resource or not StatTypeUtil.isResourceStat(resource) then
-		warn(`Resource {resourceName} not found for entity {entity.Name}`)
+		warn(`Resource {resourceName} not found for entity {entityId}`)
 		return nil, stats
 	end
 	return resource, stats
@@ -231,86 +234,88 @@ local function processResourceTick(deltaTime: number)
 	if deltaTime <= 0 then
 		return
 	end
-	for entity, stats in pairs(entityStats) do
+	for entityId, stats in pairs(entityStats) do
 		for statName, stat in pairs(stats) do
 			if StatTypeUtil.isResourceStat(stat) then
 				local changed = stat:tick(deltaTime, stats)
-				if changed and entity:IsA("Player") then
-					sendStatDelta(entity, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, statName, {
+				if changed and Registrar.isPlayerEntity(entityId) then
+					sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, statName, {
 						currentValue = stat:getCurrentValue(),
 						maxValue = stat:getMaxValue(stats),
 					})
 				end
-				propagateResourceEvents(entity, statName, stat)
+				propagateResourceEvents(entityId, statName, stat)
 			end
 		end
 	end
 end
 
-function StatsManager.isRegistered(entity: Instance): boolean
-	return entityStats[entity] ~= nil
+function StatsManager.isRegistered(entityId: string): boolean
+	return entityStats[entityId] ~= nil
 end
 
-function StatsManager.register(entity: Instance, options: RegisterOptions?): EntityStats
-	local existing = entityStats[entity]
+function StatsManager.register(entityId: string, options: RegisterOptions?): EntityStats
+	local existing = entityStats[entityId]
 	if existing then
-		StatsMediator.attach(entity, existing)
+		StatsMediator.attach(entityId, existing)
 		if options and options.configure then
 			options.configure(existing)
-			StatsMediator.invalidateAll(entity)
+			StatsMediator.invalidateAll(entityId)
 		end
-		if entity:IsA("Player") and not (options and options.skipSync) then
-			sendFullSync(entity)
+		if Registrar.isPlayerEntity(entityId) and not (options and options.skipSync) then
+			sendFullSync(entityId)
 		end
 		return existing
 	end
 
 	local stats = if options and options.stats then options.stats else StatsConfig.createDefaultStats()
-	entityStats[entity] = stats
-	StatsMediator.attach(entity, stats)
+	entityStats[entityId] = stats
+	StatsMediator.attach(entityId, stats)
 
 	if options and options.configure then
 		options.configure(stats)
-		StatsMediator.invalidateAll(entity)
+		StatsMediator.invalidateAll(entityId)
 	end
 
-	if entity:IsA("Player") and not (options and options.skipSync) then
-		sendFullSync(entity)
-		print(`Initialized stats for player: {entity.Name}`)
+	local player = Registrar.getPlayerById(entityId)
+
+	if player and not (options and options.skipSync) then
+		sendFullSync(entityId)
+		print(`Initialized stats for player: {player.Name}`)
 	else
-		print(`Initialized stats for entity: {entity:GetFullName()}`)
+		print(`Initialized stats for entity: {player:GetFullName()}`)
 	end
 
 	return stats
 end
 
-function StatsManager.unregister(entity: Instance): boolean
-	if not entityStats[entity] then
+function StatsManager.unregister(entityId: string): boolean
+	if not entityStats[entityId] then
 		return false
 	end
-	entityStats[entity] = nil
-	StatsMediator.detach(entity)
+	entityStats[entityId] = nil
+	StatsMediator.detach(entityId)
 	return true
 end
 
 -- Initialize stats for a new player
 local function initializePlayerStats(player: Player)
-	StatsManager.register(player)
+	StatsManager.register(Registrar.getPlayerId(player) or error("Player has no registered EntityId"))
 end
 
 -- Clean up when player leaves
 local function cleanupPlayerStats(player: Player)
-	local removed = StatsManager.unregister(player)
+	local removed = StatsManager.unregister(Registrar.getPlayerId(player) or error("Player has no registered EntityId"))
 	if removed then
 		print(`Cleaned up stats for player: {player.Name}`)
 	end
 end
 
 -- Set base value for stats or pools
-function StatsManager.setBaseStat(entity: Instance, statName: StatType, newValue: number)
-	local stats = entityStats[entity]
+function StatsManager.setBaseStat(entityId: string, statName: StatType, newValue: number)
+	local stats = entityStats[entityId]
 	if not stats then
-		warn(`Attempted to set stat for entity {entity.Name} who has no stats initialized`)
+		warn(`Attempted to set stat for entity {entityId} who has no stats initialized`)
 		return false
 	end
 
@@ -318,35 +323,35 @@ function StatsManager.setBaseStat(entity: Instance, statName: StatType, newValue
 	local stat = (stats :: any)[statName]
 
 	if not stat then
-		warn(`Stat {statName} not found for entity {entity.Name}`)
+		warn(`Stat {statName} not found for entity {entityId}`)
 		return false
 	end
 
 	stat:setBaseValue(validatedValue)
-	StatsMediator.invalidateStat(entity, statName)
-	if entity:IsA("Player") then
-		sendStatDelta(entity, StatTypeUtil.DeltaTypes.BASE_VALUE_CHANGED, statName, { baseValue = validatedValue })
+	StatsMediator.invalidateStat(entityId, statName)
+	if Registrar.isPlayerEntity(entityId) then
+		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.BASE_VALUE_CHANGED, statName, { baseValue = validatedValue })
 	end
 	return true
 end
 
 local function preparePoolOperation(
-	entity: Instance,
+	entityId: string,
 	poolName: PoolType,
 	amount: number,
 	options: MediatorQueryOptionsInternal?,
 	baseContext: string?,
 	cacheKey: string?
 ): PoolOperationContext?
-	local stats = entityStats[entity]
+	local stats = entityStats[entityId]
 	if not stats then
-		warn(`Attempted to access pool {poolName} for entity {entity.Name} who has no stats initialized`)
+		warn(`Attempted to access pool {poolName} for entity {entityId} who has no stats initialized`)
 		return nil
 	end
 
 	local pool = stats[poolName]
 	if not pool or not StatTypeUtil.isPoolStat(pool) then
-		warn(`Pool {poolName} not found for entity {entity.Name}`)
+		warn(`Pool {poolName} not found for entity {entityId}`)
 		return nil
 	end
 
@@ -360,7 +365,7 @@ local function preparePoolOperation(
 	resolvedOptions.metadata = metadata
 
 	local context: PoolOperationContext = {
-		entity = entity,
+		entityId = entityId,
 		stats = stats,
 		basePoolName = poolName,
 		currentPoolName = poolName,
@@ -384,9 +389,7 @@ local function preparePoolOperation(
 		end
 		local overridePool = stats[target]
 		if not overridePool or not StatTypeUtil.isPoolStat(overridePool) then
-			warn(
-				`Override stat {target} for entity {entity.Name} is not a valid pool; keeping {context.currentPoolName}`
-			)
+			warn(`Override stat {target} for entity {entityId} is not a valid pool; keeping {context.currentPoolName}`)
 			return false
 		end
 		context.pool = overridePool
@@ -424,7 +427,7 @@ local function executePoolOperation(
 
 	local executed = false
 	local statTypeForQuery = context.currentPoolName
-	local result = StatsMediator.resolve(context.entity, statTypeForQuery, function()
+	local result = StatsMediator.resolve(context.entityId, statTypeForQuery, function()
 		local requestedOverride = context.options.overrideStat
 		if requestedOverride and requestedOverride ~= context.currentPoolName then
 			local applied = context.applyOverride(requestedOverride)
@@ -459,22 +462,22 @@ local function executePoolOperation(
 	return result, executed
 end
 
-function StatsManager.addToPool(entity: Instance, poolName: PoolType, amount: number): boolean
-	local stats = entityStats[entity]
+function StatsManager.addToPool(entityId: string, poolName: PoolType, amount: number): boolean
+	local stats = entityStats[entityId]
 	if not stats then
-		warn(`Attempted to add to pool for entity {entity.Name} who has no stats initialized`)
+		warn(`Attempted to add to pool for entity {entityId} who has no stats initialized`)
 		return false
 	end
 
 	local pool = (stats :: any)[poolName]
 	if not pool or not StatTypeUtil.isPoolStat(pool) then
-		warn(`Pool {poolName} not found for entity {entity.Name}`)
+		warn(`Pool {poolName} not found for entity {entityId}`)
 		return false
 	end
 
 	local added = pool:addToCurrentValue(amount)
-	if added and entity:IsA("Player") then
-		sendStatDelta(entity, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, poolName, {
+	if added and Players:GetPlayerFromCharacter(entityId) then
+		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, poolName, {
 			currentValue = pool:getCurrentValue(),
 			maxValue = pool:getValue(stats),
 		})
@@ -484,12 +487,12 @@ function StatsManager.addToPool(entity: Instance, poolName: PoolType, amount: nu
 end
 
 function StatsManager.removeFromPool(
-	entity: Instance,
+	entityId: string,
 	poolName: PoolType,
 	amount: number,
 	options: MediatorQueryOptionsInternal?
 ): boolean
-	local context = preparePoolOperation(entity, poolName, amount, options, "removeFromPool", "removed")
+	local context = preparePoolOperation(entityId, poolName, amount, options, "removeFromPool", "removed")
 	if not context then
 		return false
 	end
@@ -498,8 +501,8 @@ function StatsManager.removeFromPool(
 		return context.pool:removeFromCurrentValue(finalAmount, context.stats)
 	end)
 
-	if executed and removed ~= nil and entity:IsA("Player") then
-		sendStatDelta(entity, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, context.currentPoolName, {
+	if executed and removed ~= nil and Players:GetPlayerFromCharacter(entityId) then
+		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, context.currentPoolName, {
 			currentValue = context.pool:getCurrentValue(),
 			maxValue = context.pool:getValue(context.stats),
 		})
@@ -509,12 +512,12 @@ function StatsManager.removeFromPool(
 end
 
 function StatsManager.resolvePoolCost(
-	entity: Instance,
+	entityId: string,
 	poolName: PoolType,
 	amount: number,
 	options: MediatorQueryOptionsInternal?
 ): PoolCostResolution?
-	local context = preparePoolOperation(entity, poolName, amount, options, "resolvePoolCost", "costPreview")
+	local context = preparePoolOperation(entityId, poolName, amount, options, "resolvePoolCost", "costPreview")
 	if not context then
 		return nil
 	end
@@ -547,8 +550,8 @@ function StatsManager.resolvePoolCost(
 	}
 end
 
-function StatsManager.addReservation(entity: Instance, poolName: PoolType, reservation)
-	local stats = entityStats[entity]
+function StatsManager.addReservation(entityId: string, poolName: PoolType, reservation)
+	local stats = entityStats[entityId]
 	if not stats then
 		return false
 	end
@@ -557,15 +560,15 @@ function StatsManager.addReservation(entity: Instance, poolName: PoolType, reser
 		return false
 	end
 	pool:addReservation(reservation)
-	StatsMediator.invalidateStat(entity, poolName)
-	if entity:IsA("Player") then
-		sendStatDelta(entity, StatTypeUtil.DeltaTypes.RESERVATION_ADDED, poolName, reservation)
+	StatsMediator.invalidateStat(entityId, poolName)
+	if Players:GetPlayerFromCharacter(entityId) then
+		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.RESERVATION_ADDED, poolName, reservation)
 	end
 	return true
 end
 
-function StatsManager.removeReservation(entity: Instance, poolName: PoolType, source_id: string)
-	local stats = entityStats[entity]
+function StatsManager.removeReservation(entityId: string, poolName: PoolType, source_id: string)
+	local stats = entityStats[entityId]
 	if not stats then
 		return false
 	end
@@ -577,15 +580,15 @@ function StatsManager.removeReservation(entity: Instance, poolName: PoolType, so
 	if not removed then
 		return false
 	end
-	StatsMediator.invalidateStat(entity, poolName)
-	if entity:IsA("Player") then
-		sendStatDelta(entity, StatTypeUtil.DeltaTypes.RESERVATION_REMOVED, poolName, { source_id = source_id })
+	StatsMediator.invalidateStat(entityId, poolName)
+	if Players:GetPlayerFromCharacter(entityId) then
+		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.RESERVATION_REMOVED, poolName, { source_id = source_id })
 	end
 	return true
 end
 
-function StatsManager.addToResource(entity: Instance, resourceName: ResourceType, amount: number): boolean
-	local resource, stats = getResourceStat(entity, resourceName)
+function StatsManager.addToResource(entityId: string, resourceName: ResourceType, amount: number): boolean
+	local resource, stats = getResourceStat(entityId, resourceName)
 	if not resource or not stats then
 		return false
 	end
@@ -593,23 +596,23 @@ function StatsManager.addToResource(entity: Instance, resourceName: ResourceType
 	local previousValue = resource:getCurrentValue()
 	local newValue = resource:addToCurrentValue(amount, stats)
 	local changed = math.abs(newValue - previousValue) > RESOURCE_DELTA_EPSILON
-	if changed and entity:IsA("Player") then
-		sendStatDelta(entity, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, resourceName, {
+	if changed and Players:GetPlayerFromCharacter(entityId) then
+		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, resourceName, {
 			currentValue = newValue,
 			maxValue = resource:getMaxValue(stats),
 		})
 	end
 
-	propagateResourceEvents(entity, resourceName, resource)
+	propagateResourceEvents(entityId, resourceName, resource)
 	return changed
 end
 
-function StatsManager.removeFromResource(entity: Instance, resourceName: ResourceType, amount: number): boolean
-	return StatsManager.addToResource(entity, resourceName, -amount)
+function StatsManager.removeFromResource(entityId: string, resourceName: ResourceType, amount: number): boolean
+	return StatsManager.addToResource(entityId, resourceName, -amount)
 end
 
-function StatsManager.setResourceValue(entity: Instance, resourceName: ResourceType, value: number): boolean
-	local resource, stats = getResourceStat(entity, resourceName)
+function StatsManager.setResourceValue(entityId: string, resourceName: ResourceType, value: number): boolean
+	local resource, stats = getResourceStat(entityId, resourceName)
 	if not resource or not stats then
 		return false
 	end
@@ -617,19 +620,19 @@ function StatsManager.setResourceValue(entity: Instance, resourceName: ResourceT
 	local previousValue = resource:getCurrentValue()
 	local newValue = resource:setCurrentValue(value, stats)
 	local changed = math.abs(newValue - previousValue) > RESOURCE_DELTA_EPSILON
-	if changed and entity:IsA("Player") then
-		sendStatDelta(entity, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, resourceName, {
+	if changed and Players:GetPlayerFromCharacter(entityId) then
+		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, resourceName, {
 			currentValue = newValue,
 			maxValue = resource:getMaxValue(stats),
 		})
 	end
 
-	propagateResourceEvents(entity, resourceName, resource)
+	propagateResourceEvents(entityId, resourceName, resource)
 	return changed
 end
 
-function StatsManager.setResourceRegeneration(entity: Instance, resourceName: ResourceType, rate: number): boolean
-	local resource, _ = getResourceStat(entity, resourceName)
+function StatsManager.setResourceRegeneration(entityId: string, resourceName: ResourceType, rate: number): boolean
+	local resource, _ = getResourceStat(entityId, resourceName)
 	if not resource then
 		return false
 	end
@@ -637,70 +640,70 @@ function StatsManager.setResourceRegeneration(entity: Instance, resourceName: Re
 	local previousRate = resource:getRegenerationRate()
 	resource:setRegenerationRate(rate)
 	local changed = math.abs(previousRate - rate) > RESOURCE_DELTA_EPSILON
-	propagateResourceEvents(entity, resourceName, resource)
+	propagateResourceEvents(entityId, resourceName, resource)
 	return changed
 end
 
-function StatsManager.pauseResourceRegeneration(entity: Instance, resourceName: ResourceType, duration: number?)
-	local resource, _ = getResourceStat(entity, resourceName)
+function StatsManager.pauseResourceRegeneration(entityId: string, resourceName: ResourceType, duration: number?)
+	local resource, _ = getResourceStat(entityId, resourceName)
 	if not resource then
 		return false
 	end
 	resource:pauseRegeneration(duration)
-	propagateResourceEvents(entity, resourceName, resource)
+	propagateResourceEvents(entityId, resourceName, resource)
 	return true
 end
 
-function StatsManager.resumeResourceRegeneration(entity: Instance, resourceName: ResourceType)
-	local resource, _ = getResourceStat(entity, resourceName)
+function StatsManager.resumeResourceRegeneration(entityId: string, resourceName: ResourceType)
+	local resource, _ = getResourceStat(entityId, resourceName)
 	if not resource then
 		return false
 	end
 	resource:resumeRegeneration()
-	propagateResourceEvents(entity, resourceName, resource)
+	propagateResourceEvents(entityId, resourceName, resource)
 	return true
 end
 
-function StatsManager.setResourceDepletionThreshold(entity: Instance, resourceName: ResourceType, threshold: number)
-	local resource, _ = getResourceStat(entity, resourceName)
+function StatsManager.setResourceDepletionThreshold(entityId: string, resourceName: ResourceType, threshold: number)
+	local resource, _ = getResourceStat(entityId, resourceName)
 	if not resource then
 		return false
 	end
 	resource:setDepletionThreshold(threshold)
-	propagateResourceEvents(entity, resourceName, resource)
+	propagateResourceEvents(entityId, resourceName, resource)
 	return true
 end
 
-function StatsManager.addResourceThreshold(entity: Instance, resourceName: ResourceType, thresholdId: string, config)
-	local resource, _ = getResourceStat(entity, resourceName)
+function StatsManager.addResourceThreshold(entityId: string, resourceName: ResourceType, thresholdId: string, config)
+	local resource, _ = getResourceStat(entityId, resourceName)
 	if not resource then
 		return false
 	end
 	resource:addThreshold(thresholdId, config)
-	propagateResourceEvents(entity, resourceName, resource)
+	propagateResourceEvents(entityId, resourceName, resource)
 	return true
 end
 
-function StatsManager.removeResourceThreshold(entity: Instance, resourceName: ResourceType, thresholdId: string)
-	local resource, _ = getResourceStat(entity, resourceName)
+function StatsManager.removeResourceThreshold(entityId: string, resourceName: ResourceType, thresholdId: string)
+	local resource, _ = getResourceStat(entityId, resourceName)
 	if not resource then
 		return false
 	end
 	local removed = resource:removeThreshold(thresholdId)
 	if removed then
-		propagateResourceEvents(entity, resourceName, resource)
+		propagateResourceEvents(entityId, resourceName, resource)
 	end
 	return removed
 end
 
 function StatsManager.onResourceEvent(
-	entity: Instance,
+	entityId: string,
 	resourceName: ResourceType,
 	eventName: string,
 	callbackId: string,
 	callback: (any, any) -> ()
 )
-	local resource, _ = getResourceStat(entity, resourceName)
+	local resource, _ = getResourceStat(entityId, resourceName)
 	if not resource then
 		return false
 	end
@@ -709,12 +712,12 @@ function StatsManager.onResourceEvent(
 end
 
 function StatsManager.offResourceEvent(
-	entity: Instance,
+	entityId: string,
 	resourceName: ResourceType,
 	eventName: string,
 	callbackId: string
 )
-	local resource, _ = getResourceStat(entity, resourceName)
+	local resource, _ = getResourceStat(entityId, resourceName)
 	if not resource then
 		return false
 	end
@@ -723,11 +726,11 @@ function StatsManager.offResourceEvent(
 end
 
 function StatsManager.getResourceCurrentValue(
-	entity: Instance,
+	entityId: string,
 	resourceName: ResourceType,
 	queryOptions: MediatorQueryOptionsInternal?
 ): number?
-	local resource, _ = getResourceStat(entity, resourceName)
+	local resource, _ = getResourceStat(entityId, resourceName)
 	if not resource then
 		return nil
 	end
@@ -735,78 +738,78 @@ function StatsManager.getResourceCurrentValue(
 	if resolvedOptions.cacheEnabled == nil then
 		resolvedOptions.cacheEnabled = false
 	end
-	return StatsMediator.resolve(entity, resourceName, function()
+	return StatsMediator.resolve(entityId, resourceName, function()
 		return resource:getCurrentValue()
 	end, resolvedOptions)
 end
 
 function StatsManager.getResourceMaxValue(
-	entity: Instance,
+	entityId: string,
 	resourceName: ResourceType,
 	queryOptions: MediatorQueryOptionsInternal?
 ): number?
-	local resource, stats = getResourceStat(entity, resourceName)
+	local resource, stats = getResourceStat(entityId, resourceName)
 	if not resource or not stats then
 		return nil
 	end
 	local resolvedOptions = mergeQueryOptions("getResourceMaxValue", "max", queryOptions)
-	return StatsMediator.resolve(entity, resourceName, function()
+	return StatsMediator.resolve(entityId, resourceName, function()
 		return resource:getMaxValue(stats)
 	end, resolvedOptions)
 end
 
-function StatsManager.addModifier(entity: Instance, statType: StatType, modifier)
-	local stats = entityStats[entity]
+function StatsManager.addModifier(entityId: string, statType: StatType, modifier)
+	local stats = entityStats[entityId]
 	if not stats then
-		warn(`Attempted to add modifier for entity {entity.Name} who has no stats initialized`)
+		warn(`Attempted to add modifier for entity {entityId} who has no stats initialized`)
 		return false
 	end
 	local stat = stats[statType]
 	stat:addModifier(modifier)
-	StatsMediator.invalidateStat(entity, statType)
-	StatsManager.invalidateAllCaches(entity)
-	if entity:IsA("Player") then
-		sendStatDelta(entity, StatTypeUtil.DeltaTypes.MODIFIER_ADDED, statType, modifier)
+	StatsMediator.invalidateStat(entityId, statType)
+	StatsManager.invalidateAllCaches(entityId)
+	if Registrar.isPlayerEntity(entityId) then
+		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.MODIFIER_ADDED, statType, modifier)
 	end
 	return true
 end
 
-function StatsManager.removeModifier(entity: Instance, statType: StatType, source_id: string)
-	local stats = entityStats[entity]
+function StatsManager.removeModifier(entityId: string, statType: StatType, source_id: string)
+	local stats = entityStats[entityId]
 	if not stats then
-		warn(`Attempted to remove modifier for entity {entity.Name} who has no stats initialized`)
+		warn(`Attempted to remove modifier for entity {entityId} who has no stats initialized`)
 		return false
 	end
 	local stat = stats[statType]
 	local removed = stat:removeModifier(source_id)
 	if removed then
-		StatsMediator.invalidateStat(entity, statType)
-		StatsManager.invalidateAllCaches(entity)
-		if entity:IsA("Player") then
-			sendStatDelta(entity, StatTypeUtil.DeltaTypes.MODIFIER_REMOVED, statType, { source_id = source_id })
+		StatsMediator.invalidateStat(entityId, statType)
+		StatsManager.invalidateAllCaches(entityId)
+		if Registrar.isPlayerEntity(entityId) then
+			sendStatDelta(entityId, StatTypeUtil.DeltaTypes.MODIFIER_REMOVED, statType, { source_id = source_id })
 		end
 	end
 	return removed
 end
 
-function StatsManager.updateModifier(entity: Instance, statType: StatType, source_id: string, newValue: number)
-	local stats = entityStats[entity]
+function StatsManager.updateModifier(entityId: string, statType: StatType, source_id: string, newValue: number)
+	local stats = entityStats[entityId]
 	if not stats then
-		warn(`Attempted to update modifier for entity {entity.Name} who has no stats initialized`)
+		warn(`Attempted to update modifier for entity {entityId} who has no stats initialized`)
 		return false
 	end
 	local stat = stats[statType]
 	if not stat then
-		warn(`Stat {statType} not found for entity {entity.Name}`)
+		warn(`Stat {statType} not found for entity {entityId}`)
 		return false
 	end
 	local success = stat:updateModifier(source_id, newValue)
 	if success then
-		StatsMediator.invalidateStat(entity, statType)
-		StatsManager.invalidateAllCaches(entity)
-		if entity:IsA("Player") then
+		StatsMediator.invalidateStat(entityId, statType)
+		StatsManager.invalidateAllCaches(entityId)
+		if Registrar.isPlayerEntity(entityId) then
 			sendStatDelta(
-				entity,
+				entityId,
 				StatTypeUtil.DeltaTypes.MODIFIER_UPDATED,
 				statType,
 				{ source_id = source_id, value = newValue }
@@ -814,12 +817,12 @@ function StatsManager.updateModifier(entity: Instance, statType: StatType, sourc
 		end
 		return true
 	end
-	warn(`Modifier '{source_id}' not found in {entity.Name}'s {statType}`)
+	warn(`Modifier '{source_id}' not found in {entityId}'s {statType}`)
 	return false
 end
 
-function StatsManager.hasModifier(entity: Instance, statType: StatType, source_id: string): boolean
-	local stats = entityStats[entity]
+function StatsManager.hasModifier(entityId: string, statType: StatType, source_id: string): boolean
+	local stats = entityStats[entityId]
 	if not stats then
 		return false
 	end
@@ -835,8 +838,8 @@ function StatsManager.hasModifier(entity: Instance, statType: StatType, source_i
 	return false
 end
 
-function StatsManager.getStat(entity: Instance, statType: StatType): Types.StatInstance?
-	local stats = entityStats[entity]
+function StatsManager.getStat(entityId: string, statType: StatType): Types.StatInstance?
+	local stats = entityStats[entityId]
 	if not stats then
 		return nil
 	end
@@ -844,11 +847,11 @@ function StatsManager.getStat(entity: Instance, statType: StatType): Types.StatI
 end
 
 function StatsManager.getStatValue(
-	entity: Instance,
+	entityId: string,
 	statType: StatType,
 	queryOptions: MediatorQueryOptionsInternal?
 ): number?
-	local stats = entityStats[entity]
+	local stats = entityStats[entityId]
 	if not stats then
 		return nil
 	end
@@ -857,22 +860,22 @@ function StatsManager.getStatValue(
 		return nil
 	end
 	local resolvedOptions = mergeQueryOptions("getStatValue", "value", queryOptions)
-	return StatsMediator.resolve(entity, statType, function()
+	return StatsMediator.resolve(entityId, statType, function()
 		return stat:getValue(stats)
 	end, resolvedOptions)
 end
 
-function StatsManager.getAllStats(entity: Instance): EntityStats?
-	return entityStats[entity]
+function StatsManager.getAllStats(entityId: string): EntityStats?
+	return entityStats[entityId]
 end
 
 -- Convenience getters for pool stats (current vs max)
 function StatsManager.getPoolCurrentValue(
-	entity: Instance,
+	entityId: string,
 	poolName: PoolType,
 	queryOptions: MediatorQueryOptionsInternal?
 ): number?
-	local stats = entityStats[entity]
+	local stats = entityStats[entityId]
 	if not stats then
 		return nil
 	end
@@ -882,7 +885,7 @@ function StatsManager.getPoolCurrentValue(
 		if resolvedOptions.cacheEnabled == nil then
 			resolvedOptions.cacheEnabled = false
 		end
-		return StatsMediator.resolve(entity, poolName, function()
+		return StatsMediator.resolve(entityId, poolName, function()
 			return pool:getCurrentValue()
 		end, resolvedOptions)
 	end
@@ -890,11 +893,11 @@ function StatsManager.getPoolCurrentValue(
 end
 
 function StatsManager.getPoolMaxValue(
-	entity: Instance,
+	entityId: string,
 	poolName: PoolType,
 	queryOptions: MediatorQueryOptionsInternal?
 ): number?
-	local stats = entityStats[entity]
+	local stats = entityStats[entityId]
 	if not stats then
 		return nil
 	end
@@ -903,13 +906,13 @@ function StatsManager.getPoolMaxValue(
 		return nil
 	end
 	local resolvedOptions = mergeQueryOptions("getPoolMaxValue", "max", queryOptions)
-	return StatsMediator.resolve(entity, poolName, function()
+	return StatsMediator.resolve(entityId, poolName, function()
 		return pool:getValue(stats)
 	end, resolvedOptions)
 end
 
-function StatsManager.getPoolPercentage(entity: Instance, poolName: PoolType): number?
-	local stats = entityStats[entity]
+function StatsManager.getPoolPercentage(entityId: string, poolName: PoolType): number?
+	local stats = entityStats[entityId]
 	if not stats then
 		return nil
 	end
@@ -920,8 +923,8 @@ function StatsManager.getPoolPercentage(entity: Instance, poolName: PoolType): n
 	return nil
 end
 
-function StatsManager.invalidateAllCaches(entity: Instance)
-	local stats = entityStats[entity]
+function StatsManager.invalidateAllCaches(entityId: string)
+	local stats = entityStats[entityId]
 	if not stats then
 		return
 	end
@@ -932,33 +935,37 @@ function StatsManager.invalidateAllCaches(entity: Instance)
 		end
 	end
 	profileEnd(profileToken)
-	StatsMediator.invalidateAll(entity)
+	StatsMediator.invalidateAll(entityId)
 end
 
 function StatsManager.setProfilingEnabled(enabled: boolean)
 	profilingEnabled = enabled
 end
 
-function StatsManager.resetStats(entity: Instance)
-	if not entityStats[entity] then
-		warn(`Attempted to reset stats for entity {entity.Name} who has no stats initialized`)
+function StatsManager.resetStats(entityId: string)
+	if not entityStats[entityId] then
+		warn(`Attempted to reset stats for entity {entityId} who has no stats initialized`)
 		return false
 	end
 	local stats = StatsConfig.createDefaultStats()
-	entityStats[entity] = stats
-	StatsMediator.attach(entity, stats)
-	StatsMediator.invalidateAll(entity)
-	if entity:IsA("Player") then
-		sendFullSync(entity)
-		print(`Reset stats for player: {entity.Name}`)
+	entityStats[entityId] = stats
+	StatsMediator.attach(entityId, stats)
+	StatsMediator.invalidateAll(entityId)
+
+	local player = Registrar.getPlayerById(entityId)
+
+	if player then
+		sendFullSync(entityId)
+		print(`Reset stats for player: {player.Name}`)
 	else
-		print(`Reset stats for entity: {entity:GetFullName()}`)
+		local model = Registrar.getEntityById(entityId)
+		print(`Reset stats for entity: {model and model.Name}`)
 	end
 	return true
 end
 
-function StatsManager.emitDelta(entity: Instance, deltaType: string, target: string, data: any)
-	sendStatDelta(entity, deltaType, target, data)
+function StatsManager.emitDelta(entityId: string, deltaType: string, target: string, data: any)
+	sendStatDelta(entityId, deltaType, target, data)
 end
 
 RunService.Heartbeat:Connect(function(deltaTime)
@@ -976,10 +983,13 @@ local _statsRequestDisconnect = dispatcherAny:onRequest("StatsRequest", function
 		warn("StatsManager received StatsRequest without player context")
 		return nil
 	end
-	if not StatsManager.isRegistered(player) then
-		StatsManager.register(player)
+
+	local entityId = Registrar.getPlayerId(player)
+
+	if not StatsManager.isRegistered(entityId) then
+		StatsManager.register(entityId)
 	end
-	local stats = entityStats[player]
+	local stats = entityStats[entityId]
 	if not stats then
 		return nil
 	end

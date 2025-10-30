@@ -44,14 +44,14 @@ local function resolveStatForSkill(skillConfig: any): StatTypes.StaticStatType?
 	return nil
 end
 
-function SkillTimingService.resolve(entity: Instance, skillId: string)
-	assert(entity and skillId and type(skillId) == "string", "SkillTimingService.resolve: bad args")
+function SkillTimingService.resolve(entityId: string, skillId: string)
+	assert(entityId and skillId and type(skillId) == "string", "SkillTimingService.resolve: bad args")
 	local skillConfig = SkillsConfig.skills[skillId]
 	local statType = resolveStatForSkill(skillConfig)
 
 	local tempo = 1
 	if statType then
-		local statValue = StatsManager.getStatValue(entity, statType :: any)
+		local statValue = StatsManager.getStatValue(entityId, statType :: any)
 		if type(statValue) == "number" and statValue > 0 then
 			tempo = statValue
 		end

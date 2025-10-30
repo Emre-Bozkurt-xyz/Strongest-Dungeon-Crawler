@@ -17,6 +17,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Networking = require(ReplicatedStorage.Shared.Networking)
+local Registrar = require(game:GetService("ServerScriptService").Server.Services.Registrar)
 local EVENT_NAME = "CooldownEvents"
 local SNAPSHOT_REQUEST = "CooldownSnapshotRequest"
 local COOLDOWN_CHANNEL_NAME = "Cooldown"
@@ -28,7 +29,7 @@ dispatcherAny:_ensureChannel(COOLDOWN_CHANNEL_NAME)
 
 local CooldownService = {}
 
-type Caster = Instance
+type Caster = string
 
 -- Types
 type CooldownEntry = {
@@ -36,12 +37,12 @@ type CooldownEntry = {
 	startAt: number,
 	endAt: number,
 	duration: number,
-	charges: ({
+	charges: {
 		current: number,
 		max: number,
 		rechargeEnd: number?,
 		rechargeDuration: number,
-	})?,
+	}?,
 }
 
 local skillCD: { [Caster]: { [string]: CooldownEntry } } = {}
@@ -62,10 +63,7 @@ end
 
 -- Replication helpers via dispatcher
 local function emit(caster: Caster, payload: any)
-	if not (caster and caster:IsA("Player")) then
-		return
-	end
-	local player = caster :: Player
+	local player = Registrar.getPlayerById(caster)
 	dispatcherAny:emit(EVENT_NAME, payload, {
 		targets = player,
 		qos = DEFAULT_QOS,
@@ -85,7 +83,7 @@ local function emitStart(caster: Caster, entry: CooldownEntry)
 			rechargeEnd = entry.charges.rechargeEnd,
 			rechargeDuration = entry.charges.rechargeDuration,
 		} or nil,
-    })
+	})
 end
 
 local function emitGCD(caster: Caster, g: { startAt: number, endAt: number, duration: number })
@@ -110,11 +108,14 @@ local function emitAdjust(caster: Caster, entry: CooldownEntry, reason: string?)
 end
 
 local function emitClear(caster: Caster, key: string, reason: string?)
+	if not Registrar.isPlayerEntity(caster) then
+		return
+	end
 	emit(caster, { t = "cd_clear", key = key, reason = reason })
 end
 
 local function emitSnapshot(caster: Caster)
-	if not (caster and caster:IsA("Player")) then
+	if not Registrar.isPlayerEntity(caster) then
 		return
 	end
 	local all = CooldownService.getAll(caster)
@@ -168,7 +169,9 @@ function CooldownService.getRemaining(caster: Caster, key: string): number
 	ensure(caster)
 	local t = now()
 	local e = skillCD[caster][key]
-	if not e then return 0 end
+	if not e then
+		return 0
+	end
 	local rem = remainingFor(e, t)
 	if rem <= 0 then
 		skillCD[caster][key] = nil
@@ -220,7 +223,9 @@ function CooldownService.checkWithSource(caster: Caster, key: string): (boolean,
 	return false, "none", 0, nil
 end
 
-function CooldownService.getAll(caster: Caster): { [string]: { startAt: number, endAt: number, duration: number, remaining: number } }
+function CooldownService.getAll(
+	caster: Caster
+): { [string]: { startAt: number, endAt: number, duration: number, remaining: number } }
 	ensure(caster)
 	local out: { [string]: { startAt: number, endAt: number, duration: number, remaining: number } } = {}
 	local t = now()
@@ -264,7 +269,6 @@ function CooldownService.getAll(caster: Caster): { [string]: { startAt: number, 
 	return out
 end
 
-
 function CooldownService.forceClear(caster: Caster, key: string, _reason: string?): boolean
 	ensure(caster)
 	if skillCD[caster][key] then
@@ -276,10 +280,18 @@ function CooldownService.forceClear(caster: Caster, key: string, _reason: string
 	return false
 end
 
-function CooldownService.adjust(caster: Caster, key: string, newRemaining: number?, deltaRemaining: number?, _reason: string?)
+function CooldownService.adjust(
+	caster: Caster,
+	key: string,
+	newRemaining: number?,
+	deltaRemaining: number?,
+	_reason: string?
+)
 	ensure(caster)
 	local e = skillCD[caster][key]
-	if not e then return end -- ignore if not active
+	if not e then
+		return
+	end -- ignore if not active
 	local t = now()
 	if newRemaining and deltaRemaining then
 		error("CooldownService.adjust: supply only one of newRemaining or deltaRemaining")
@@ -304,7 +316,13 @@ function CooldownService.adjust(caster: Caster, key: string, newRemaining: numbe
 end
 
 -- Placeholder stubs for future charge system
-function CooldownService.startWithCharges(caster: Caster, key: string, maxCharges: number, rechargeDuration: number, initialCharges: number?)
+function CooldownService.startWithCharges(
+	caster: Caster,
+	key: string,
+	maxCharges: number,
+	rechargeDuration: number,
+	initialCharges: number?
+)
 	ensure(caster)
 	if maxCharges < 1 then
 		error("startWithCharges: maxCharges < 1")
@@ -333,12 +351,13 @@ function CooldownService.startWithCharges(caster: Caster, key: string, maxCharge
 		entry = newEntry
 	else
 		-- augment existing entry with charges (if needed)
-		entry.charges = entry.charges or {
-			current = init,
-			max = maxCharges,
-			rechargeEnd = (init < maxCharges) and (nowT + rechargeDuration) or nil,
-			rechargeDuration = rechargeDuration,
-		}
+		entry.charges = entry.charges
+			or {
+				current = init,
+				max = maxCharges,
+				rechargeEnd = (init < maxCharges) and (nowT + rechargeDuration) or nil,
+				rechargeDuration = rechargeDuration,
+			}
 		emitAdjust(caster, entry, "charges_init")
 	end
 end
@@ -346,8 +365,12 @@ end
 function CooldownService.consumeCharge(caster: Caster, key: string, perUseCooldown: number?)
 	ensure(caster)
 	local entry = skillCD[caster][key]
-	if not entry or not entry.charges then return false end
-	if entry.charges.current <= 0 then return false end
+	if not entry or not entry.charges then
+		return false
+	end
+	if entry.charges.current <= 0 then
+		return false
+	end
 	local t = now()
 	entry.charges.current -= 1
 	if entry.charges.current < entry.charges.max and not entry.charges.rechargeEnd then
@@ -366,7 +389,10 @@ function CooldownService.consumeCharge(caster: Caster, key: string, perUseCooldo
 end
 
 -- Batch retrieval helper (optional optimization for selective keys)
-function CooldownService.getBatch(caster: Caster, keys: {string}): { [string]: { startAt: number, endAt: number, duration: number, remaining: number } }
+function CooldownService.getBatch(
+	caster: Caster,
+	keys: { string }
+): { [string]: { startAt: number, endAt: number, duration: number, remaining: number } }
 	local result: { [string]: { startAt: number, endAt: number, duration: number, remaining: number } } = {}
 	for _, key in ipairs(keys) do
 		local all = CooldownService.getAll(caster) -- simple approach; could optimize
@@ -380,7 +406,9 @@ end
 
 function CooldownService.getProgress(caster: Caster, key: string): (number, number)
 	local e = skillCD[caster] and skillCD[caster][key]
-	if not e then return 0, 0 end
+	if not e then
+		return 0, 0
+	end
 	local t = now()
 	local remaining = math.max(0, e.endAt - t)
 	if e.duration <= 0 then
@@ -390,13 +418,17 @@ function CooldownService.getProgress(caster: Caster, key: string): (number, numb
 	return remaining, fraction
 end
 
-local function cleanup(entity: Instance)
-	skillCD[entity] = nil
-	gcdData[entity] = nil
+local function cleanup(entityId: string)
+	skillCD[entityId] = nil
+	gcdData[entityId] = nil
 end
 
 Players.PlayerRemoving:Connect(function(player)
-	cleanup(player)
+	local playerId = Registrar.getPlayerId(player)
+	if not playerId then
+		return
+	end
+	cleanup(playerId)
 end)
 
 dispatcherAny:onRequest(SNAPSHOT_REQUEST, function(_payload, _meta, context)

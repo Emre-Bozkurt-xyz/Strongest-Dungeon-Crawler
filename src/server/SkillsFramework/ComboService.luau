@@ -35,7 +35,7 @@ type ComboState = {
 }
 
 local ComboService = {}
-type Caster = Instance
+type Caster = string
 local states: { [Caster]: { [string]: ComboState } } = {}
 
 local function now(): number

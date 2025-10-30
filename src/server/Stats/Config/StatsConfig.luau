@@ -92,7 +92,7 @@ StatsConfig.DEFAULT_RESOURCES = {
 }
 
 -- Helper function to create a new set of stats using Stat and PoolStat classes
-function StatsConfig.createDefaultStats(): Types.PlayerStats
+function StatsConfig.createDefaultStats(): Types.EntityStats
 	local stats = {} :: any
 
 	-- Create pools using enum constants
@@ -109,7 +109,7 @@ function StatsConfig.createDefaultStats(): Types.PlayerStats
 		stats[resourceName] = ResourceStat.new(config)
 	end
 
-	return stats :: Types.PlayerStats
+	return stats :: Types.EntityStats
 end
 
 -- Validate a stat value against limits

@@ -1,5 +1,7 @@
 --!strict
 -- StatsMediator: central query and caching layer for stat lookups with observer hooks
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
 local StatsMediator = {}
 
@@ -7,7 +9,7 @@ local QueryImpl = {}
 QueryImpl.__index = QueryImpl
 
 export type StatType = string
-export type PlayerStats = { [StatType]: any }
+export type EntityStats = StatTypes.EntityStats
 
 export type QueryOptions = {
 	context: string?,
@@ -32,7 +34,7 @@ export type CacheEntry = {
 export type StatCacheBucket = { [string]: CacheEntry }
 
 export type EntityState = {
-	stats: PlayerStats,
+	stats: EntityStats,
 	cache: { [StatType]: StatCacheBucket },
 	hits: number,
 	misses: number,
@@ -40,7 +42,7 @@ export type EntityState = {
 
 export type ObserverContext = {
 	event: string,
-	entity: Instance,
+	entityId: string,
 	statType: StatType,
 	originalStatType: StatType?,
 	options: QueryOptions?,
@@ -57,7 +59,7 @@ export type ObserverResult = {
 type ObserverCallback = (ObserverContext) -> ObserverResult?
 
 type QueryRecord = {
-	entity: Instance,
+	entityId: string,
 	statType: StatType,
 	options: QueryOptions?,
 	startedAt: number,
@@ -65,15 +67,15 @@ type QueryRecord = {
 
 export type Query = typeof(setmetatable({} :: QueryRecord, QueryImpl))
 
-local registry: { [Instance]: EntityState } = {}
+local registry: { [string]: EntityState } = {}
 local observers: { [string]: { [string]: ObserverCallback } } = {}
 local observerSeq = 0
 
 local globalHits = 0
 local globalMisses = 0
 
-local function ensureState(entity: Instance): EntityState?
-	return registry[entity]
+local function ensureState(entityId: string): EntityState?
+	return registry[entityId]
 end
 
 local function captureDuration(startedAt: number?): number?
@@ -102,11 +104,11 @@ local function emit(eventName: string, context: ObserverContext): ObserverResult
 end
 
 local function resolveQuery(self: Query, computeFn: () -> number?): number?
-	local entity = self.entity
+	local entityId = self.entityId
 	local statType = self.statType
 	local options = self.options
 
-	local state = ensureState(entity)
+	local state = ensureState(entityId)
 	local cacheEnabled = not (options and options.cacheEnabled == false)
 
 	local cacheKey = if options and options.cacheKey then options.cacheKey else "value"
@@ -155,7 +157,7 @@ local function resolveQuery(self: Query, computeFn: () -> number?): number?
 	if allowObservers and eventName then
 		local observerResult = emit(eventName, {
 			event = eventName,
-			entity = entity,
+			entityId = entityId,
 			statType = statType,
 			originalStatType = options and options.originalStat or statType,
 			options = options,
@@ -217,17 +219,22 @@ function QueryImpl:resolve(computeFn: () -> number?)
 	return resolveQuery(self, computeFn)
 end
 
-function StatsMediator.beginQuery(entity: Instance, statType: StatType, options: QueryOptions?): Query
+function StatsMediator.beginQuery(entityId: string, statType: StatType, options: QueryOptions?): Query
 	return setmetatable({
-		entity = entity,
+		entityId = entityId,
 		statType = statType,
 		options = options,
 		startedAt = os.clock(),
 	}, QueryImpl)
 end
 
-function StatsMediator.resolve(entity: Instance, statType: StatType, computeFn: () -> number?, options: QueryOptions?): number?
-	local query = StatsMediator.beginQuery(entity, statType, options)
+function StatsMediator.resolve(
+	entityId: string,
+	statType: StatType,
+	computeFn: () -> number?,
+	options: QueryOptions?
+): number?
+	local query = StatsMediator.beginQuery(entityId, statType, options)
 	return query:resolve(computeFn)
 end
 
@@ -259,14 +266,14 @@ function StatsMediator.forget(eventName: string, token: string): boolean
 	return false
 end
 
-function StatsMediator.attach(entity: Instance, stats: PlayerStats)
-	local state = registry[entity]
+function StatsMediator.attach(entityId: string, stats: EntityStats)
+	local state = registry[entityId]
 	if state then
 		state.stats = stats
 		state.cache = state.cache or {}
 		return
 	end
-	registry[entity] = {
+	registry[entityId] = {
 		stats = stats,
 		cache = {},
 		hits = 0,
@@ -274,12 +281,12 @@ function StatsMediator.attach(entity: Instance, stats: PlayerStats)
 	}
 end
 
-function StatsMediator.detach(entity: Instance)
-	registry[entity] = nil
+function StatsMediator.detach(entityId: string)
+	registry[entityId] = nil
 end
 
-function StatsMediator.invalidate(entity: Instance, statType: StatType?, cacheKey: string?)
-	local state = registry[entity]
+function StatsMediator.invalidate(entityId: string, statType: StatType?, cacheKey: string?)
+	local state = registry[entityId]
 	if not state then
 		return
 	end
@@ -300,21 +307,21 @@ function StatsMediator.invalidate(entity: Instance, statType: StatType?, cacheKe
 	state.cache[statType] = nil
 end
 
-function StatsMediator.invalidateAll(entity: Instance)
-	StatsMediator.invalidate(entity, nil, nil)
+function StatsMediator.invalidateAll(entityId: string)
+	StatsMediator.invalidate(entityId, nil, nil)
 end
 
-function StatsMediator.invalidateStat(entity: Instance, statType: StatType)
-	StatsMediator.invalidate(entity, statType, nil)
+function StatsMediator.invalidateStat(entityId: string, statType: StatType)
+	StatsMediator.invalidate(entityId, statType, nil)
 end
 
-function StatsMediator.getState(entity: Instance): EntityState?
-	return registry[entity]
+function StatsMediator.getState(entityId: string): EntityState?
+	return registry[entityId]
 end
 
-function StatsMediator.getDebugSnapshot(entity: Instance?): any
-	if entity ~= nil then
-		local state = registry[entity]
+function StatsMediator.getDebugSnapshot(entityId: string): any
+	if entityId ~= nil then
+		local state = registry[entityId]
 		if not state then
 			return nil
 		end

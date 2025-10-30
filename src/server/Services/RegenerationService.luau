@@ -9,7 +9,7 @@ local Server = game:GetService("ServerScriptService").Server
 local StatsManager = require(Server.Stats.StatsManager)
 local Types = require(ReplicatedStorage.Shared.StatTypes)
 local StatTypeUtil = require(ReplicatedStorage.Shared.StatTypeUtil)
-local NPCManager = require(Server.NPCService.NPCManager)
+local Registrar = require(Server.Services.Registrar)
 
 local RegenerationService = {}
 
@@ -18,7 +18,6 @@ local TICK_RATE = 30 -- 30 ticks per second for smooth regeneration
 local TICK_INTERVAL = 1 / TICK_RATE -- ~0.033 seconds per tick
 local UPDATE_RATE = 2 -- Send updates to client only 2 times per second
 local UPDATE_INTERVAL = 1 / UPDATE_RATE -- 0.5 seconds between client updates
-
 
 -- Track active players and connection
 local activeConnection: RBXScriptConnection? = nil
@@ -33,9 +32,9 @@ local REGEN_MAPPING = {
 	[Types.PoolStats.Stamina] = Types.StaticStats.StaminaRegeneration,
 }
 
--- Apply regeneration to a single entity (Player or NPC Model)
-local function regenerateEntity(entity: Instance, deltaTime: number)
-	local stats = StatsManager.getAllStats(entity)
+-- Apply regeneration to a single entity
+local function regenerateEntity(entityId: string, deltaTime: number)
+	local stats = StatsManager.getAllStats(entityId)
 	if not stats then
 		return {}
 	end
@@ -49,10 +48,10 @@ local function regenerateEntity(entity: Instance, deltaTime: number)
 
 		if pool and regenStat then
 			-- Get regeneration rate (per second)
-			local regenPerSecond = StatsManager.getStatValue(entity, regenStatType, {
+			local regenPerSecond = StatsManager.getStatValue(entityId, regenStatType, {
 				event = "regenerationStatQuery",
 				metadata = {
-					entity = entity,
+					entity = entityId,
 					pool = poolType,
 					stat = regenStatType,
 				},
@@ -80,17 +79,8 @@ local function onRegenerationTick()
 	local currentTime = tick()
 	local deltaTime = TICK_INTERVAL -- Fixed delta time for consistent regeneration
 
-	-- Process all connected players and apply regeneration
-	for _, player in pairs(Players:GetPlayers()) do
-		regenerateEntity(player, deltaTime)
-	end
-
-	-- Process all registered NPCs and apply regeneration (no client deltas needed here)
-	local npcs = NPCManager.getAllNPCs()
-	for model, _ in pairs(npcs) do
-		if model and model.Parent then
-			regenerateEntity(model, deltaTime)
-		end
+	for entityId, _ in pairs(Registrar.getAllEntities()) do
+		regenerateEntity(entityId, deltaTime)
 	end
 
 	-- Send updates only every UPDATE_INTERVAL to reduce network spam
@@ -219,14 +209,17 @@ end
 -- Manual regeneration for a specific player (useful for testing)
 function RegenerationService.regeneratePlayerManually(player: Player, deltaTime: number?)
 	local actualDeltaTime = deltaTime or TICK_INTERVAL
-	local changedPools = regenerateEntity(player, actualDeltaTime)
+
+	local playerId = Registrar.getPlayerId(player)
+
+	local changedPools = regenerateEntity(playerId, actualDeltaTime)
 	return changedPools
 end
 
 -- Optional: generic manual hook (can be used for NPCs)
-function RegenerationService.regenerateEntityManually(entity: Instance, deltaTime: number?)
+function RegenerationService.regenerateEntityManually(entityId: string, deltaTime: number?)
 	local actualDeltaTime = deltaTime or TICK_INTERVAL
-	local changedPools = regenerateEntity(entity, actualDeltaTime)
+	local changedPools = regenerateEntity(entityId, actualDeltaTime)
 	return changedPools
 end
 

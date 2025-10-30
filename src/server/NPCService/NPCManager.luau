@@ -4,6 +4,7 @@
 
 local RunService = game:GetService("RunService")
 local Server = game:GetService("ServerScriptService").Server
+local Registrar = require(Server.Services.Registrar)
 
 local StatsManager = require(Server.Stats.StatsManager)
 
@@ -27,7 +28,7 @@ local function getOrCreateComponentFolder(npcModel: Model, componentName: string
 		components = newComponents
 	end
 	local componentsFolder = components :: Folder
-	
+
 	local component = componentsFolder:FindFirstChild(componentName)
 	if not component or not component:IsA("Folder") then
 		local newComponent = Instance.new("Folder")
@@ -35,14 +36,16 @@ local function getOrCreateComponentFolder(npcModel: Model, componentName: string
 		newComponent.Parent = componentsFolder
 		component = newComponent
 	end
-	
+
 	return component :: Folder
 end
 
 -- Check if an NPC has a specific component
 function NPCManager.hasComponent(npcModel: Model, componentName: string): boolean
 	local components = npcModel:FindFirstChild("Components")
-	if not components then return false end
+	if not components then
+		return false
+	end
 
 	local component = components:FindFirstChild(componentName)
 	return component ~= nil and (component:GetAttribute("__active") == true)
@@ -55,7 +58,9 @@ function NPCManager.getComponent(npcModel: Model, componentName: string): Folder
 	end
 
 	local components = npcModel:FindFirstChild("Components")
-	if not components then return nil end
+	if not components then
+		return nil
+	end
 	local comp = components:FindFirstChild(componentName)
 	if comp and comp:IsA("Folder") then
 		return comp
@@ -74,8 +79,10 @@ end
 -- Remove a component from an NPC
 function NPCManager.removeComponent(npcModel: Model, componentName: string): boolean
 	local components = npcModel:FindFirstChild("Components")
-	if not components then return false end
-	
+	if not components then
+		return false
+	end
+
 	local component = components:FindFirstChild(componentName)
 	if component then
 		component:SetAttribute("__active", false)
@@ -88,14 +95,16 @@ end
 function NPCManager.getActiveComponents(npcModel: Model): { string }
 	local activeComponents = {}
 	local components = npcModel:FindFirstChild("Components")
-	if not components then return activeComponents end
-	
+	if not components then
+		return activeComponents
+	end
+
 	for _, component in pairs(components:GetChildren()) do
 		if component:IsA("Folder") and component:GetAttribute("__active") == true then
 			table.insert(activeComponents, component.Name)
 		end
 	end
-	
+
 	return activeComponents
 end
 
@@ -104,12 +113,15 @@ function NPCManager.register(npcModel: Model, options: RegisterOptions?): boolea
 		warn(`NPC {npcModel.Name} is already registered`)
 		return false
 	end
-	
+
+	local entityId = Registrar.registerEntity(npcModel)
+
 	-- Basic validation
 	local humanoid = npcModel:FindFirstChild("Humanoid")
 	-- Allow registration even if no humanoid (for extensibility)
 	local npcInstance = {
 		model = npcModel,
+		entityId = entityId,
 		humanoid = humanoid,
 		registeredAt = os.clock(),
 		lastUpdate = 0,
@@ -123,7 +135,7 @@ function NPCManager.register(npcModel: Model, options: RegisterOptions?): boolea
 			configure = options and options.configure or nil,
 			skipSync = true,
 		}
-		StatsManager.register(npcModel, statsOptions)
+		StatsManager.register(entityId, statsOptions)
 	end
 
 	-- Mark model as managed NPC
@@ -140,14 +152,18 @@ function NPCManager.unregister(npcModel: Model): boolean
 	if not npcInstance then
 		return false
 	end
-	
+
+	local entityId = npcInstance.entityId
+
 	activeNPCs[npcModel] = nil
 	npcModel:SetAttribute("__isNPC", nil)
 
-	if StatsManager.isRegistered(npcModel) then
-		StatsManager.unregister(npcModel)
+	if StatsManager.isRegistered(entityId) then
+		StatsManager.unregister(entityId)
 	end
-	
+
+	Registrar.unregisterEntity(entityId)
+
 	print(`Unregistered NPC: {npcModel.Name}`)
 	return true
 end
@@ -181,18 +197,18 @@ end
 -- Main update loop (will be called by RunService)
 local function updateNPCs(_deltaTime: number)
 	local currentTime = os.clock()
-	
+
 	for npcModel, npcInstance in pairs(activeNPCs) do
 		-- Basic validation - remove if model destroyed
 		if not npcModel.Parent then
 			NPCManager.unregister(npcModel)
 			continue
 		end
-		
+
 		-- Update timing
 		npcInstance.lastUpdate = currentTime
 	end
-	
+
 	-- Component updates will be handled externally to avoid circular dependencies
 	-- The main server script will call ComponentManager.updateAll()
 end
@@ -201,14 +217,14 @@ end
 function NPCManager.initialize()
 	-- Hook into game update loop
 	RunService.Heartbeat:Connect(updateNPCs)
-	
+
 	-- Clean up NPCs when they're removed from workspace
 	workspace.ChildRemoved:Connect(function(child)
 		if child:IsA("Model") and NPCManager.isNPC(child) then
 			NPCManager.unregister(child)
 		end
 	end)
-	
+
 	print("NPCManager initialized")
 end
 

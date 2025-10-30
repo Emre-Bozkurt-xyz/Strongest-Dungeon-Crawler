@@ -18,6 +18,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local EntityUtils = require(ReplicatedStorage.Shared.EntityUtils)
+local Registrar = require(game:GetService("ServerScriptService").Server.Services.Registrar)
 
 local HitboxService = {}
 
@@ -366,6 +367,24 @@ function HitboxService.queryRay(origin: CFrame, length: number, opts: QueryOptio
 	return nil, nil
 end
 
+function HitboxService.getEntityIds(targets: { Model } | Model): { string }
+	local result = {}
+	if typeof(targets) == "table" then
+		for _, model in ipairs(targets) do
+			local entityId = Registrar.getEntityId(model)
+			if entityId then
+				table.insert(result, entityId)
+			end
+		end
+	else
+		local entityId = Registrar.getEntityId(targets)
+		if entityId then
+			table.insert(result, entityId)
+		end
+	end
+	return result
+end
+
 -- simple debug draw (server-side parts)
 local function makePart(cf: CFrame, size: Vector3, color: Color3, shape: Enum.PartType?, duration: number)
 	local p = Instance.new("Part")
@@ -427,204 +446,208 @@ end
 --     :cone(40, 8)
 -- local models = qb:collect()
 
-do
-	-- Internal builder object factory
-	local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
-		local opts: QueryOptions = {
-			playersOnly = false,
-			includeCaster = false,
-			respectPvP = true,
-			teamRelation = "enemy",
-		}
-		local shape: QueryShape? = nil
-		local origin: CFrame? = originCf
-		local localXform: CFrame = CFrame.new()
+-- Internal builder object factory
+local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
+	local opts: QueryOptions = {
+		playersOnly = false,
+		includeCaster = false,
+		respectPvP = true,
+		teamRelation = "enemy",
+	}
+	local shape: QueryShape? = nil
+	local origin: CFrame? = originCf
+	local localXform: CFrame = CFrame.new()
 
-		local b = {} :: any
+	local b = {} :: any
 
-		-- placement/origin helpers
-		-- allow overriding absolute origin
-		function b:origin(cf: CFrame): HitboxQueryBuilder
-			origin = cf
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- apply a local-space transform relative to origin/caster HRP
-		function b:transform(cf: CFrame): HitboxQueryBuilder
-			localXform = localXform * cf
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- translate in local space; Z<0 forward
-		function b:offset(dx: number, dy: number, dz: number): HitboxQueryBuilder
-			localXform = localXform * CFrame.new(dx, dy, dz)
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- yaw rotate around Y in local space (degrees)
-		function b:yaw(deg: number): HitboxQueryBuilder
-			local rad = math.rad(deg)
-			localXform = localXform * CFrame.Angles(0, rad, 0)
-			return (b :: any) :: HitboxQueryBuilder
-		end
-
-		-- config setters
-		-- Set the caster associated with this query (affects team/PvP and caster exclusion).
-		function b:caster(plr: Player?): HitboxQueryBuilder
-			opts.caster = plr
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Limit results to player characters only (true) or include NPCs/other (false).
-		function b:playersOnly(v: boolean): HitboxQueryBuilder
-			opts.playersOnly = v
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Allow the caster character to be included in results.
-		function b:includeCaster(v: boolean): HitboxQueryBuilder
-			opts.includeCaster = v
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- When true, enemy player-vs-player hits require both players to have PvPEnabled=true.
-		function b:respectPvP(v: boolean): HitboxQueryBuilder
-			opts.respectPvP = v
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Team relation filter for players: "ally" or "enemy".
-		function b:teamRelation(v: TeamRelation): HitboxQueryBuilder
-			opts.teamRelation = v
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Limit the number of models returned.
-		function b:maxTargets(n: number): HitboxQueryBuilder
-			opts.maxTargets = n
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Exclude specific models from results.
-		function b:excludeModels(list: { Model }): HitboxQueryBuilder
-			opts.excludeModels = list
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Provide overlap filter instances (descendant based).
-		function b:filterInstances(list: { Instance }): HitboxQueryBuilder
-			opts.filterInstances = list
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Set filter behavior for filterInstances: "Include" or "Exclude".
-		function b:filterType(v: FilterType): HitboxQueryBuilder
-			opts.filterType = v
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Set a collision group to respect during queries.
-		function b:collisionGroup(name: string): HitboxQueryBuilder
-			opts.collisionGroup = name
-			return (b :: any) :: HitboxQueryBuilder
-		end
-
-		-- shape selection
-		-- Select a sphere query with the given radius.
-		function b:sphere(radius: number): HitboxQueryBuilder
-			shape = { kind = "sphere", radius = radius }
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Select a cone query with angle (deg) and range (studs).
-		function b:cone(angleDeg: number, range: number): HitboxQueryBuilder
-			shape = { kind = "cone", angleDeg = angleDeg, range = range }
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Select a box query with size.
-		function b:box(size: Vector3): HitboxQueryBuilder
-			shape = { kind = "box", size = size }
-			return (b :: any) :: HitboxQueryBuilder
-		end
-		-- Select a ray query with length (studs). Use :cast() to get RaycastResult.
-		function b:ray(length: number): HitboxQueryBuilder
-			shape = { kind = "ray", length = length }
-			return (b :: any) :: HitboxQueryBuilder
-		end
-
-		-- execution helpers
-		local function ensureOrigin(): CFrame
-			if origin then
-				return origin * localXform
-			end
-			-- derive from caster if possible
-			local plr = opts.caster
-			local hrp: BasePart? = plr
-				and plr.Character
-				and plr.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-			if hrp then
-				return (hrp :: BasePart).CFrame * localXform
-			end
-			-- fallback to identity
-			return CFrame.new() * localXform
-		end
-
-		-- Execute the configured query and collect models.
-		-- For ray queries, returns a list with at most one model.
-		function b:collect(debug: boolean?): { Model }
-			local cf = ensureOrigin()
-			if not shape then
-				return {}
-			end
-			if shape.kind == "sphere" then
-				if debug then
-					HitboxService.debugDrawSphere(cf, shape.radius)
-				end
-				return HitboxService.querySphere(cf, shape.radius, opts)
-			elseif shape.kind == "cone" then
-				if debug then
-					-- Approximate cone by drawing forward and boundary rays
-					local half = math.rad(shape.angleDeg * 0.5)
-					HitboxService.debugDrawRay(cf, shape.range)
-					HitboxService.debugDrawRay(
-						cf * CFrame.Angles(0, half, 0),
-						shape.range,
-						nil,
-						Color3.fromRGB(0, 13, 255),
-						0.07
-					)
-					HitboxService.debugDrawRay(
-						cf * CFrame.Angles(0, -half, 0),
-						shape.range,
-						nil,
-						Color3.fromRGB(0, 13, 255),
-						0.07
-					)
-				end
-				return HitboxService.queryCone(cf, shape.angleDeg, shape.range, opts)
-			elseif shape.kind == "box" then
-				if debug then
-					HitboxService.debugDrawBox(cf, shape.size)
-				end
-				return HitboxService.queryBox(cf, shape.size, opts)
-			else -- ray
-				local len = (shape :: any).length
-				if debug then
-					HitboxService.debugDrawRay(cf, len)
-				end
-				local model: Model?, _ = HitboxService.queryRay(cf, len, opts)
-				local list: { Model } = {}
-				if model then
-					list[1] = model
-				end
-				return list
-			end
-		end
-
-		-- Cast the configured ray and return (top-level Model?, RaycastResult?).
-		-- Only valid for ray shape; otherwise returns (nil, nil).
-		function b:cast(): (Model?, RaycastResult?)
-			local cf = ensureOrigin()
-			if not shape or shape.kind ~= "ray" then
-				return nil, nil
-			end
-			return HitboxService.queryRay(cf, shape.length, opts)
-		end
-
+	-- placement/origin helpers
+	-- allow overriding absolute origin
+	function b:origin(cf: CFrame): HitboxQueryBuilder
+		origin = cf
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- apply a local-space transform relative to origin/caster HRP
+	function b:transform(cf: CFrame): HitboxQueryBuilder
+		localXform = localXform * cf
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- translate in local space; Z<0 forward
+	function b:offset(dx: number, dy: number, dz: number): HitboxQueryBuilder
+		localXform = localXform * CFrame.new(dx, dy, dz)
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- yaw rotate around Y in local space (degrees)
+	function b:yaw(deg: number): HitboxQueryBuilder
+		local rad = math.rad(deg)
+		localXform = localXform * CFrame.Angles(0, rad, 0)
 		return (b :: any) :: HitboxQueryBuilder
 	end
 
-	-- Create a new fluent query builder. If origin is omitted, one will be derived from caster HRP when executing.
-	function HitboxService.newQuery(origin: CFrame?): HitboxQueryBuilder
-		return makeBuilder(origin)
+	-- config setters
+	-- Set the caster associated with this query (affects team/PvP and caster exclusion).
+	function b:caster(plr: Player?): HitboxQueryBuilder
+		opts.caster = plr
+		return (b :: any) :: HitboxQueryBuilder
 	end
+	-- Limit results to player characters only (true) or include NPCs/other (false).
+	function b:playersOnly(v: boolean): HitboxQueryBuilder
+		opts.playersOnly = v
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Allow the caster character to be included in results.
+	function b:includeCaster(v: boolean): HitboxQueryBuilder
+		opts.includeCaster = v
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- When true, enemy player-vs-player hits require both players to have PvPEnabled=true.
+	function b:respectPvP(v: boolean): HitboxQueryBuilder
+		opts.respectPvP = v
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Team relation filter for players: "ally" or "enemy".
+	function b:teamRelation(v: TeamRelation): HitboxQueryBuilder
+		opts.teamRelation = v
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Limit the number of models returned.
+	function b:maxTargets(n: number): HitboxQueryBuilder
+		opts.maxTargets = n
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Exclude specific models from results.
+	function b:excludeModels(list: { Model }): HitboxQueryBuilder
+		opts.excludeModels = list
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Provide overlap filter instances (descendant based).
+	function b:filterInstances(list: { Instance }): HitboxQueryBuilder
+		opts.filterInstances = list
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Set filter behavior for filterInstances: "Include" or "Exclude".
+	function b:filterType(v: FilterType): HitboxQueryBuilder
+		opts.filterType = v
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Set a collision group to respect during queries.
+	function b:collisionGroup(name: string): HitboxQueryBuilder
+		opts.collisionGroup = name
+		return (b :: any) :: HitboxQueryBuilder
+	end
+
+	-- shape selection
+	-- Select a sphere query with the given radius.
+	function b:sphere(radius: number): HitboxQueryBuilder
+		shape = { kind = "sphere", radius = radius }
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Select a cone query with angle (deg) and range (studs).
+	function b:cone(angleDeg: number, range: number): HitboxQueryBuilder
+		shape = { kind = "cone", angleDeg = angleDeg, range = range }
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Select a box query with size.
+	function b:box(size: Vector3): HitboxQueryBuilder
+		shape = { kind = "box", size = size }
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Select a ray query with length (studs). Use :cast() to get RaycastResult.
+	function b:ray(length: number): HitboxQueryBuilder
+		shape = { kind = "ray", length = length }
+		return (b :: any) :: HitboxQueryBuilder
+	end
+
+	-- execution helpers
+	local function ensureOrigin(): CFrame
+		if origin then
+			return origin * localXform
+		end
+		-- derive from caster if possible
+		local plr = opts.caster
+		local hrp: BasePart? = plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if hrp then
+			return (hrp :: BasePart).CFrame * localXform
+		end
+		-- fallback to identity
+		return CFrame.new() * localXform
+	end
+
+	-- Execute the configured query and collect models.
+	-- For ray queries, returns a list with at most one model.
+	function b:collect(params): { Model | string }
+		local debug = params.debug
+		local collectIds = params.collectIds or true
+		local cf = ensureOrigin()
+		if not shape then
+			return {}
+		end
+		local result = {}
+		if shape.kind == "sphere" then
+			if debug then
+				HitboxService.debugDrawSphere(cf, shape.radius)
+			end
+			result = HitboxService.querySphere(cf, shape.radius, opts)
+		elseif shape.kind == "cone" then
+			if debug then
+				-- Approximate cone by drawing forward and boundary rays
+				local half = math.rad(shape.angleDeg * 0.5)
+				HitboxService.debugDrawRay(cf, shape.range)
+				HitboxService.debugDrawRay(
+					cf * CFrame.Angles(0, half, 0),
+					shape.range,
+					nil,
+					Color3.fromRGB(0, 13, 255),
+					0.07
+				)
+				HitboxService.debugDrawRay(
+					cf * CFrame.Angles(0, -half, 0),
+					shape.range,
+					nil,
+					Color3.fromRGB(0, 13, 255),
+					0.07
+				)
+			end
+			result = HitboxService.queryCone(cf, shape.angleDeg, shape.range, opts)
+		elseif shape.kind == "box" then
+			if debug then
+				HitboxService.debugDrawBox(cf, shape.size)
+			end
+			result = HitboxService.queryBox(cf, shape.size, opts)
+		else -- ray
+			local len = (shape :: any).length
+			if debug then
+				HitboxService.debugDrawRay(cf, len)
+			end
+			local model: Model?, _ = HitboxService.queryRay(cf, len, opts)
+			local list: { Model } = {}
+			if model then
+				list[1] = model
+			end
+			result = list
+		end
+
+		if collectIds then
+			return HitboxService.getEntityIds(result)
+		end
+		return result
+	end
+
+	-- Cast the configured ray and return (top-level Model?, RaycastResult?).
+	-- Only valid for ray shape; otherwise returns (nil, nil).
+	function b:cast(): (Model?, RaycastResult?)
+		local cf = ensureOrigin()
+		if not shape or shape.kind ~= "ray" then
+			return nil, nil
+		end
+		return HitboxService.queryRay(cf, shape.length, opts)
+	end
+
+	return (b :: any) :: HitboxQueryBuilder
+end
+
+-- Create a new fluent query builder. If origin is omitted, one will be derived from caster HRP when executing.
+function HitboxService.newQuery(origin: CFrame?): HitboxQueryBuilder
+	return makeBuilder(origin)
 end
 
 return HitboxService

@@ -12,8 +12,8 @@ Punch.__index = Punch
 
 setmetatable(Punch, { __index = BaseComboSkill })
 
-function Punch.new(caster: Instance, data: any)
-	local self = BaseComboSkill.new(caster, data)
+function Punch.new(casterId: string, data: any)
+	local self = BaseComboSkill.new(casterId, data)
 	setmetatable(self, Punch)
 	return self
 end
@@ -47,7 +47,7 @@ function Punch:onComboStep(step: number)
 			:teamRelation("enemy")
 			:playersOnly(false)
 			:cone(65, coneRange)
-			:collect(true)
+			:collect()
 
 		for _, m in ipairs(targets) do
 			-- for debugging

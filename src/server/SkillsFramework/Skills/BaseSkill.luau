@@ -1,11 +1,11 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Server = game:GetService("ServerScriptService").Server
 
 local Timeline = require(script.Parent.Parent.Timeline)
 local ExecutionService = require(script.Parent.Parent.ExecutionService)
-local Entities = require(ReplicatedStorage.Shared.Utils.Entities)
+local Registrar = require(Server.Services.Registrar)
 local event = require(script.Parent.Parent.SkillsEvent)
-local Server = game:GetService("ServerScriptService").Server
 local StatsManager = require(Server.Stats.StatsManager)
 local ComboService = require(Server.SkillsFramework.ComboService)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
@@ -14,10 +14,10 @@ local SkillTimingService = require(script.Parent.Parent.SkillTimingService)
 local BaseSkill = {}
 BaseSkill.__index = BaseSkill
 
-function BaseSkill.new(casterId: string, data: any)
+function BaseSkill.new(entityId: string, data: any)
 	local self = setmetatable({}, BaseSkill)
-	self.casterId = casterId
-	self.caster = Entities.getEntityById(casterId)
+	self.casterId = entityId
+	self.caster = Registrar.getEntityById(entityId)
 	self.id = data.id or data.name
 	self.name = data.name
 	self.description = data.description

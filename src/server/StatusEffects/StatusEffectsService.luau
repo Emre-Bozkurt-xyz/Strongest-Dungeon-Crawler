@@ -28,15 +28,15 @@ export type EffectDef = {
 	paramCombine: ((entries: { any }) -> any)?, -- combine params for aggregate ticks
 	getPotency: ((params: any) -> number)?, -- for refreshWeakest
 	-- Callbacks
-	onApply: ((target: Instance, source: Instance?, params: any?, stacks: number) -> ())?,
-	onRefresh: ((target: Instance, source: Instance?, params: any?, stacks: number) -> ())?,
-	onTick: ((target: Instance, source: Instance?, params: any?, stacks: number, dt: number, ctx: EffectContext) -> ())?,
-	onRemove: ((target: Instance, source: Instance?, stacks: number) -> ())?,
+	onApply: ((target: string, source: string?, params: any?, stacks: number) -> ())?,
+	onRefresh: ((target: string, source: string?, params: any?, stacks: number) -> ())?,
+	onTick: ((target: string, source: string?, params: any?, stacks: number, dt: number, ctx: EffectContext) -> ())?,
+	onRemove: ((target: string, source: string?, stacks: number) -> ())?,
 }
 
 export type ActiveEntry = {
 	params: any?,
-	source: Instance?,
+	source: string?,
 	expiresAt: number,
 	nextTickAt: number?,
 	lastTick: number,
@@ -50,7 +50,7 @@ export type ActiveEffectState = {
 	stacks: number,
 	expiresAt: number, -- os.clock() time (aggregate/charges-global)
 	params: any?, -- aggregate combined/last params
-	source: Instance?,
+	source: string?,
 	def: EffectDef,
 	lastTick: number,
 	nextTickAt: number?, -- aggregate/charges per-effect tick time
@@ -63,23 +63,12 @@ export type ActiveEffectState = {
 -- Load central registry
 local registry: { [string]: EffectDef } = require(script.Parent.EffectsIndex)
 -- Active table keyed by root model (or instance) to map of effectId -> state
-local active: { [Instance]: { [string]: ActiveEffectState } } = {}
+local active: { [string]: { [string]: ActiveEffectState } } = {}
 
 -- Optional context set by the consumer (e.g., CombatService) to avoid cyclic requires
 local context: EffectContext? = nil
 function StatusEffectsService.setContext(ctx: EffectContext)
 	context = ctx
-end
-
-local function rootOf(inst: Instance): Instance
-	if inst:IsA("Model") then
-		return inst
-	end
-	local cur: Instance? = inst
-	while cur and not cur:IsA("Model") do
-		cur = cur.Parent
-	end
-	return cur or inst
 end
 
 local function getStacksFor(state: ActiveEffectState): number
@@ -93,15 +82,13 @@ local function getStacksFor(state: ActiveEffectState): number
 	return state.stacks
 end
 
-function StatusEffectsService.has(target: Instance, id: string): boolean
-	local root = rootOf(target)
-	local bucket = active[root]
+function StatusEffectsService.has(target: string, id: string): boolean
+	local bucket = active[target]
 	return bucket ~= nil and bucket[id] ~= nil and getStacksFor(bucket[id]) > 0
 end
 
-function StatusEffectsService.getStacks(target: Instance, id: string): number
-	local root = rootOf(target)
-	local bucket = active[root]
+function StatusEffectsService.getStacks(target: string, id: string): number
+	local bucket = active[target]
 	local st = bucket and bucket[id]
 	if not st then
 		return 0
@@ -109,9 +96,8 @@ function StatusEffectsService.getStacks(target: Instance, id: string): number
 	return getStacksFor(st)
 end
 
-function StatusEffectsService.remove(target: Instance, id: string)
-	local root = rootOf(target)
-	local bucket = active[root]
+function StatusEffectsService.remove(target: string, id: string)
+	local bucket = active[target]
 	if not bucket then
 		return
 	end
@@ -120,33 +106,32 @@ function StatusEffectsService.remove(target: Instance, id: string)
 		return
 	end
 	if st.def.onRemove then
-		pcall(st.def.onRemove, root, st.source, getStacksFor(st))
+		pcall(st.def.onRemove, target, st.source, getStacksFor(st))
 	end
 	bucket[id] = nil
 	if next(bucket) == nil then
-		active[root] = nil
+		active[target] = nil
 	end
 end
 
-function StatusEffectsService.clearAll(target: Instance)
-	local root = rootOf(target)
-	local bucket = active[root]
+function StatusEffectsService.clearAll(target: string)
+	local bucket = active[target]
 	if not bucket then
 		return
 	end
 	for id, st in bucket do
 		if st.def.onRemove then
-			pcall(st.def.onRemove, root, st.source, getStacksFor(st))
+			pcall(st.def.onRemove, target, st.source, getStacksFor(st))
 		end
 		bucket[id] = nil
 	end
-	active[root] = nil
+	active[target] = nil
 end
 
 local function ensureState(
 	id: string,
 	def: EffectDef,
-	source: Instance?,
+	source: string?,
 	params: any,
 	now: number,
 	duration: number
@@ -172,7 +157,7 @@ local function addOrReplaceEntry(
 	st: ActiveEffectState,
 	def: EffectDef,
 	params: any,
-	source: Instance?,
+	source: string?,
 	now: number,
 	duration: number
 )
@@ -252,18 +237,17 @@ local function recomputeAggregateParams(st: ActiveEffectState)
 	end
 end
 
-function StatusEffectsService.apply(target: Instance, id: string, source: Instance?, params: any?): boolean
+function StatusEffectsService.apply(target: string, id: string, source: string?, params: any?): boolean
 	local def = registry[id]
 	if not def then
 		warn("StatusEffectsService: effect not registered:", id)
 		return false
 	end
-	local root = rootOf(target)
 	local now = os.clock()
-	local bucket = active[root]
+	local bucket = active[target]
 	if not bucket then
 		bucket = {}
-		active[root] = bucket
+		active[target] = bucket
 	end
 	local st = bucket[id]
 	local maxStacks = def.maxStacks or 1
@@ -274,7 +258,7 @@ function StatusEffectsService.apply(target: Instance, id: string, source: Instan
 	if duration <= 0 then
 		-- instant effect: just call onApply once and don't store
 		if def.onApply then
-			pcall(def.onApply, root, source, params, 1)
+			pcall(def.onApply, target, source, params, 1)
 		end
 		return true
 	end
@@ -304,9 +288,9 @@ function StatusEffectsService.apply(target: Instance, id: string, source: Instan
 		end
 		st.expiresAt = maxExp
 		if def.onApply and status == "applied" then
-			pcall(def.onApply, root, source, params, st.stacks)
+			pcall(def.onApply, target, source, params, st.stacks)
 		elseif def.onRefresh and status == "refreshed" then
-			pcall(def.onRefresh, root, source, params, st.stacks)
+			pcall(def.onRefresh, target, source, params, st.stacks)
 		end
 		return true
 	elseif mode == "charges" then
@@ -322,7 +306,7 @@ function StatusEffectsService.apply(target: Instance, id: string, source: Instan
 				table.insert(arrNN, now + duration)
 				st.stacks = #arrNN
 				if def.onApply then
-					pcall(def.onApply, root, source, params, st.stacks)
+					pcall(def.onApply, target, source, params, st.stacks)
 				end
 			else
 				-- at cap: honor capPolicy
@@ -340,7 +324,7 @@ function StatusEffectsService.apply(target: Instance, id: string, source: Instan
 					end
 					arrNN[oldestIndex] = now + duration
 					if def.onRefresh then
-						pcall(def.onRefresh, root, source, params, #arrNN)
+						pcall(def.onRefresh, target, source, params, #arrNN)
 					end
 				end
 			end
@@ -358,11 +342,11 @@ function StatusEffectsService.apply(target: Instance, id: string, source: Instan
 			if st.stacks < maxStacks then
 				st.stacks += 1
 				if def.onApply then
-					pcall(def.onApply, root, source, params, st.stacks)
+					pcall(def.onApply, target, source, params, st.stacks)
 				end
 			else
 				if def.onRefresh then
-					pcall(def.onRefresh, root, source, params, st.stacks)
+					pcall(def.onRefresh, target, source, params, st.stacks)
 				end
 			end
 			-- duration policy
@@ -379,11 +363,11 @@ function StatusEffectsService.apply(target: Instance, id: string, source: Instan
 		if st.stacks < maxStacks then
 			st.stacks += 1
 			if def.onApply then
-				pcall(def.onApply, root, source, params, st.stacks)
+				pcall(def.onApply, target, source, params, st.stacks)
 			end
 		else
 			if def.onRefresh then
-				pcall(def.onRefresh, root, source, params, st.stacks)
+				pcall(def.onRefresh, target, source, params, st.stacks)
 			end
 		end
 		-- params management

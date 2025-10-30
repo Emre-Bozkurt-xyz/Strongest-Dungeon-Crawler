@@ -44,11 +44,8 @@ function SinglePunch:use()
 	local range = self.config.hit.coneRange
 	local angle = self.config.hit.coneAngle
 
-	local targets = HitboxService.newQuery(origin)
-		:caster(self:getCasterPlayer())
-		:teamRelation("enemy")
-		:cone(angle, range)
-		:collect(true)
+	local targets =
+		HitboxService.newQuery(origin):caster(self:getCasterPlayer()):teamRelation("enemy"):cone(angle, range):collect()
 
 	for _, target in ipairs(targets) do
 		CombatService.applyDamage(target, baseDamage, self.caster)

@@ -194,8 +194,6 @@ function NPCSpawner.spawn(prefabName: string, options: { [string]: any }?): (Mod
 	clone.Parent = resolveParent(settings.parent, clone.Parent)
 	applyTransform(clone, settings, nil)
 
-	Registrar.registerEntity(clone)
-
 	if settings.debug then
 		print("NPCSpawner: parented to", clone.Parent and clone.Parent:GetFullName() or "nil")
 		local hasParts = false

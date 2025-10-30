@@ -4,10 +4,12 @@
 -- Specs:  ServerScriptService/NPCService/NPCPrefabs/<Name>/NPCSpec (server-only)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local ComponentManager = require(script.Parent.ComponentManager)
 local NPCAnimationController = require(script.Parent.NPCAnimationController)
+local Registrar = require(ServerScriptService.Server.Services.Registrar)
 
 local PREFABS_FOLDER_NAME = "NPCPrefabs"
 local ASSETS_ROOT_NAME = "Assets" -- Studio-managed assets root (not controlled by Rojo)
@@ -122,13 +124,13 @@ local function readSpecByName(prefabName: string): { [string]: any }
 
 	local specModule = folder:FindFirstChild(SPEC_MODULE_NAME)
 	if not specModule or not specModule:IsA("ModuleScript") then
-		warn(`NPCSpawner: NPCSpec missing for "{prefabName}" under NPCService/NPCPrefabs`) 
+		warn(`NPCSpawner: NPCSpec missing for "{prefabName}" under NPCService/NPCPrefabs`)
 		return {}
 	end
 
 	local ok, spec = pcall(require, specModule)
 	if not ok or type(spec) ~= "table" then
-		warn(`NPCSpawner: Failed to load NPCSpec for "{prefabName}"`) 
+		warn(`NPCSpawner: Failed to load NPCSpec for "{prefabName}"`)
 		return {}
 	end
 
@@ -167,7 +169,11 @@ local function resolveParent(explicitParent: Instance?, fallback: Instance?): In
 	return Workspace
 end
 
-local function attachComponents(model: Model, specOptions: { [string]: any }, overrides: { [string]: any }?): ComponentHandles?
+local function attachComponents(
+	model: Model,
+	specOptions: { [string]: any },
+	overrides: { [string]: any }?
+): ComponentHandles?
 	local merged = mergeOptions(specOptions, overrides or {})
 	local handles = ComponentManager.attachStandardSet(model, merged)
 	-- Register NPC animations if provided in spec
@@ -187,6 +193,8 @@ function NPCSpawner.spawn(prefabName: string, options: { [string]: any }?): (Mod
 
 	clone.Parent = resolveParent(settings.parent, clone.Parent)
 	applyTransform(clone, settings, nil)
+
+	Registrar.registerEntity(clone)
 
 	if settings.debug then
 		print("NPCSpawner: parented to", clone.Parent and clone.Parent:GetFullName() or "nil")
@@ -208,7 +216,11 @@ function NPCSpawner.spawn(prefabName: string, options: { [string]: any }?): (Mod
 	return clone, handles
 end
 
-function NPCSpawner.spawnAtMarker(marker: Instance, prefabName: string, options: { [string]: any }?): (Model?, ComponentHandles?)
+function NPCSpawner.spawnAtMarker(
+	marker: Instance,
+	prefabName: string,
+	options: { [string]: any }?
+): (Model?, ComponentHandles?)
 	local settings = (options or {}) :: { [string]: any }
 	local clone = clonePrefab(prefabName, settings.debug)
 	if not clone then

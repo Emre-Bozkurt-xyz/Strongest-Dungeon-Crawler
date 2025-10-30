@@ -43,7 +43,7 @@ local function debugLog(...)
 end
 
 -- Import types from central location
-type PlayerStats = Types.PlayerStats
+type EntityStats = Types.EntityStats
 type StatType = Types.StatType
 type StaticStatType = Types.StaticStatType
 type PoolType = Types.PoolType
@@ -58,8 +58,8 @@ type Delta = {
 }
 
 export type RegisterOptions = {
-	stats: PlayerStats?,
-	configure: ((PlayerStats) -> ())?,
+	stats: EntityStats?,
+	configure: ((EntityStats) -> ())?,
 	skipSync: boolean?,
 }
 
@@ -69,7 +69,7 @@ export type MediatorQueryOptions = MediatorQueryOptionsInternal
 export type QueryOptions = MediatorQueryOptionsInternal
 
 local StatsManager = {}
-local entityStats: { [Instance]: PlayerStats } = {}
+local entityStats: { [Instance]: EntityStats } = {}
 
 local function cloneOptions(source: MediatorQueryOptionsInternal?): MediatorQueryOptionsInternal
 	local target: MediatorQueryOptionsInternal = {}
@@ -82,7 +82,11 @@ local function cloneOptions(source: MediatorQueryOptionsInternal?): MediatorQuer
 	return target
 end
 
-local function mergeQueryOptions(baseContext: string, baseCacheKey: string, options: MediatorQueryOptionsInternal?): MediatorQueryOptionsInternal
+local function mergeQueryOptions(
+	baseContext: string,
+	baseCacheKey: string,
+	options: MediatorQueryOptionsInternal?
+): MediatorQueryOptionsInternal
 	local merged = cloneOptions(options)
 	if not merged.context then
 		merged.context = baseContext
@@ -100,7 +104,7 @@ type PoolOperationMetadata = { [string]: any }
 
 type PoolOperationContext = {
 	entity: Instance,
-	stats: PlayerStats,
+	stats: EntityStats,
 	basePoolName: PoolType,
 	currentPoolName: PoolType,
 	pool: any,
@@ -177,7 +181,12 @@ local function sendResourceMetadata(entity: Instance, resourceName: string, reso
 	if not entity:IsA("Player") then
 		return
 	end
-	sendStatDelta(entity, StatTypeUtil.DeltaTypes.RESOURCE_STATE_CHANGED, resourceName, resourceStat:getMetadataSnapshot())
+	sendStatDelta(
+		entity,
+		StatTypeUtil.DeltaTypes.RESOURCE_STATE_CHANGED,
+		resourceName,
+		resourceStat:getMetadataSnapshot()
+	)
 end
 
 local function propagateResourceEvents(entity: Instance, resourceName: string, resourceStat: any)
@@ -204,7 +213,7 @@ local function propagateResourceEvents(entity: Instance, resourceName: string, r
 	end
 end
 
-local function getResourceStat(entity: Instance, resourceName: ResourceType): (any?, PlayerStats?)
+local function getResourceStat(entity: Instance, resourceName: ResourceType): (any?, EntityStats?)
 	local stats = entityStats[entity]
 	if not stats then
 		warn(`Attempted to access resource {resourceName} for entity {entity.Name} with no stats initialized`)
@@ -242,7 +251,7 @@ function StatsManager.isRegistered(entity: Instance): boolean
 	return entityStats[entity] ~= nil
 end
 
-function StatsManager.register(entity: Instance, options: RegisterOptions?): PlayerStats
+function StatsManager.register(entity: Instance, options: RegisterOptions?): EntityStats
 	local existing = entityStats[entity]
 	if existing then
 		StatsMediator.attach(entity, existing)
@@ -345,7 +354,9 @@ local function preparePoolOperation(
 	resolvedOptions.cacheEnabled = false
 	resolvedOptions.originalStat = resolvedOptions.originalStat or poolName
 
-	local metadata: PoolOperationMetadata = if resolvedOptions.metadata then resolvedOptions.metadata else ({} :: PoolOperationMetadata)
+	local metadata: PoolOperationMetadata = if resolvedOptions.metadata
+		then resolvedOptions.metadata
+		else {} :: PoolOperationMetadata
 	resolvedOptions.metadata = metadata
 
 	local context: PoolOperationContext = {
@@ -373,7 +384,9 @@ local function preparePoolOperation(
 		end
 		local overridePool = stats[target]
 		if not overridePool or not StatTypeUtil.isPoolStat(overridePool) then
-			warn(`Override stat {target} for entity {entity.Name} is not a valid pool; keeping {context.currentPoolName}`)
+			warn(
+				`Override stat {target} for entity {entity.Name} is not a valid pool; keeping {context.currentPoolName}`
+			)
 			return false
 		end
 		context.pool = overridePool
@@ -470,7 +483,12 @@ function StatsManager.addToPool(entity: Instance, poolName: PoolType, amount: nu
 	return added
 end
 
-function StatsManager.removeFromPool(entity: Instance, poolName: PoolType, amount: number, options: MediatorQueryOptionsInternal?): boolean
+function StatsManager.removeFromPool(
+	entity: Instance,
+	poolName: PoolType,
+	amount: number,
+	options: MediatorQueryOptionsInternal?
+): boolean
 	local context = preparePoolOperation(entity, poolName, amount, options, "removeFromPool", "removed")
 	if not context then
 		return false
@@ -675,7 +693,13 @@ function StatsManager.removeResourceThreshold(entity: Instance, resourceName: Re
 	return removed
 end
 
-function StatsManager.onResourceEvent(entity: Instance, resourceName: ResourceType, eventName: string, callbackId: string, callback: (any, any) -> ())
+function StatsManager.onResourceEvent(
+	entity: Instance,
+	resourceName: ResourceType,
+	eventName: string,
+	callbackId: string,
+	callback: (any, any) -> ()
+)
 	local resource, _ = getResourceStat(entity, resourceName)
 	if not resource then
 		return false
@@ -684,7 +708,12 @@ function StatsManager.onResourceEvent(entity: Instance, resourceName: ResourceTy
 	return true
 end
 
-function StatsManager.offResourceEvent(entity: Instance, resourceName: ResourceType, eventName: string, callbackId: string)
+function StatsManager.offResourceEvent(
+	entity: Instance,
+	resourceName: ResourceType,
+	eventName: string,
+	callbackId: string
+)
 	local resource, _ = getResourceStat(entity, resourceName)
 	if not resource then
 		return false
@@ -693,7 +722,11 @@ function StatsManager.offResourceEvent(entity: Instance, resourceName: ResourceT
 	return true
 end
 
-function StatsManager.getResourceCurrentValue(entity: Instance, resourceName: ResourceType, queryOptions: MediatorQueryOptionsInternal?): number?
+function StatsManager.getResourceCurrentValue(
+	entity: Instance,
+	resourceName: ResourceType,
+	queryOptions: MediatorQueryOptionsInternal?
+): number?
 	local resource, _ = getResourceStat(entity, resourceName)
 	if not resource then
 		return nil
@@ -707,7 +740,11 @@ function StatsManager.getResourceCurrentValue(entity: Instance, resourceName: Re
 	end, resolvedOptions)
 end
 
-function StatsManager.getResourceMaxValue(entity: Instance, resourceName: ResourceType, queryOptions: MediatorQueryOptionsInternal?): number?
+function StatsManager.getResourceMaxValue(
+	entity: Instance,
+	resourceName: ResourceType,
+	queryOptions: MediatorQueryOptionsInternal?
+): number?
 	local resource, stats = getResourceStat(entity, resourceName)
 	if not resource or not stats then
 		return nil
@@ -806,7 +843,11 @@ function StatsManager.getStat(entity: Instance, statType: StatType): Types.StatI
 	return stats[statType]
 end
 
-function StatsManager.getStatValue(entity: Instance, statType: StatType, queryOptions: MediatorQueryOptionsInternal?): number?
+function StatsManager.getStatValue(
+	entity: Instance,
+	statType: StatType,
+	queryOptions: MediatorQueryOptionsInternal?
+): number?
 	local stats = entityStats[entity]
 	if not stats then
 		return nil
@@ -821,12 +862,16 @@ function StatsManager.getStatValue(entity: Instance, statType: StatType, queryOp
 	end, resolvedOptions)
 end
 
-function StatsManager.getAllStats(entity: Instance): PlayerStats?
+function StatsManager.getAllStats(entity: Instance): EntityStats?
 	return entityStats[entity]
 end
 
 -- Convenience getters for pool stats (current vs max)
-function StatsManager.getPoolCurrentValue(entity: Instance, poolName: PoolType, queryOptions: MediatorQueryOptionsInternal?): number?
+function StatsManager.getPoolCurrentValue(
+	entity: Instance,
+	poolName: PoolType,
+	queryOptions: MediatorQueryOptionsInternal?
+): number?
 	local stats = entityStats[entity]
 	if not stats then
 		return nil
@@ -844,7 +889,11 @@ function StatsManager.getPoolCurrentValue(entity: Instance, poolName: PoolType, 
 	return nil
 end
 
-function StatsManager.getPoolMaxValue(entity: Instance, poolName: PoolType, queryOptions: MediatorQueryOptionsInternal?): number?
+function StatsManager.getPoolMaxValue(
+	entity: Instance,
+	poolName: PoolType,
+	queryOptions: MediatorQueryOptionsInternal?
+): number?
 	local stats = entityStats[entity]
 	if not stats then
 		return nil
@@ -912,7 +961,6 @@ function StatsManager.emitDelta(entity: Instance, deltaType: string, target: str
 	sendStatDelta(entity, deltaType, target, data)
 end
 
-
 RunService.Heartbeat:Connect(function(deltaTime)
 	resourceAccumulator += deltaTime
 	if resourceAccumulator >= RESOURCE_TICK_INTERVAL then
@@ -920,7 +968,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		resourceAccumulator = 0
 	end
 end)
-
 
 -- Request handler (C->S): return full serialized data
 local _statsRequestDisconnect = dispatcherAny:onRequest("StatsRequest", function(_payload, _meta, context)

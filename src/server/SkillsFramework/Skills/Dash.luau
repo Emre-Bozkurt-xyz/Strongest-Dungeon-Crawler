@@ -6,26 +6,21 @@ Dash.__index = Dash
 
 setmetatable(Dash, { __index = BaseSkill })
 
-function Dash.new(caster: Instance, data: any)
-	local self = BaseSkill.new(caster, data)
+function Dash.new(casterId: string, data: any)
+	local self = BaseSkill.new(casterId, data)
 	setmetatable(self, Dash)
 	return self
 end
 
 function Dash:use(requestData: any?)
-	local timing = self:resolveTiming({
-		metadata = {
-			baseDuration = self.config.baseDuration,
-			tail = 0,
-		},
-	})
+	local timing = self:resolveTiming()
 
 	if not self:applyResourceCost(requestData) then
 		return
 	end
 
-	local tempo = timing.tempo
 	local durationScale = timing.durationScale
+	local tempo = durationScale and durationScale ~= 0 and (1 / durationScale) or 1
 	local executionDuration = self.config.baseDuration * durationScale
 
 	self:beginExecution(executionDuration, {

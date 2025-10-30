@@ -24,12 +24,7 @@ function ManaBall:use(requestData: any?)
 	-- to acquire a pooled visual under ReplicatedStorage.Assets.Projectiles[templateKey].
 	local templateKey = "ManaBall"
 
-	local timing = self:resolveTiming({
-		metadata = {
-			baseDuration = self.config.baseDuration,
-			tail = 0,
-		},
-	})
+	local timing = self:resolveTiming()
 
 	req.timing = timing
 

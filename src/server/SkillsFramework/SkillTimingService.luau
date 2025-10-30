@@ -6,204 +6,61 @@ local Server = game:GetService("ServerScriptService").Server
 
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local StatsManager = require(Server.Stats.StatsManager)
-local StatsMediator = require(Server.Stats.StatsMediator)
 local SkillsConfig = require(script.Parent.SkillsConfig)
-
-type SkillData = SkillsConfig.SkillData
-type MediatorQueryOptions = StatsMediator.QueryOptions
-
-export type ResolveContext = {
-	step: number?,
-	comboStepCount: number?,
-	baseDuration: number?,
-	timingCategory: string?,
-	metadata: { [string]: any }?,
-}
-
-export type ResolveResult = {
-	category: string,
-	statType: StatTypes.StaticStatType?,
-	tempo: number,
-	durationScale: number,
-	metadata: { [string]: any },
-}
-
-export type ResolverRequest = {
-	entity: Instance,
-	skillId: string,
-	skillConfig: SkillData?,
-	category: string,
-	context: ResolveContext?,
-}
-
-export type ResolverFn = (ResolverRequest) -> ResolveResult
 
 local SkillTimingService = {}
 
-local CATEGORY_ALIASES = {
-	melee = "melee",
-	attack = "melee",
-	ranged = "melee",
-	physical = "melee",
-	spell = "spell",
-	magic = "spell",
-	cast = "spell",
-}
-
-local CATEGORY_STAT_MAP: { [string]: StatTypes.StaticStatType? } = {
-	default = nil,
+-- Map skill tag -> stat that controls tempo for that tag. Keep lower-case keys.
+local TAG_STAT_MAP: { [string]: any } = {
 	melee = StatTypes.StaticStats.AttackSpeed :: StatTypes.StaticStatType,
+	attack = StatTypes.StaticStats.AttackSpeed :: StatTypes.StaticStatType,
+	ranged = StatTypes.StaticStats.AttackSpeed :: StatTypes.StaticStatType,
+	physical = StatTypes.StaticStats.AttackSpeed :: StatTypes.StaticStatType,
 	spell = StatTypes.StaticStats.SpellCastSpeed :: StatTypes.StaticStatType,
+	magic = StatTypes.StaticStats.SpellCastSpeed :: StatTypes.StaticStatType,
+	cast = StatTypes.StaticStats.SpellCastSpeed :: StatTypes.StaticStatType,
 }
-
-local registeredResolvers: { [string]: ResolverFn } = {}
 
 local MIN_TEMPO = 0.05
 local MAX_TEMPO = 5
 
-local function resolveCategory(rawCategory: string?): string
-	if not rawCategory or rawCategory == "" then
-		return "default"
+local function resolveStatForSkill(skillConfig: any): StatTypes.StaticStatType?
+	if not skillConfig then
+		return nil
 	end
-	local key = string.lower(rawCategory)
-	local alias = CATEGORY_ALIASES[key]
-	if alias then
-		return alias
+	local tags = skillConfig.tags or skillConfig.categories
+	if type(tags) ~= "table" then
+		return nil
 	end
-	return key
-end
-
-local function mergeMetadata(base: { [string]: any }?, extra: { [string]: any }?): { [string]: any }
-	local merged: { [string]: any } = {}
-	if base then
-		for key, value in pairs(base) do
-			merged[key] = value
+	for _, t in ipairs(tags) do
+		if type(t) == "string" then
+			local key = string.lower(t)
+			local mapped = TAG_STAT_MAP[key]
+			if mapped ~= nil then
+				return mapped :: any
+			end
 		end
 	end
-	if extra then
-		for key, value in pairs(extra) do
-			merged[key] = value
-		end
-	end
-	return merged
+	return nil
 end
 
-local function applyContextMetadata(
-	metadata: { [string]: any },
-	skillId: string,
-	skillConfig: SkillData?,
-	category: string,
-	context: ResolveContext?
-): { [string]: any }
-	local merged = mergeMetadata(context and context.metadata, metadata)
-	merged.skill = merged.skill or skillId
-	merged.timingCategory = merged.timingCategory or category
-	if skillConfig and not merged.skillTags and type((skillConfig :: any).tags) == "table" then
-		merged.skillTags = (skillConfig :: any).tags
-	end
-	if context and context.step then
-		merged.step = context.step
-	end
-	if context and context.comboStepCount then
-		merged.comboStepCount = context.comboStepCount
-	end
-	return merged
-end
-
-local function computeTempoFromMetadata(baseTempo: number, metadata: { [string]: any }): number
-	local tempo = baseTempo
-	local metaTempo = metadata.tempo
-	local tempoMultiplier = metadata.tempoMultiplier
-	local tempoAdd = metadata.tempoAdd
-
-	if type(tempoMultiplier) == "number" then
-		tempo *= tempoMultiplier
-	end
-	if type(tempoAdd) == "number" then
-		tempo += tempoAdd
-	end
-	if type(metaTempo) == "number" then
-		tempo = metaTempo
-	end
-	return math.clamp(tempo, MIN_TEMPO, MAX_TEMPO)
-end
-
-local function defaultResolver(request: ResolverRequest): ResolveResult
-	local category = request.category
-	local statType: StatTypes.StaticStatType? = CATEGORY_STAT_MAP[category]
-	local metadata: { [string]: any } = applyContextMetadata(
-		{
-			skill = request.skillId,
-			category = category,
-		},
-		request.skillId,
-		request.skillConfig,
-		category,
-		request.context
-	)
+function SkillTimingService.resolve(entity: Instance, skillId: string)
+	assert(entity and skillId and type(skillId) == "string", "SkillTimingService.resolve: bad args")
+	local skillConfig = SkillsConfig.skills[skillId]
+	local statType = resolveStatForSkill(skillConfig)
 
 	local tempo = 1
-	local statValue: number? = nil
 	if statType then
-		local queryOptions: MediatorQueryOptions = {
-			context = "resolveSkillTempo",
-			event = "resolveSkillTempo",
-			originalStat = statType,
-			metadata = metadata,
-			cacheEnabled = false,
-		}
-		statValue = StatsManager.getStatValue(request.entity, statType, queryOptions)
+		local statValue = StatsManager.getStatValue(entity, statType :: any)
 		if type(statValue) == "number" and statValue > 0 then
 			tempo = statValue
 		end
 	end
 
-	metadata.statValue = statValue
-	tempo = computeTempoFromMetadata(tempo, metadata)
-	metadata.finalTempo = tempo
+	tempo = math.clamp(tempo, MIN_TEMPO, MAX_TEMPO)
+	local durationScale = 1 / tempo
 
-	return {
-		category = category,
-		statType = statType,
-		tempo = tempo,
-		durationScale = 1 / tempo,
-		metadata = metadata,
-	}
-end
-
-function SkillTimingService.registerCategory(categoryName: string, resolver: ResolverFn)
-	assert(type(categoryName) == "string" and categoryName ~= "", "SkillTimingService.registerCategory requires a category name")
-	assert(type(resolver) == "function", "SkillTimingService.registerCategory requires a resolver function")
-	registeredResolvers[string.lower(categoryName)] = resolver
-end
-
-function SkillTimingService.setCategoryStat(categoryName: string, statType: StatTypes.StaticStatType?)
-	assert(type(categoryName) == "string" and categoryName ~= "", "SkillTimingService.setCategoryStat requires a category name")
-	CATEGORY_STAT_MAP[string.lower(categoryName)] = statType
-end
-
-function SkillTimingService.resolve(entity: Instance, skillId: string, context: ResolveContext?): ResolveResult
-	local skillConfig = SkillsConfig.skills[skillId]
-	local categoryFromContext = context and context.timingCategory
-	local categoryFromConfig = skillConfig and (skillConfig :: any).timingCategory
-	local category = resolveCategory(categoryFromContext or categoryFromConfig)
-
-	local resolver = registeredResolvers[category]
-	if not resolver then
-		resolver = defaultResolver
-	end
-
-	return resolver({
-		entity = entity,
-		skillId = skillId,
-		skillConfig = skillConfig,
-		category = category,
-		context = context,
-	})
-end
-
-function SkillTimingService.getCategoryStat(categoryName: string): StatTypes.StaticStatType?
-	return CATEGORY_STAT_MAP[string.lower(categoryName)]
+	return { durationScale = durationScale, statType = statType }
 end
 
 return SkillTimingService

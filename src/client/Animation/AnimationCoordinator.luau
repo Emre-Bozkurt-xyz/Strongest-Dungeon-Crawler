@@ -63,12 +63,15 @@ function AnimationCoordinator.onSkillMarker(skillName: string, markerName: strin
 end
 
 -- Play a skill animation and wire marker events to the coordinator.
--- options: { fade, speed, playTimed = boolean, tempo/durationScale/baseDuration/targetDuration, partName, token }
+-- options: { fade?, speed?, duration? }
 function AnimationCoordinator.playSkillAnimation(skillName: string, animKey: string, options: { [string]: any }?): any
 	local opts = (options or {}) :: any
 	local track: AnimationTrack? = nil
-	if opts.playTimed then
-		track = AnimationPlayer.playTimed(animKey, opts)
+	if opts.duration then
+		track = AnimationPlayer.playTimed(animKey, {
+			fade = opts.fade,
+			duration = opts.duration,
+		})
 	else
 		track = AnimationPlayer.playReturn(animKey, opts.fade :: number?, opts.speed :: number?)
 	end

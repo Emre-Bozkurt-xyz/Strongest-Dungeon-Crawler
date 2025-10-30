@@ -1,6 +1,9 @@
 -- Main server initialization script
 print("Server starting...")
 
+-- Registrar for new players
+local Registrar = require(script.Services.Registrar)
+
 -- Initialize the stats management system
 local StatsManager = require(script.Stats.StatsManager)
 local AttributesManager = require(script.Stats.AttributesManager)
@@ -167,7 +170,7 @@ end
 -- Connect to new players for demo purposes
 Players.PlayerAdded:Connect(function(player)
 	player.CharacterAdded:Connect(function(_character)
-		--_removeBundles(_character)
+		Registrar.registerEntity(player.Character)
 	end)
 	spawn(function()
 		setupPlayerCommands(player)

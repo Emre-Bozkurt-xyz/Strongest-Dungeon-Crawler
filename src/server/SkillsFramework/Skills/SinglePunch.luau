@@ -12,149 +12,56 @@ SinglePunch.__index = SinglePunch
 
 setmetatable(SinglePunch, { __index = BaseSkill })
 
-local function casterOriginCFrame(skill): CFrame?
-	local root = skill:getCasterRootPart()
-	if not root then
-		return nil
-	end
-	return root.CFrame
-end
-
-local function resolveHits(config: any?): { [number]: any }
-	if type(config) == "table" and type(config.hits) == "table" then
-		return config.hits
-	end
-	return {}
-end
-
-function SinglePunch.new(caster: Instance, data: any)
-	local self = BaseSkill.new(caster, data)
+function SinglePunch.new(casterId: string, data: any)
+	local self = BaseSkill.new(casterId, data)
 	setmetatable(self, SinglePunch)
 	return self
 end
 
 function SinglePunch:use()
-	local hits = resolveHits(self.config)
-	local tail = 0.05
-	local totalDuration = 0.25
-	local baseOverride = if self.config and typeof(self.config.baseDuration) == "number" then self.config.baseDuration else nil
-	if baseOverride and baseOverride > 0 then
-		totalDuration = baseOverride
-	elseif #hits > 0 then
-		local last = hits[#hits]
-		totalDuration = math.max((last.t or 0) + tail, totalDuration)
-	end
-
-	local timing = self:resolveTiming({
-		metadata = {
-			baseDuration = totalDuration,
-			tail = tail,
-			hitCount = #hits,
-		},
-	})
+	local timing = self:resolveTiming()
 
 	if not self:applyResourceCost({ timing = timing }) then
 		return
 	end
 
-	local tempo = timing.tempo
+	local baseDuration = self.config.baseDuration or 1.0
 	local durationScale = timing.durationScale
-	local executionDuration = totalDuration * durationScale
-	local planned = executionDuration > 0 and executionDuration or nil
-	local targetDuration = planned or executionDuration
 
-	self:beginExecution(planned, {
+	local executionDuration = baseDuration * durationScale
+
+	self:beginExecution(executionDuration, {
 		lockJump = true,
 		allowChain = false,
 		autoComplete = false,
 		timing = timing,
 	})
-	self:_updateExecutionState({
-		timing = timing,
-		tempo = tempo,
-		durationScale = durationScale,
-		plannedDuration = planned,
-		targetDuration = planned,
-	})
 
-	local baseDamage = self:queryStatValue(StatTypes.StaticStats.PhysicalDamage, {
-		event = "skillDamageQuery",
-		metadata = {
-			skill = self.name,
-			stepCount = #hits,
-		},
-	}) or 0
+	local baseDamage = self:queryStatValue(StatTypes.StaticStats.PhysicalDamage) or 0
 
-	if #hits == 0 then
-		self:emitStep(1, {
-			tempo = tempo,
-			speed = tempo,
-			durationScale = durationScale,
-			targetDuration = targetDuration,
-		})
-		self:_applyHit(baseDamage, 1, nil)
-	else
-		local steps = {}
-		for index, hitSpec in ipairs(hits) do
-			local baseTime = hitSpec.t or 0
-			local delay = baseTime * durationScale
-			steps[#steps + 1] = {
-				t = delay,
-				fn = function()
-					self:emitStep(index, {
-						tempo = tempo,
-						speed = tempo,
-						durationScale = durationScale,
-						baseTime = baseTime,
-						scheduledTime = delay,
-						targetDuration = targetDuration,
-					})
-					self:_applyHit(baseDamage, index, hitSpec)
-				end,
-			}
-		end
-		self:schedule(steps)
+	local origin = self:getCasterOriginCFrame(self)
+
+	local range = self.config.hit.coneRange
+	local angle = self.config.hit.coneAngle
+
+	local targets = HitboxService.newQuery(origin)
+		:caster(self:getCasterPlayer())
+		:teamRelation("enemy")
+		:cone(angle, range)
+		:collect(true)
+
+	for _, target in ipairs(targets) do
+		CombatService.applyDamage(target, baseDamage, self.caster)
 	end
 
-	if planned and planned > 0 then
-		task.delay(planned, function()
+	if executionDuration and executionDuration > 0 then
+		task.delay(executionDuration, function()
 			self:completeExecution()
 		end)
 	else
 		task.defer(function()
 			self:completeExecution()
 		end)
-	end
-end
-
-function SinglePunch:_applyHit(baseDamage: number, step: number, hitSpec: any?)
-	local origin = casterOriginCFrame(self)
-	if not origin then
-		return
-	end
-
-	local range = if hitSpec and hitSpec.coneRange then hitSpec.coneRange else 7
-	local angle = if hitSpec and hitSpec.coneAngle then hitSpec.coneAngle else 55
-	local mult = if hitSpec and hitSpec.damageMult then hitSpec.damageMult else 1
-	local yaw = if hitSpec and hitSpec.yaw then math.rad(hitSpec.yaw) else 0
-	local playersOnly = if hitSpec and hitSpec.playersOnly ~= nil then hitSpec.playersOnly else false
-
-	if yaw ~= 0 then
-		origin = origin * CFrame.Angles(0, yaw, 0)
-	end
-
-	local casterPlayer = self:getCasterPlayer()
-	local query = HitboxService.newQuery(origin)
-		:caster(casterPlayer)
-		:teamRelation("enemy")
-		:playersOnly(playersOnly)
-		:cone(angle, range)
-
-	local targets = query:collect(true)
-	self:emitFX(step, { cframe = origin, lifetime = 0.75 })
-
-	for _, target in ipairs(targets) do
-		CombatService.applyDamage(target, baseDamage * mult, self.caster)
 	end
 end
 

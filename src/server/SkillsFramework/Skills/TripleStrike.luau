@@ -14,8 +14,8 @@ TripleStrike.__index = TripleStrike
 
 setmetatable(TripleStrike, { __index = BaseSkill })
 
-function TripleStrike.new(caster: Instance, data: any)
-	local self = BaseSkill.new(caster, data)
+function TripleStrike.new(casterId: string, data: any)
+	local self = BaseSkill.new(casterId, data)
 	setmetatable(self, TripleStrike)
 	self.cooldown = data.cooldown or 5
 	self.gcd = data.gcd or 1.0
@@ -26,7 +26,9 @@ function TripleStrike:use()
 	local hits = (self.config and self.config.hits) :: { any }?
 	local tail = 0.05
 	local baseTimelineDuration = 0
-	local baseOverride = if self.config and typeof((self.config :: any).baseDuration) == "number" then (self.config :: any).baseDuration else nil
+	local baseOverride = if self.config and typeof((self.config :: any).baseDuration) == "number"
+		then (self.config :: any).baseDuration
+		else nil
 	if type(hits) == "table" and #hits > 0 then
 		local lastT = hits[#hits].t or 0
 		baseTimelineDuration = lastT + tail
@@ -35,25 +37,19 @@ function TripleStrike:use()
 		baseTimelineDuration = baseOverride
 	end
 
-	local timing = self:resolveTiming({
-		metadata = {
-			baseDuration = baseTimelineDuration,
-			tail = tail,
-			hitCount = type(hits) == "table" and #hits or 0,
-		},
-	})
+	local timing = self:resolveTiming()
 
 	if not self:applyResourceCost({ timing = timing }) then
 		return
 	end
 
-	local tempo = timing.tempo
 	local durationScale = timing.durationScale
+	local tempo = durationScale and durationScale ~= 0 and (1 / durationScale) or 1
 
 	local executionDuration = baseTimelineDuration * durationScale
 	local planned = executionDuration > 0 and executionDuration or nil
 	local stepTarget = planned or executionDuration
-	self:beginExecution(planned, false, tempo, timing)
+	self:beginExecution(planned, { timing = timing })
 	self:_updateExecutionState({
 		timing = timing,
 		tempo = tempo,

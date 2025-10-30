@@ -86,6 +86,12 @@ export type PlayerStats = {
 	PerceptionTier: typeof(Stat.new({ baseValue = 0, name = "" })),
 }
 
+export type EntityStats = {
+	[string]: typeof(Stat.new({ baseValue = 0, name = "" }))
+		| typeof(PoolStat.new({ baseValue = 0, name = "" }))
+		| typeof(ResourceStat.new({ baseValue = 0, name = "" })),
+}
+
 export type StaticStatInstance = typeof(Stat.new({ baseValue = 0, name = "" }))
 export type PoolStatInstance = typeof(PoolStat.new({ baseValue = 0, name = "" }))
 export type ResourceStatInstance = typeof(ResourceStat.new({ baseValue = 0, name = "" }))

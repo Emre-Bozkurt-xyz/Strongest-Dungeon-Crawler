@@ -76,6 +76,15 @@ local Channels: { [string]: ChannelDefinition } = {
 		intents = { "RequestShoot", "RequestShootResponse" },
 		events = { "ProjectileEvent" },
 	},
+	FX = {
+		remote = "FX",
+		remoteEvent = "FXEvent",
+		remoteFunction = nil,
+		direction = "bidirectional",
+		qos = "HIGH",
+		intents = nil,
+		events = { "FXEvent" },
+	},
 }
 
 return Channels

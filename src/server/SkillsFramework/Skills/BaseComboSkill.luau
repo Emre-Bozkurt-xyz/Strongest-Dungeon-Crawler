@@ -8,13 +8,13 @@ setmetatable(BaseComboSkill, { __index = BaseSkill })
 
 -- Contract: child implements onComboStep(self, step: number, requestData: any?)
 
-function BaseComboSkill.new(caster: Instance, data: any)
-	local self = BaseSkill.new(caster, data)
+function BaseComboSkill.new(casterId: string, data: any)
+	local self = BaseSkill.new(casterId, data)
 	setmetatable(self, BaseComboSkill)
 	return self
 end
 
-function BaseComboSkill:use(requestData: any?)
+function BaseComboSkill:use(requestData: any?): any
 	local incomingCombo = requestData and requestData.combo or nil
 	local req = requestData or {}
 	if req.combo == nil and incomingCombo ~= nil then
@@ -33,29 +33,21 @@ function BaseComboSkill:use(requestData: any?)
 	local baseStepDurations: { number }? = comboConfig and comboConfig.stepDurations or nil
 
 	local baseHitDelay = if baseHitDelays and baseHitDelays[step] then baseHitDelays[step] else 0
-	local timingResult = self:resolveTiming({
-		step = step,
-		comboStepCount = total,
-		metadata = {
-			baseHitDelay = baseHitDelay,
-			baseWindow = baseWindow,
-			baseRecovery = baseRecovery,
-			stepDelay = baseStepDelays and baseStepDelays[step] or 0,
-			baseStepDuration = baseStepDurations and baseStepDurations[step] or baseHitDelay + (step == total and baseRecovery or 0),
-		},
-	})
+	local timingResult = self:resolveTiming()
 	req.timing = timingResult
 
-	local tempo = timingResult.tempo
 	local durationScale = timingResult.durationScale
+	local tempo = durationScale and durationScale ~= 0 and (1 / durationScale) or 1
 
 	local hitDelay = baseHitDelay * durationScale
 	local stepDelay = (baseStepDelays and baseStepDelays[step] or 0) * durationScale
 	local window = (combo and combo.window or baseWindow) * durationScale
 	local recovery = baseRecovery * durationScale
-	local baseStepDuration = if baseStepDurations and baseStepDurations[step] then baseStepDurations[step] else baseHitDelay + (step == total and baseRecovery or 0)
+	local baseStepDuration = if baseStepDurations and baseStepDurations[step]
+		then baseStepDurations[step]
+		else baseHitDelay + (step == total and baseRecovery or 0)
 	local stepDuration = math.max(baseStepDuration * durationScale, 0)
-	
+
 	local isFinal = (step == total)
 
 	if step > 1 then
@@ -69,9 +61,9 @@ function BaseComboSkill:use(requestData: any?)
 
 	if step == 1 then
 		self:beginExecution(nil, {
-			allowChain = false, 
-			lockJump = true, 
-			timing = timingResult
+			allowChain = false,
+			lockJump = true,
+			timing = timingResult,
 		})
 	end
 
@@ -101,7 +93,6 @@ function BaseComboSkill:use(requestData: any?)
 		stepDuration = stepDuration,
 		baseDuration = baseStepDuration,
 		targetDuration = stepDuration,
-		metadata = timingResult.metadata,
 	})
 
 	-- Delay server-side hit logic to align with animation
@@ -172,6 +163,8 @@ function BaseComboSkill:use(requestData: any?)
 			end)
 		end
 	end
+
+	return { duration = stepDuration }
 end
 
 function BaseComboSkill:onComboStep(_step: number, _requestData: any?)

@@ -21,24 +21,6 @@ local dispatcher = Networking.server()
 local dispatcherAny = dispatcher :: any
 dispatcherAny:_ensureChannel(SKILLS_CHANNEL_NAME)
 
-dispatcherAny:onRequest("SkillsRequest", function(requestData, _meta, context)
-	local player = context.player
-	if not player then
-		return { success = false, error = "no_player" }
-	end
-	if not requestData or requestData.action ~= "use" then
-		return { success = false, error = "invalid_action" }
-	end
-
-	local skillName = requestData.skillName
-	if type(skillName) ~= "string" then
-		return { success = false, error = "invalid_skill" }
-	end
-
-	useSkill(player, skillName, requestData)
-	return { success = true }
-end)
-
 function SkillsManager.addSkill(caster: Caster, name: string, override: SkillsConfig.SkillConfigOverride?)
 	local skill = SkillsConfig.addSkill(caster, name, override)
 	casterSkills[caster] = casterSkills[caster] or {}
@@ -49,9 +31,13 @@ end
 -- Listen for execution completion to start cooldown + GCD
 ExecutionService.onCompleted(function(caster: Caster, completedSkill: string, _reason: string)
 	local skills = casterSkills[caster]
-	if not skills then return end
+	if not skills then
+		return
+	end
 	local skill = skills[completedSkill]
-	if not skill then return end
+	if not skill then
+		return
+	end
 	if skill.config and skill.config.combo then
 		ComboService.clear(caster, completedSkill)
 	end
@@ -64,7 +50,46 @@ ExecutionService.onCompleted(function(caster: Caster, completedSkill: string, _r
 	end
 end)
 
-function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: any?)
+function SkillsManager.canUse(caster: Caster, skillName: string): (boolean, string?)
+	local skills = casterSkills[caster]
+	if not skills then
+		return false, "no_skills"
+	end
+
+	local skill = skills[skillName]
+	if not skill then
+		return false, "no_skill"
+	end
+
+	local skillCfg = skill.config or SkillsConfig.skills[skillName]
+	local comboCfg = skillCfg and skillCfg.combo
+
+	-- Block if main skill cooldown active (cooldown gating between full uses)
+	local onCD = CooldownService.isOnCooldown(caster, skillName)
+	if onCD then
+		return false, "on_cooldown"
+	end
+
+	-- Block based on execution lock:
+	-- 1. If locked by a DIFFERENT skill -> always block.
+	-- 2. If locked by the SAME skill:
+	--    - Allow only if this skill is a combo (chaining next step)
+	--    - Otherwise block to prevent spam (e.g., TripleStrike re-fire mid execution)
+	local locked, lockedSkill = ExecutionService.isLocked(caster)
+	if locked then
+		if lockedSkill ~= skillName then
+			return false, "locked_by_different_skill"
+		end
+		-- Same skill locked
+		if not comboCfg then
+			return false, "locked_by_same_skill"
+		end
+	end
+
+	return true
+end
+
+function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: any?): any
 	local skills = casterSkills[caster]
 	if not skills then
 		warn(`No skills found for caster {caster}`)
@@ -82,7 +107,9 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 
 	-- Block if main skill cooldown active (cooldown gating between full uses)
 	local onCD = CooldownService.isOnCooldown(caster, skillName)
-	if onCD then return end
+	if onCD then
+		return
+	end
 
 	-- Block based on execution lock:
 	-- 1. If locked by a DIFFERENT skill -> always block.
@@ -116,7 +143,11 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 			finalCd = comboCfg.comboCooldown or skill.cooldown,
 		}
 		skill:use(req)
-		return
+		return {
+			step = advance.step,
+			total = comboCfg.steps,
+			window = comboCfg.window,
+		}
 	else
 		-- Non-combo: just execute
 		if requestData ~= nil then
@@ -125,6 +156,8 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 			skill:use()
 		end
 	end
+
+	return
 end
 
 -- Assign to local alias after definition
@@ -154,5 +187,37 @@ function SkillsManager.getSkillConfig(caster: Caster, skillName: string)
 	end
 	return nil
 end
+
+dispatcherAny:onRequest("SkillsRequest", function(requestData, _meta, context)
+	local player = context.player
+	if not player then
+		return { success = false, error = "no_player" }
+	end
+	if not requestData or requestData.action ~= "use" then
+		return { success = false, error = "invalid_action" }
+	end
+
+	local skillName = requestData.skillName
+	if type(skillName) ~= "string" then
+		return { success = false, error = "invalid_skill" }
+	end
+
+	useSkill(player, skillName, requestData)
+	return { success = true }
+end)
+
+dispatcher:onRequest("SkillRequestUse", function(requestData, _meta, context)
+	local player = context.player
+	if not player then
+		return { success = false, error = "no_player" }
+	end
+	local skillName = requestData.skillName
+	local result, reason = SkillsManager.canUse(player, skillName)
+	if not result then
+		return { success = false, error = reason }
+	end
+	local data = SkillsManager.useSkill(player, skillName, requestData)
+	return { success = true, data = data }
+end)
 
 return SkillsManager

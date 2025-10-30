@@ -4,6 +4,7 @@
 
 local ClientSpec = {
 	Punch = {
+		class = "BasicComboSkill",
 		icon = "rbxassetid://13050670424",
 		label = "Punch",
 		anim = {
@@ -44,6 +45,7 @@ local ClientSpec = {
 	},
 
 	TripleStrike = {
+		class = "BasicSkill",
 		icon = "rbxassetid://13050670424",
 		label = "Triple",
 		anim = {
@@ -60,6 +62,7 @@ local ClientSpec = {
 	},
 
 	Dash = {
+		class = "BasicSkill",
 		icon = "rbxassetid://13050670424",
 		label = "Dash",
 		anim = {
@@ -80,6 +83,7 @@ local ClientSpec = {
 	},
 
 	ManaBall = {
+		class = "BasicSkill",
 		icon = "rbxassetid://13050670424",
 		label = "Mana Ball",
 		anim = {

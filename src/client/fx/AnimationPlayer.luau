@@ -1,4 +1,3 @@
---!strict
 -- Thin wrapper over Animator with key registry
 
 local Players = game:GetService("Players")
@@ -78,73 +77,32 @@ function AnimationPlayer.playReturn(key: string, fade: number?, speed: number?):
 	return track
 end
 
-function AnimationPlayer.playTimed(key: string, options: { [string]: any }?): AnimationTrack?
+export type TimedOptions = {
+	fade: number?,
+	duration: number,
+}
+
+function AnimationPlayer.playTimed(key: string, options: TimedOptions): AnimationTrack?
 	local track = loadTrack(key)
 	if not track then
 		return nil
 	end
 
-	local opts = options or ({} :: { [string]: any })
-	local fade = if typeof(opts.fade) == "number" then opts.fade else nil
-	local tempo = if typeof(opts.tempo) == "number" and opts.tempo > 0 then opts.tempo else nil
-	local durationScale = if typeof(opts.durationScale) == "number" and opts.durationScale > 0
-		then opts.durationScale
-		else nil
-	local baseDuration = if typeof(opts.baseDuration) == "number" and opts.baseDuration > 0
-		then opts.baseDuration
-		else nil
-	local targetDuration = if typeof(opts.targetDuration) == "number" and opts.targetDuration > 0
-		then opts.targetDuration
-		else nil
-	local speed = if typeof(opts.speed) == "number" and opts.speed > 0 then opts.speed else nil
+	local duration = options.duration
 
 	local trackLength = track.Length
-	if (not baseDuration or baseDuration <= 0) and trackLength and trackLength > 0 then
-		baseDuration = trackLength
-	end
-	if not baseDuration or baseDuration <= 0 then
-		local attrLength = track:GetAttribute("NativeLength")
-		if typeof(attrLength) == "number" and attrLength > 0 then
-			baseDuration = attrLength
-		else
-			local cached = AssetLoader.getAnimationLength(key)
-			if cached and cached > 0 then
-				baseDuration = cached
-				track:SetAttribute("NativeLength", cached)
-			end
+
+	if not track:GetAttribute("NativeLength") then
+		local cached = AssetLoader.getAnimationLength(key)
+		if cached and cached > 0 then
+			trackLength = cached
+			track:SetAttribute("NativeLength", cached)
 		end
 	end
 
-	if not targetDuration then
-		local scale = durationScale
-		if not scale and tempo then
-			scale = 1 / tempo
-		end
-		if baseDuration and baseDuration > 0 and scale and scale > 0 then
-			targetDuration = baseDuration * scale
-		end
-	end
+	local speed = trackLength / (duration or trackLength)
 
-	local durationBasis = nil
-	if trackLength and trackLength > 0 then
-		durationBasis = trackLength
-	elseif baseDuration and baseDuration > 0 then
-		durationBasis = baseDuration
-	end
-
-	if targetDuration and targetDuration > 0 and durationBasis and durationBasis > 0 then
-		speed = durationBasis / targetDuration
-	end
-
-	if not speed then
-		if tempo then
-			speed = tempo
-		elseif durationScale then
-			speed = 1 / durationScale
-		end
-	end
-
-	track:Play(fade or 0.1)
+	track:Play(options.fade or 0.1)
 	if speed then
 		track:AdjustSpeed(speed)
 	end

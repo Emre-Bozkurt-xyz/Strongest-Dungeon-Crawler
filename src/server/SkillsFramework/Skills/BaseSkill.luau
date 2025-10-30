@@ -1,31 +1,23 @@
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Timeline = require(script.Parent.Parent.Timeline)
 local ExecutionService = require(script.Parent.Parent.ExecutionService)
+local Entities = require(ReplicatedStorage.Shared.Utils.Entities)
 local event = require(script.Parent.Parent.SkillsEvent)
 local Server = game:GetService("ServerScriptService").Server
 local StatsManager = require(Server.Stats.StatsManager)
 local ComboService = require(Server.SkillsFramework.ComboService)
-local StatTypes = require(game:GetService("ReplicatedStorage").Shared.StatTypes)
+local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local SkillTimingService = require(script.Parent.Parent.SkillTimingService)
 
 local BaseSkill = {}
 BaseSkill.__index = BaseSkill
 
-function BaseSkill.new(caster: Instance, data: any)
+function BaseSkill.new(casterId: string, data: any)
 	local self = setmetatable({}, BaseSkill)
-	self.caster = caster
-	local casterPlayer: Player? = nil
-	if caster:IsA("Player") then
-		casterPlayer = caster
-	elseif caster:IsA("Model") then
-		casterPlayer = Players:GetPlayerFromCharacter(caster)
-	else
-		local model = caster:FindFirstAncestorOfClass("Model")
-		casterPlayer = model and Players:GetPlayerFromCharacter(model) or nil
-	end
-	self.player = casterPlayer
-	self._casterUserId = casterPlayer and casterPlayer.UserId or nil
+	self.casterId = casterId
+	self.caster = Entities.getEntityById(casterId)
 	self.id = data.id or data.name
 	self.name = data.name
 	self.description = data.description
@@ -57,8 +49,7 @@ function BaseSkill:_buildSkillMetadata(extra: { [any]: any }?, overrides: { [any
 	metadata.skillId = self.id
 	metadata.skillCategory = self.config and self.config.category or nil
 	metadata.skillTags = self.config and (self.config.tags or self.config.categories) or nil
-	metadata.caster = self.caster
-	metadata.casterPlayer = self.player
+	metadata.casterId = self.casterId
 
 	local overrideMeta = overrides and overrides.metadata or nil
 	if overrideMeta then
@@ -90,31 +81,22 @@ end
 
 function BaseSkill:queryStatValue(statType: any, metadata: { [any]: any }?, overrides)
 	local options = self:_buildSkillQueryOptions("skillStatQuery", metadata, overrides)
-	return StatsManager.getStatValue(self.caster, statType, options)
+	return StatsManager.getStatValue(self.casterId, statType, options)
 end
 
 function BaseSkill:queryPoolCurrent(poolType: any, metadata: { [any]: any }?, overrides)
 	local options = self:_buildSkillQueryOptions("resolveSkillResource", metadata, overrides)
-	return StatsManager.getPoolCurrentValue(self.caster, poolType, options)
+	return StatsManager.getPoolCurrentValue(self.casterId, poolType, options)
 end
 
 function BaseSkill:queryPoolMax(poolType: any, metadata: { [any]: any }?, overrides)
 	local options = self:_buildSkillQueryOptions("resolveSkillResourceMax", metadata, overrides)
-	return StatsManager.getPoolMaxValue(self.caster, poolType, options)
+	return StatsManager.getPoolMaxValue(self.casterId, poolType, options)
 end
 
-function BaseSkill:getTimingCategory(): string?
-	return self.config and self.config.timingCategory or nil
-end
-
-function BaseSkill:resolveTiming(context: SkillTimingService.ResolveContext?): SkillTimingService.ResolveResult
-	local ctx: SkillTimingService.ResolveContext = context and table.clone(context) or {}
-	ctx.timingCategory = ctx.timingCategory or self:getTimingCategory()
-	local metadata = ctx.metadata and table.clone(ctx.metadata) or {}
-	metadata.skill = metadata.skill or self.name
-	metadata.skillId = metadata.skillId or self.id
-	ctx.metadata = metadata
-	return SkillTimingService.resolve(self.caster, self.name, ctx)
+function BaseSkill:resolveTiming()
+	-- Simplified: timing service now infers tempo and durationScale from skill tags and entity stats.
+	return SkillTimingService.resolve(self.casterId, self.name)
 end
 
 function BaseSkill:_captureTiming(timing: { [string]: any }?)
@@ -122,12 +104,7 @@ function BaseSkill:_captureTiming(timing: { [string]: any }?)
 		self._lastTiming = nil
 		return
 	end
-	local cloned = table.clone(timing)
-	local meta = timing.metadata
-	if meta ~= nil and type(meta) == "table" then
-		cloned.metadata = cloneTable(meta)
-	end
-	self._lastTiming = cloned
+	self._lastTiming = timing
 end
 
 function BaseSkill:_updateExecutionState(update: { [string]: any }?)
@@ -142,16 +119,17 @@ function BaseSkill:_updateExecutionState(update: { [string]: any }?)
 	end
 	local payload = table.clone(update)
 	if payload.timing and type(payload.timing) == "table" then
-		payload.timing = table.clone(payload.timing)
-		local timingMeta = update.timing and update.timing.metadata
-		if timingMeta and type(timingMeta) == "table" then
-			payload.timing.metadata = cloneTable(timingMeta)
-		end
+		-- only propagate essential timing fields (durationScale). For backwards compatibility
+		-- we also compute a tempo value as 1/durationScale when needed.
+		payload.timing = { durationScale = payload.timing.durationScale }
 		if payload.durationScale == nil and payload.timing.durationScale then
 			payload.durationScale = payload.timing.durationScale
 		end
-		if payload.tempo == nil and payload.timing.tempo then
-			payload.tempo = payload.timing.tempo
+		if payload.tempo == nil and payload.timing.durationScale then
+			local ds = payload.timing.durationScale
+			if type(ds) == "number" and ds ~= 0 then
+				payload.tempo = 1 / ds
+			end
 		end
 	end
 	if payload.metadata and type(payload.metadata) == "table" then
@@ -216,7 +194,7 @@ function BaseSkill:applyResourceCost(data: any?): boolean
 		step = comboConfig and comboConfig.step or nil,
 	}
 	if timingInfo then
-		costMetadata.tempo = timingInfo.tempo
+		-- Provide durationScale to cost observers explicitly (tempo is derivable as 1/durationScale)
 		costMetadata.durationScale = timingInfo.durationScale
 		if timingInfo.metadata then
 			costMetadata.timingMetadata = timingInfo.metadata
@@ -333,11 +311,6 @@ function BaseSkill:emitComboWaitEnd()
 	event:FireAllClients({ phase = "combo_wait", open = false, id = self.name, casterId = self._casterUserId })
 end
 
--- optional: child override to schedule hits/FX
-function BaseSkill:onCast(_ctx: any)
-	-- no-op by default
-end
-
 function BaseSkill:schedule(steps: { { t: number, fn: () -> () } })
 	local tl = Timeline.new()
 	tl:sequence(steps)
@@ -358,14 +331,22 @@ function BaseSkill:beginExecution(duration: number?, opts: ExecutionOptions)
 	if self._execToken then
 		return
 	end -- already executing
-	local tempo = opts.speedMult or (opts.timing and opts.timing.tempo) or nil
+	-- Compute tempo for ExecutionService from timing.durationScale (tempo == 1/durationScale)
+	local tempo = opts.speedMult or nil
+	if
+		tempo == nil
+		and opts.timing
+		and type(opts.timing.durationScale) == "number"
+		and opts.timing.durationScale ~= 0
+	then
+		tempo = 1 / opts.timing.durationScale
+	end
 	local token, state = ExecutionService.begin(self.caster, self.name, {
 		duration = duration,
 		allowChainSkill = opts.allowChain and self.name or nil,
 		tempo = tempo,
 		durationScale = opts.timing and opts.timing.durationScale or nil,
 		timing = opts.timing,
-		metadata = opts.timing and opts.timing.metadata or nil,
 		targetDuration = duration,
 		lockJump = opts.lockJump,
 	})
@@ -388,7 +369,7 @@ function BaseSkill:beginExecution(duration: number?, opts: ExecutionOptions)
 		duration = duration,
 		plannedDuration = duration,
 		durationScale = opts.timing and opts.timing.durationScale or (state and state.durationScale),
-		timingMetadata = opts.timing and opts.timing.metadata and cloneTable(opts.timing.metadata) or nil,
+		-- Removed baseDuration
 		startedAt = state and state.startedAt or nil,
 		finishAt = state and state.finishAt or nil,
 		targetDuration = startDuration,
@@ -413,13 +394,13 @@ function BaseSkill:completeExecution(reason: string?)
 		elapsed = math.max(0, finishedAt - startedAt)
 	end
 	local timing = self._lastTiming
-	local tempo = state and state.tempo or (timing and timing.tempo)
 	local durationScale = state and state.durationScale or (timing and timing.durationScale)
+	local tempo = state and state.tempo or (durationScale and durationScale ~= 0 and 1 / durationScale) or nil
 	local endData = {
 		reason = reason,
 		tempo = tempo,
 		durationScale = durationScale,
-		timingMetadata = timing and timing.metadata or nil,
+		timingMetadata = nil,
 		startedAt = startedAt,
 		finishedAt = finishedAt,
 		elapsed = elapsed,

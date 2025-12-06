@@ -1,21 +1,19 @@
 --!strict
 -- HitboxService: primitive queries for skills and projectiles
 --
--- Primitive hitbox queries (sphere/box/cone/ray) and a fluent builder API for
--- configuring query options with autocomplete-friendly types.
+-- Entity-based hitbox queries (sphere/box/cone/ray) with fluent builder API.
+-- Works with registered entities (via Registrar) and supports faction-based filtering.
 --
 -- Example (builder):
--- local targets = HitboxService
+-- local targetIds = HitboxService
 --     .newQuery(originCFrame)
---     :caster(player)
---     :teamRelation("enemy")
---     :respectPvP(true)
---     :playersOnly(true)
+--     :casterEntityId(myEntityId)
+--     :factionRelation("enemy")
+--     :playersOnly(false)
 --     :cone(60, 10)
---     :collect()
+--     :collect({ collectIds = true })
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local EntityUtils = require(ReplicatedStorage.Shared.EntityUtils)
 local Registrar = require(game:GetService("ServerScriptService").Server.Services.Registrar)
@@ -24,23 +22,22 @@ local HitboxService = {}
 
 -- Type definition for hitbox query options (shared by all queries)
 export type QueryOptions = {
-	caster: Player?,
+	casterEntityId: string?,
 	playersOnly: boolean?,
 	excludeModels: { Model }?,
+	excludeEntityIds: { string }?,
 	maxTargets: number?,
 	includeCaster: boolean?,
-	respectPvP: boolean?,
-	teamRelation: ("ally" | "enemy")?,
+	factionRelation: ("ally" | "enemy" | "neutral")?,
 	filterInstances: { Instance }?,
 	filterType: ("Include" | "Exclude")?,
 	collisionGroup: string?,
-	faction: string?,
 }
 
 -- Options controlling hitbox queries are defined in the export type QueryOptions below.
 
 -- Fluent builder types
-export type TeamRelation = "ally" | "enemy"
+export type FactionRelation = "ally" | "enemy" | "neutral"
 export type FilterType = "Include" | "Exclude"
 
 -- Shape selected on the builder; only one applies at a time.
@@ -61,20 +58,20 @@ export type HitboxQueryBuilder = {
 	offset: (self: HitboxQueryBuilder, dx: number, dy: number, dz: number) -> HitboxQueryBuilder,
 	--- Yaw rotate the origin by degrees around Y (local-space).
 	yaw: (self: HitboxQueryBuilder, deg: number) -> HitboxQueryBuilder,
-	--- Set the caster associated with this query (affects team/PvP and caster exclusion).
-	caster: (self: HitboxQueryBuilder, plr: Player?) -> HitboxQueryBuilder,
+	--- Set the caster entity ID for this query (affects faction filtering and caster exclusion).
+	casterEntityId: (self: HitboxQueryBuilder, entityId: string?) -> HitboxQueryBuilder,
 	--- Limit results to player characters only (true) or include NPCs/other (false).
 	playersOnly: (self: HitboxQueryBuilder, v: boolean) -> HitboxQueryBuilder,
 	--- Allow the caster character to be included in results.
 	includeCaster: (self: HitboxQueryBuilder, v: boolean) -> HitboxQueryBuilder,
-	--- When true, enemy player-vs-player hits require both players to have PvPEnabled=true.
-	respectPvP: (self: HitboxQueryBuilder, v: boolean) -> HitboxQueryBuilder,
-	--- Team relation filter for players: "ally" or "enemy".
-	teamRelation: (self: HitboxQueryBuilder, v: TeamRelation) -> HitboxQueryBuilder,
+	--- Faction relation filter: "ally", "enemy", or "neutral".
+	factionRelation: (self: HitboxQueryBuilder, v: FactionRelation) -> HitboxQueryBuilder,
 	--- Limit the number of models returned.
 	maxTargets: (self: HitboxQueryBuilder, n: number) -> HitboxQueryBuilder,
 	--- Exclude specific models from results.
 	excludeModels: (self: HitboxQueryBuilder, list: { Model }) -> HitboxQueryBuilder,
+	--- Exclude specific entity IDs from results.
+	excludeEntityIds: (self: HitboxQueryBuilder, list: { string }) -> HitboxQueryBuilder,
 	--- Provide overlap filter instances (descendant based).
 	filterInstances: (self: HitboxQueryBuilder, list: { Instance }) -> HitboxQueryBuilder,
 	--- Set filter behavior for filterInstances: "Include" or "Exclude".
@@ -127,41 +124,25 @@ local function addUnique(t: { Model }, m: Model)
 	t[#t + 1] = m
 end
 
--- Returns true if players are allies based on Team.
-local function isAlly(a: Player?, b: Player?): boolean
-	if not a or not b then
-		return false
-	end
-	local ta = a.Team
-	local tb = b.Team
-	if ta and tb then
-		return ta == tb
-	end
-	return false
-end
-
--- Gets a player's PvPEnabled attribute (false if absent).
-local function getPvPEnabled(plr: Player?): boolean
-	if not plr then
-		return false
-	end
-	local attr = plr:GetAttribute("PvPEnabled")
-	if type(attr) == "boolean" then
-		return attr
-	end
-	return false
-end
-
--- Core model-level exclusion logic using caster, team/PvP, and explicit excludes.
+-- Core model-level exclusion logic using entity IDs and faction filtering.
 local function shouldExclude(model: Model, opts: QueryOptions?): boolean
 	if not opts then
 		return false
 	end
-	if opts.caster and opts.caster.Character == model then
+	
+	local targetEntityId = Registrar.getEntityId(model)
+	if not targetEntityId then
+		return true -- Exclude non-registered entities
+	end
+	
+	-- Exclude caster if requested
+	if opts.casterEntityId and targetEntityId == opts.casterEntityId then
 		if not opts.includeCaster then
 			return true
 		end
 	end
+	
+	-- Explicit model exclusion
 	local excl = opts.excludeModels
 	if excl then
 		for _, em in ipairs(excl) do
@@ -170,40 +151,41 @@ local function shouldExclude(model: Model, opts: QueryOptions?): boolean
 			end
 		end
 	end
-	-- Faction filtering: skip if same faction as query/caster
-	local queryFaction = opts.faction
-	if not queryFaction and opts.caster then
-		queryFaction = EntityUtils.getFaction(opts.caster)
-	end
-	if queryFaction then
-		local targetFaction = EntityUtils.getFaction(model)
-		if targetFaction == queryFaction then
-			return true
-		end
-	end
-	-- team & PvP filtering (players only)
-	if opts.teamRelation and opts.caster then
-		local plr = Players:GetPlayerFromCharacter(model)
-		if plr then
-			local ally = isAlly(opts.caster, plr)
-			if opts.teamRelation == "ally" then
-				if not ally then
-					return true
-				end
-				-- ally buffs ignore PvP state by default
-			elseif opts.teamRelation == "enemy" then
-				if ally then
-					return true
-				end
-				-- Gate enemy hits by PvP unless explicitly overridden
-				if opts.respectPvP ~= false then
-					if not (getPvPEnabled(opts.caster) and getPvPEnabled(plr)) then
-						return true
-					end
-				end
+	
+	-- Explicit entity ID exclusion
+	local exclIds = opts.excludeEntityIds
+	if exclIds then
+		for _, eid in ipairs(exclIds) do
+			if eid == targetEntityId then
+				return true
 			end
 		end
 	end
+	
+	-- Faction-based filtering
+	if opts.factionRelation and opts.casterEntityId then
+		local casterModel = Registrar.getEntityById(opts.casterEntityId)
+		if casterModel then
+			local casterFaction = EntityUtils.getFaction(casterModel)
+			local targetFaction = EntityUtils.getFaction(model)
+			
+			if opts.factionRelation == "ally" then
+				-- Only include allies (same faction)
+				if casterFaction ~= targetFaction then
+					return true
+				end
+			elseif opts.factionRelation == "enemy" then
+				-- Only include enemies (different faction)
+				if casterFaction == targetFaction then
+					return true
+				end
+			elseif opts.factionRelation == "neutral" then
+				-- Only include neutral (no faction relation check)
+				-- This mode doesn't filter by faction
+			end
+		end
+	end
+	
 	return false
 end
 
@@ -243,8 +225,8 @@ function HitboxService.querySphere(origin: CFrame, radius: number, opts: QueryOp
 			if not opts or not opts.playersOnly then
 				addUnique(results, m)
 			else
-				local plr = Players:GetPlayerFromCharacter(m)
-				if plr then
+				local targetEntityId = Registrar.getEntityId(m)
+				if targetEntityId and Registrar.isPlayerEntity(targetEntityId) then
 					addUnique(results, m)
 				end
 			end
@@ -275,17 +257,16 @@ function HitboxService.queryCone(origin: CFrame, angleDeg: number, range: number
 			if hrp then
 				local toTarget = (hrp.Position - origin.Position)
 				local dist = toTarget.Magnitude
-				local isCasterModel = (opts and opts.caster and opts.caster.Character == m)
-				if dist > 0 or (isCasterModel and opts and opts.includeCaster) then
-					local dir = (dist > 0) and toTarget.Unit or forward
+				if dist > 0 then
+					local dir = toTarget.Unit
 					local dot = math.clamp(forward:Dot(dir), -1, 1)
 					local angle = math.acos(dot)
 					if angle <= halfAngle then
 						if not opts or not opts.playersOnly then
 							addUnique(results, m)
 						else
-							local plr = Players:GetPlayerFromCharacter(m)
-							if plr then
+							local targetEntityId = Registrar.getEntityId(m)
+							if targetEntityId and Registrar.isPlayerEntity(targetEntityId) then
 								addUnique(results, m)
 							end
 						end
@@ -315,8 +296,8 @@ function HitboxService.queryBox(cframe: CFrame, size: Vector3, opts: QueryOption
 			if not opts or not opts.playersOnly then
 				addUnique(results, m)
 			else
-				local plr = Players:GetPlayerFromCharacter(m)
-				if plr then
+				local targetEntityId = Registrar.getEntityId(m)
+				if targetEntityId and Registrar.isPlayerEntity(targetEntityId) then
 					addUnique(results, m)
 				end
 			end
@@ -345,19 +326,20 @@ function HitboxService.queryRay(origin: CFrame, length: number, opts: QueryOptio
 	if opts and opts.collisionGroup then
 		params.CollisionGroup = opts.collisionGroup
 	end
-	-- Always exclude caster character to avoid self-hits
-	local casterChar = (opts and opts.caster and opts.caster.Character) and opts.caster.Character or nil
-	if casterChar then
-		local list: { Instance } = {}
-		if params.FilterDescendantsInstances then
-			-- upcast existing items to Instance
-			for _, inst in ipairs(params.FilterDescendantsInstances) do
-				list[#list + 1] = inst
+	-- Always exclude caster model to avoid self-hits
+	if opts and opts.casterEntityId then
+		local casterModel = Registrar.getEntityById(opts.casterEntityId)
+		if casterModel then
+			local list: { Instance } = {}
+			if params.FilterDescendantsInstances then
+				for _, inst in ipairs(params.FilterDescendantsInstances) do
+					list[#list + 1] = inst
+				end
 			end
+			list[#list + 1] = casterModel :: Instance
+			params.FilterDescendantsInstances = list
+			params.FilterType = Enum.RaycastFilterType.Exclude
 		end
-		list[#list + 1] = casterChar :: Instance
-		params.FilterDescendantsInstances = list
-		params.FilterType = Enum.RaycastFilterType.Exclude
 	end
 	local dir = origin.LookVector * length
 	local res = Workspace:Raycast(origin.Position, dir, params)
@@ -451,8 +433,7 @@ local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
 	local opts: QueryOptions = {
 		playersOnly = false,
 		includeCaster = false,
-		respectPvP = true,
-		teamRelation = "enemy",
+		factionRelation = "enemy",
 	}
 	local shape: QueryShape? = nil
 	local origin: CFrame? = originCf
@@ -484,9 +465,9 @@ local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
 	end
 
 	-- config setters
-	-- Set the caster associated with this query (affects team/PvP and caster exclusion).
-	function b:caster(plr: Player?): HitboxQueryBuilder
-		opts.caster = plr
+	-- Set the caster entity ID for this query (affects faction filtering and caster exclusion).
+	function b:casterEntityId(entityId: string?): HitboxQueryBuilder
+		opts.casterEntityId = entityId
 		return (b :: any) :: HitboxQueryBuilder
 	end
 	-- Limit results to player characters only (true) or include NPCs/other (false).
@@ -499,14 +480,9 @@ local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
 		opts.includeCaster = v
 		return (b :: any) :: HitboxQueryBuilder
 	end
-	-- When true, enemy player-vs-player hits require both players to have PvPEnabled=true.
-	function b:respectPvP(v: boolean): HitboxQueryBuilder
-		opts.respectPvP = v
-		return (b :: any) :: HitboxQueryBuilder
-	end
-	-- Team relation filter for players: "ally" or "enemy".
-	function b:teamRelation(v: TeamRelation): HitboxQueryBuilder
-		opts.teamRelation = v
+	-- Faction relation filter: "ally", "enemy", or "neutral".
+	function b:factionRelation(v: FactionRelation): HitboxQueryBuilder
+		opts.factionRelation = v
 		return (b :: any) :: HitboxQueryBuilder
 	end
 	-- Limit the number of models returned.
@@ -517,6 +493,11 @@ local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
 	-- Exclude specific models from results.
 	function b:excludeModels(list: { Model }): HitboxQueryBuilder
 		opts.excludeModels = list
+		return (b :: any) :: HitboxQueryBuilder
+	end
+	-- Exclude specific entity IDs from results.
+	function b:excludeEntityIds(list: { string }): HitboxQueryBuilder
+		opts.excludeEntityIds = list
 		return (b :: any) :: HitboxQueryBuilder
 	end
 	-- Provide overlap filter instances (descendant based).
@@ -562,11 +543,15 @@ local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
 		if origin then
 			return origin * localXform
 		end
-		-- derive from caster if possible
-		local plr = opts.caster
-		local hrp: BasePart? = plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-		if hrp then
-			return (hrp :: BasePart).CFrame * localXform
+		-- derive from caster entity if possible
+		if opts.casterEntityId then
+			local entity = Registrar.getEntityById(opts.casterEntityId)
+			if entity then
+				local hrp: BasePart? = entity:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if hrp then
+					return hrp.CFrame * localXform
+				end
+			end
 		end
 		-- fallback to identity
 		return CFrame.new() * localXform
@@ -574,9 +559,9 @@ local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
 
 	-- Execute the configured query and collect models.
 	-- For ray queries, returns a list with at most one model.
-	function b:collect(params): { Model | string }
-		local debug = params.debug
-		local collectIds = params.collectIds or true
+	function b:collect(params: any?): { Model | string }
+		local debug = params and params.debug or false
+		local collectIds = params and params.collectIds or true
 		local cf = ensureOrigin()
 		if not shape then
 			return {}

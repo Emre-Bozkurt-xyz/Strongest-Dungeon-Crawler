@@ -34,7 +34,7 @@ local function isAliveModel(mdl: Model?): boolean
 	if not mdl or not mdl.Parent then
 		return false
 	end
-	if not mdl:FindFirstAncestorOfClass(Workspace) then
+	if not mdl:FindFirstAncestorOfClass("Workspace") then
 		return false
 	end
 	local hrp = mdl:FindFirstChild("HumanoidRootPart")

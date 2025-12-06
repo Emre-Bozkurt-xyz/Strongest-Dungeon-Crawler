@@ -282,8 +282,6 @@ function StatsManager.register(entityId: string, options: RegisterOptions?): Ent
 	if player and not (options and options.skipSync) then
 		sendFullSync(entityId)
 		print(`Initialized stats for player: {player.Name}`)
-	else
-		print(`Initialized stats for entity: {player:GetFullName()}`)
 	end
 
 	return stats
@@ -299,12 +297,16 @@ function StatsManager.unregister(entityId: string): boolean
 end
 
 -- Initialize stats for a new player
-local function initializePlayerStats(player: Player)
+function StatsManager.initializePlayerStats(player: Player)
+	if StatsManager.isRegistered(Registrar.getPlayerId(player) or "") then
+		error("Player stats already initialized")
+		return
+	end
 	StatsManager.register(Registrar.getPlayerId(player) or error("Player has no registered EntityId"))
 end
 
 -- Clean up when player leaves
-local function cleanupPlayerStats(player: Player)
+function StatsManager.cleanupPlayerStats(player: Player)
 	local removed = StatsManager.unregister(Registrar.getPlayerId(player) or error("Player has no registered EntityId"))
 	if removed then
 		print(`Cleaned up stats for player: {player.Name}`)
@@ -501,13 +503,14 @@ function StatsManager.removeFromPool(
 		return context.pool:removeFromCurrentValue(finalAmount, context.stats)
 	end)
 
-	if executed and removed ~= nil and Players:GetPlayerFromCharacter(entityId) then
+	
+	if executed and removed ~= nil and Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, context.currentPoolName, {
 			currentValue = context.pool:getCurrentValue(),
 			maxValue = context.pool:getValue(context.stats),
 		})
 	end
-
+	
 	return removed ~= nil
 end
 
@@ -996,10 +999,6 @@ local _statsRequestDisconnect = dispatcherAny:onRequest("StatsRequest", function
 	debugLog("Request full snapshot", player.Name)
 	return StatTypeUtil.serializeStats(stats)
 end)
-
--- Connect player events
-Players.PlayerAdded:Connect(initializePlayerStats)
-Players.PlayerRemoving:Connect(cleanupPlayerStats)
 
 print("StatsManager initialized with custom networking")
 return StatsManager

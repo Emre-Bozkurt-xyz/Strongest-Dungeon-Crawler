@@ -63,16 +63,15 @@ end
 local function onStatsDelta(delta: any)
 	-- If this is a full sync, (re)initialize state
 	if delta and delta.type == StatTypeUtil.DeltaTypes.FULL_SYNC and delta.data then
-		debugLog("Received FULL_SYNC delta")
 		local ok, deserialized = pcall(function()
 			return StatTypeUtil.deserializeStats(delta.data)
 		end)
 		if ok then
 			currentStats = deserialized
-			debugLog("Applied full sync delta payload")
 		else
 			warn("StatsClient: Failed to deserialize full_sync:", deserialized)
 		end
+		notifyChange({ kind = "snapshot" })
 		return
 	end
 
@@ -90,7 +89,13 @@ local function onStatsDelta(delta: any)
 	if not success then
 		warn("StatsClient: Failed to apply delta")
 	else
-		debugLog("Applied incremental delta", delta and delta.type or "UNKNOWN", delta and delta.target or "")
+		-- Print pool values after delta
+		if delta and delta.target and currentStats then
+			local pool = (currentStats :: any)[delta.target]
+			if pool and pool.current then
+				print(`  {delta.target}: {pool.current}/{pool.max}`)
+			end
+		end
 		notifyChange({ kind = "delta", delta = delta })
 	end
 end
@@ -129,6 +134,76 @@ function StatsClient.onChanged(callback: (StatTypes.PlayerStats, ChangeContext) 
 			connection:Disconnect()
 		end
 	end
+end
+
+-- Get current value of a pool (e.g., Mana, Stamina, Health)
+-- poolType should be a string like "Mana", "Stamina", "Health"
+function StatsClient.getPoolCurrent(poolType: string): number?
+	if not currentStats then
+		return nil
+	end
+	local pool = (currentStats :: any)[poolType]
+	if not pool or type(pool) ~= "table" then
+		return nil
+	end
+	-- Check if it's a pool stat (PoolStatClass has currentValue property)
+	if pool.currentValue ~= nil then
+		return pool.currentValue
+	end
+	-- Fallback to old field name for backwards compatibility
+	if pool.current ~= nil then
+		return pool.current
+	end
+	return nil
+end
+
+-- Get max value of a pool
+function StatsClient.getPoolMax(poolType: string): number?
+	if not currentStats then
+		return nil
+	end
+	local pool = (currentStats :: any)[poolType]
+	if not pool or type(pool) ~= "table" then
+		return nil
+	end
+	-- For pools, max is calculated via getValue() which returns the stat's calculated value
+	-- Try calling getValue method if it exists (preserved during serialization)
+	if type(pool.getValue) == "function" then
+		local ok, result = pcall(function()
+			return pool:getValue(currentStats)
+		end)
+		if ok and type(result) == "number" then
+			return result
+		end
+	end
+	-- Fallback: try accessing cached value or baseValue
+	if pool._cachedValue ~= nil then
+		return pool._cachedValue
+	end
+	if pool.maxValue ~= nil then
+		return pool.maxValue
+	end
+	if pool.baseValue ~= nil then
+		return pool.baseValue
+	end
+	return nil
+end
+
+-- Get a static stat value (e.g., AttackSpeed, PhysicalDamage)
+-- statType should be a string like "AttackSpeed", "PhysicalDamage"
+function StatsClient.getStatValue(statType: string): number?
+	if not currentStats then
+		return nil
+	end
+	local stat = (currentStats :: any)[statType]
+	if not stat or type(stat) ~= "table" then
+		return nil
+	end
+	-- Check if it's a static stat (has value field)
+	if stat.value == nil then
+		return nil
+	end
+	return stat.value
 end
 
 -- Initial request after character loads

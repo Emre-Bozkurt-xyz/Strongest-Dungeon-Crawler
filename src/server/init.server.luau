@@ -16,6 +16,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SkillsManager = require(script.SkillsFramework.SkillsManager)
+local SkillMetadataService = require(script.SkillsFramework.SkillMetadataService)
 local AttributeTypes = require(ReplicatedStorage.Shared.AttributeTypes)
 local PercentOfStatModifier = require(ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
@@ -51,6 +52,9 @@ end
 
 -- Example function to test the system
 local function setupPlayerCommands(player: Player)
+	local playerId = Registrar.getPlayerId(player)
+	print("ATTENTTIOOOOONN: Setting up player commands for", player.Name, "with EntityId:", playerId)
+	
 	NPCSpawner.spawn("Dummy", {
 		position = Vector3.new(90, 5, 0),
 		debug = true,
@@ -66,13 +70,13 @@ local function setupPlayerCommands(player: Player)
 	-- 	debug = true
 	-- })
 
-	SkillsManager.addSkill(player, "Punch")
-	SkillsManager.addSkill(player, "TripleStrike")
-	SkillsManager.addSkill(player, "Dash")
-	SkillsManager.addSkill(player, "ManaBall")
+	SkillsManager.addSkill(playerId, "Punch")
+	SkillsManager.addSkill(playerId, "TripleStrike")
+	SkillsManager.addSkill(playerId, "Dash")
+	SkillsManager.addSkill(playerId, "ManaBall")
 
 	StatsManager.addModifier(
-		player,
+		playerId,
 		StatTypes.StaticStats.ManaRegeneration,
 		PercentOfStatModifier.new({
 			value = 0.1, -- 10% of max mana
@@ -101,9 +105,9 @@ local function setupPlayerCommands(player: Player)
 	-- 	return nil
 	-- end)
 
-	StatsManager.setBaseStat(player, StatTypes.StaticStats.AttackSpeed, 1)
+	StatsManager.setBaseStat(playerId, StatTypes.StaticStats.AttackSpeed, 1)
 	StatsManager.addModifier(
-		player,
+		playerId,
 		StatTypes.StaticStats.HealthRegeneration,
 		PercentOfStatModifier.new({
 			value = 0.2, -- 20% of max health
@@ -169,17 +173,26 @@ end
 
 -- Connect to new players for demo purposes
 Players.PlayerAdded:Connect(function(player)
-	player.CharacterAdded:Connect(function(_character)
-		Registrar.registerEntity(player.Character)
-	end)
-	spawn(function()
-		setupPlayerCommands(player)
+	player.CharacterAdded:Connect(function(character)
+		Registrar.registerEntity(character, true)
+		task.defer(function()
+			StatsManager.initializePlayerStats(player)
+			setupPlayerCommands(player)
+			
+			-- Send initial skill metadata after stats are initialized
+			-- Small delay to ensure all stats/modifiers are applied
+			task.delay(0.5, function()
+				SkillMetadataService.updateAllSkills(player)
+			end)
+		end)
 	end)
 end)
 
 -- Clean up tests when player leaves
 Players.PlayerRemoving:Connect(function(player)
 	Testing.stopTests(player)
+	StatsManager.cleanupPlayerStats(player)
+	Registrar.unregisterPlayer(player)
 end)
 
 print("Server initialized with Examples")

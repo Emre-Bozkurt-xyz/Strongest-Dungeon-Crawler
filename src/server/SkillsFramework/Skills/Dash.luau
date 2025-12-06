@@ -77,6 +77,14 @@ function Dash:use(requestData: any?)
 	task.delay(executionDuration, function()
 		self:completeExecution()
 	end)
+	
+	-- Return success response for client
+	return {
+		success = true,
+		data = {
+			duration = executionDuration,
+		},
+	}
 end
 
 return Dash

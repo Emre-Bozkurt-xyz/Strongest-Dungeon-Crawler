@@ -12,8 +12,8 @@ local ManaBall = {}
 ManaBall.__index = ManaBall
 setmetatable(ManaBall, { __index = BaseSkill })
 
-function ManaBall.new(player, data)
-	local self = BaseSkill.new(player, data)
+function ManaBall.new(casterId, data)
+	local self = BaseSkill.new(casterId, data)
 	setmetatable(self, ManaBall)
 	return self
 end
@@ -64,7 +64,7 @@ function ManaBall:use(requestData: any?)
 		extraData = { impactKey = "ManaBallImpact" },
 		onHit = function(_proj, _hitPart, hitEntity, _result)
 			-- Only damage first valid target
-			CombatService.applyDamage(hitEntity, magicDmg, self.caster)
+			CombatService.applyDamage(hitEntity, magicDmg, self.casterId)
 			return false -- stop after first hit
 		end,
 	})
@@ -72,6 +72,14 @@ function ManaBall:use(requestData: any?)
 	task.delay(durationScale, function()
 		self:completeExecution()
 	end)
+	
+	-- Return success response for client
+	return {
+		success = true,
+		data = {
+			duration = durationScale,
+		},
+	}
 end
 
 return ManaBall

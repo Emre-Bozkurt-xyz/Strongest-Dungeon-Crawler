@@ -1,4 +1,3 @@
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = game:GetService("ServerScriptService").Server
 
@@ -138,7 +137,7 @@ function BaseSkill:_updateExecutionState(update: { [string]: any }?)
 	if payload.targetDuration == nil and type(payload.stepDuration) == "number" then
 		payload.targetDuration = payload.stepDuration
 	end
-	ExecutionService.annotate(self.caster, self._execToken, payload)
+	ExecutionService.annotate(self.casterId, self._execToken, payload)
 	local state = self._execState
 	if state then
 		for key, value in pairs(payload) do
@@ -179,14 +178,15 @@ function BaseSkill:applyResourceCost(data: any?): boolean
 
 	local cost = self:getBaseCost(data)
 
+	
 	-- Determine base resource to be consumed
 	local baseResource = self.config and self.config.baseResource or StatTypes.PoolStats.Stamina
-
+	
 	-- No cost to apply
 	if cost <= 0 then
 		return true
 	end
-
+	
 	-- Preview cost to determine actual pool and final cost after observers' modification
 	local timingInfo = data and data.timing
 	local costMetadata = {
@@ -200,13 +200,14 @@ function BaseSkill:applyResourceCost(data: any?): boolean
 			costMetadata.timingMetadata = timingInfo.metadata
 		end
 	end
-
+	
+	
 	local preview = self:previewResourceCost(baseResource, cost, costMetadata)
 	local targetPool = baseResource
 	local finalCost = cost
 	local currentValue = 0
 	local removalOverrides = nil
-
+	
 	if preview then
 		targetPool = preview.poolName
 		finalCost = preview.finalCost
@@ -223,29 +224,29 @@ function BaseSkill:applyResourceCost(data: any?): boolean
 			step = comboConfig and comboConfig.step or nil,
 		}) or 0
 	end
-
+	
 	if currentValue + 1e-3 < finalCost then
 		if comboConfig then
-			ComboService.clear(self.caster, self.name)
+			ComboService.clear(self.casterId, self.name)
 		end
 		return false
 	end
-
+	
 	local removalMetadata = {
 		resource = targetPool,
 		step = comboConfig and comboConfig.step or nil,
 		baseCost = finalCost,
 	}
-
+	
 	local options = self:_buildSkillQueryOptions("applySkillCost", removalMetadata, removalOverrides)
-	StatsManager.removeFromPool(self.caster, targetPool, finalCost, options)
+	StatsManager.removeFromPool(self.casterId, targetPool, finalCost, options)
 
 	return true
 end
 
 function BaseSkill:previewResourceCost(poolType: any, amount: number, metadata: { [any]: any }?, overrides)
 	local options = self:_buildSkillQueryOptions("resolveSkillCost", metadata, overrides)
-	return StatsManager.resolvePoolCost(self.caster, poolType, amount, options)
+	return StatsManager.resolvePoolCost(self.casterId, poolType, amount, options)
 end
 
 function BaseSkill:use()
@@ -255,7 +256,7 @@ end
 
 -- Emit a start phase; children can override before/after
 function BaseSkill:emitStart(extra: any?)
-	event:FireAllClients({ phase = "start", id = self.name, casterId = self._casterUserId, data = extra })
+	event:FireAllClients({ phase = "start", id = self.name, casterId = self.casterId, data = extra })
 end
 
 -- Emit an impact with optional cframe/targets and step index
@@ -268,7 +269,7 @@ function BaseSkill:emitFX(step: number, opts: any?)
 	event:FireAllClients({
 		phase = "fx",
 		id = self.name,
-		casterId = self._casterUserId,
+		casterId = self.casterId,
 		step = step,
 		cframe = o.cframe,
 		anchor = o.anchor,
@@ -283,7 +284,7 @@ function BaseSkill:emitStep(step: number, extra: any?)
 	event:FireAllClients({
 		phase = "step",
 		id = self.name,
-		casterId = self._casterUserId,
+		casterId = self.casterId,
 		step = step,
 		data = extra,
 	})
@@ -291,7 +292,7 @@ end
 
 -- Emit an end/cleanup
 function BaseSkill:emitEnd(extra: any?)
-	event:FireAllClients({ phase = "end", id = self.name, casterId = self._casterUserId, data = extra })
+	event:FireAllClients({ phase = "end", id = self.name, casterId = self.casterId, data = extra })
 end
 
 -- Combo helpers: open/close combo wait window for client idle anims
@@ -300,7 +301,7 @@ function BaseSkill:emitComboWaitStart(durationSec: number, step: number, totalSt
 		phase = "combo_wait",
 		open = true,
 		id = self.name,
-		casterId = self._casterUserId,
+		casterId = self.casterId,
 		step = step,
 		total = totalSteps,
 		duration = durationSec,
@@ -308,7 +309,7 @@ function BaseSkill:emitComboWaitStart(durationSec: number, step: number, totalSt
 end
 
 function BaseSkill:emitComboWaitEnd()
-	event:FireAllClients({ phase = "combo_wait", open = false, id = self.name, casterId = self._casterUserId })
+	event:FireAllClients({ phase = "combo_wait", open = false, id = self.name, casterId = self.casterId })
 end
 
 function BaseSkill:schedule(steps: { { t: number, fn: () -> () } })
@@ -341,7 +342,7 @@ function BaseSkill:beginExecution(duration: number?, opts: ExecutionOptions)
 	then
 		tempo = 1 / opts.timing.durationScale
 	end
-	local token, state = ExecutionService.begin(self.caster, self.name, {
+	local token, state = ExecutionService.begin(self.casterId, self.name, {
 		duration = duration,
 		allowChainSkill = opts.allowChain and self.name or nil,
 		tempo = tempo,
@@ -386,7 +387,7 @@ function BaseSkill:completeExecution(reason: string?)
 	local state = self._execState
 	self._execToken = nil
 	self._execState = nil
-	ExecutionService.complete(self.caster, tok, reason)
+	ExecutionService.complete(self.casterId, tok, reason)
 	local finishedAt = state and state.completedAt or os.clock()
 	local startedAt = state and state.startedAt or nil
 	local elapsed = nil
@@ -413,14 +414,7 @@ function BaseSkill:completeExecution(reason: string?)
 	self._lastTiming = nil
 end
 
-function BaseSkill:getCasterPlayer(): Player?
-	return self.player
-end
-
 function BaseSkill:getCasterModel(): Model?
-	if self.player then
-		return self.player.Character
-	end
 	if self.caster:IsA("Model") then
 		return self.caster
 	end

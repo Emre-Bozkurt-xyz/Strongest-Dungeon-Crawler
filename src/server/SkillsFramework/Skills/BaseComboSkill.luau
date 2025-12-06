@@ -61,7 +61,7 @@ function BaseComboSkill:use(requestData: any?): any
 
 	if step == 1 then
 		self:beginExecution(nil, {
-			allowChain = false,
+			allowChainSkill = self.name, -- Allow same skill to chain (combo advancement)
 			lockJump = true,
 			timing = timingResult,
 		})
@@ -108,7 +108,7 @@ function BaseComboSkill:use(requestData: any?): any
 
 	local windowInfo = nil
 	if token and token ~= 0 then
-		windowInfo = ComboService.registerStepTiming(self.caster, self.name, token, {
+		windowInfo = ComboService.registerStepTiming(self.casterId, self.name, token, {
 			stepDuration = stepDuration,
 			stepDelay = stepDelay,
 			windowDuration = if not isFinal then window else 0,
@@ -126,12 +126,12 @@ function BaseComboSkill:use(requestData: any?): any
 			local waitDuration = math.max(0, closeAt - openAt)
 			if waitDuration > 0 then
 				task.delay(openDelay, function()
-					if ComboService.isTokenCurrent(self.caster, self.name, token) then
+					if ComboService.isTokenCurrent(self.casterId, self.name, token) then
 						self:emitComboWaitStart(waitDuration, step, total)
 					end
 				end)
 				task.delay(openDelay + waitDuration, function()
-					if ComboService.isTokenCurrent(self.caster, self.name, token) then
+					if ComboService.isTokenCurrent(self.casterId, self.name, token) then
 						self:emitComboWaitEnd()
 						self:completeExecution("expired")
 					end
@@ -142,7 +142,7 @@ function BaseComboSkill:use(requestData: any?): any
 		local waitDuration = window
 		self:emitComboWaitStart(waitDuration, step, total)
 		task.delay(waitDuration, function()
-			if ComboService.isTokenCurrent(self.caster, self.name, token) then
+			if ComboService.isTokenCurrent(self.casterId, self.name, token) then
 				self:emitComboWaitEnd()
 				self:completeExecution("expired")
 			end

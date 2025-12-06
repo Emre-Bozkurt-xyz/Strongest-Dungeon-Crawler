@@ -11,6 +11,7 @@ local NPCAnimationController = require(script.Parent.Parent.NPCAnimationControll
 local SkillsManager = require(Server.SkillsFramework.SkillsManager)
 local SkillsConfig = require(Server.SkillsFramework.SkillsConfig)
 local ExecutionService = require(Server.SkillsFramework.ExecutionService)
+local Registrar = require(Server.Services.Registrar)
 
 type SkillData = SkillsConfig.SkillData
 type ComboData = {
@@ -53,12 +54,19 @@ local function _collectSkillConfigs(model: Model, component: any?): { [string]: 
 	return configs
 end
 
-ExecutionService.onCompleted(function(caster: Instance, _skill: string, _reason: string)
-	if not caster:IsA("Model") then
+ExecutionService.onCompleted(function(caster: string, _skill: string, _reason: string)
+	-- Caster is an entityId (string) - resolve to entity
+	local entity = Registrar.getEntityById(caster)
+	if not entity then
+		return
+	end
+	
+	-- Filter for NPC models only (not Players)
+	if not entity:IsA("Model") then
 		return
 	end
 
-	local model = caster :: Model
+	local model = entity :: Model
 	if not _Registry[model] then
 		return
 	end

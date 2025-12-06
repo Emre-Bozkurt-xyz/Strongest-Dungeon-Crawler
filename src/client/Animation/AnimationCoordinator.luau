@@ -18,14 +18,31 @@ local activeTracks: { [AnimationTrack]: any } = {}
 
 -- Internal helper to call listeners for a skill/marker with ctx
 local function emitSkillMarker(skillName: string, markerName: string, ctx: any)
+	print(`🔔 [ANIM-COORD] Marker fired: skill={skillName} marker={markerName}`)
+	
 	local skillBucket = listeners[skillName]
 	if not skillBucket then
+		print(`❌ [ANIM-COORD] No listeners for skill: {skillName}`)
+		local availableSkills = {}
+		for k in pairs(listeners) do
+			table.insert(availableSkills, k)
+		end
+		print(`   Available skills: {table.concat(availableSkills, ", ")}`)
 		return
 	end
+	
 	local handlers = skillBucket[markerName]
 	if not handlers then
+		print(`❌ [ANIM-COORD] No handlers for marker: {markerName} in skill {skillName}`)
+		local availableMarkers = {}
+		for k in pairs(skillBucket) do
+			table.insert(availableMarkers, k)
+		end
+		print(`   Available markers: {table.concat(availableMarkers, ", ")}`)
 		return
 	end
+	
+	print(`✅ [ANIM-COORD] Found {#handlers} handler(s) for {skillName}.{markerName}`)
 	for _, fn in ipairs(handlers) do
 		local ok = pcall(fn, ctx)
 		if not ok then
@@ -43,6 +60,7 @@ function AnimationCoordinator.onSkillMarker(skillName: string, markerName: strin
 	listeners[skillName] = listeners[skillName] or {}
 	listeners[skillName][markerName] = listeners[skillName][markerName] or {}
 	table.insert(listeners[skillName][markerName], fn)
+	print(`📝 [ANIM-COORD] Registered handler: skill={skillName} marker={markerName} (now {#listeners[skillName][markerName]} handlers)`)
 	local disconnected = false
 	return function()
 		if disconnected then
@@ -63,7 +81,8 @@ function AnimationCoordinator.onSkillMarker(skillName: string, markerName: strin
 end
 
 -- Play a skill animation and wire marker events to the coordinator.
--- options: { fade?, speed?, duration? }
+-- options: { fade?, speed?, duration?, markers?: {string} }
+-- Pass markers array with marker names to listen for
 function AnimationCoordinator.playSkillAnimation(skillName: string, animKey: string, options: { [string]: any }?): any
 	local opts = (options or {}) :: any
 	local track: AnimationTrack? = nil
@@ -82,22 +101,34 @@ function AnimationCoordinator.playSkillAnimation(skillName: string, animKey: str
 	-- store info for cleanup
 	activeTracks[track] = { skillName = skillName, options = opts, connections = {} }
 
-	-- marker handler
-	local markerConn = track.KeyframeReached:Connect(function(markerName)
-		local ctx = {
-			skill = skillName,
-			marker = markerName,
-			ownerUserId = Players.LocalPlayer and Players.LocalPlayer.UserId or nil,
-			character = Players.LocalPlayer and Players.LocalPlayer.Character or nil,
-			partName = opts.partName,
-			token = opts.token,
-			markerTime = os.clock(),
-			track = track,
-			animationKey = animKey,
-		}
-		emitSkillMarker(skillName, markerName, ctx)
-	end)
-	table.insert(activeTracks[track].connections, markerConn)
+	print(`🎬 [ANIM-COORD] Animation track loaded for {skillName}: IsPlaying={track.IsPlaying} Length={track.Length}`)
+
+	-- Set up GetMarkerReachedSignal for each marker if listeners are registered
+	-- Modern Roblox uses GetMarkerReachedSignal(markerName), not KeyframeReached
+	local skillBucket = listeners[skillName]
+	if skillBucket then
+		for markerName, handlers in pairs(skillBucket) do
+			if #handlers > 0 then
+				print(`🔗 [ANIM-COORD] Connecting GetMarkerReachedSignal for marker: {markerName}`)
+				local markerConn = track:GetMarkerReachedSignal(markerName):Connect(function()
+					print(`🎯 [ANIM-COORD] Marker reached: {markerName} for skill={skillName}`)
+					local ctx = {
+						skill = skillName,
+						marker = markerName,
+						ownerUserId = Players.LocalPlayer and Players.LocalPlayer.UserId or nil,
+						character = Players.LocalPlayer and Players.LocalPlayer.Character or nil,
+						partName = opts.partName,
+						token = opts.token,
+						markerTime = os.clock(),
+						track = track,
+						animationKey = animKey,
+					}
+					emitSkillMarker(skillName, markerName, ctx)
+				end)
+				table.insert(activeTracks[track].connections, markerConn)
+			end
+		end
+	end
 
 	-- cleanup when stopped
 	local stoppedConn = track.Stopped:Connect(function()

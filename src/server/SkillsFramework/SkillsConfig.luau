@@ -113,7 +113,7 @@ local function deepMerge(destination, source)
 	return destination
 end
 
-function SkillsConfig.addSkill(caster: Instance, name: string, override: SkillConfigOverride?)
+function SkillsConfig.addSkill(caster: string, name: string, override: SkillConfigOverride?)
 	local skillData = SkillsConfig.skills[name]
 	if not skillData then
 		error(`Skill '{name}' does not exist in SkillsConfig`)

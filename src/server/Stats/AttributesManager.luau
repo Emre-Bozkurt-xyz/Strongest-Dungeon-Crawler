@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local AttributesConfig = require(script.Parent.Config.AttributesConfig)
 local AttributeTypes = require(game.ReplicatedStorage.Shared.AttributeTypes)
+local Registrar = require(game.ServerScriptService.Server.Services.Registrar)
 
 -- Import types from central location
 type PlayerAttributes = AttributeTypes.PlayerAttributes
@@ -320,6 +321,8 @@ function AttributesManager.applyAllScaling(player: Player)
 		return
 	end
 
+	local playerId = Registrar.getPlayerId(player)
+
 	-- Apply milestones; individual stat updates will send their own deltas
 	local profileToken = profileBegin("applyAllScaling")
 	for _, attributeMilestone in pairs(AttributesConfig.AttributeMilestones) do
@@ -332,7 +335,7 @@ function AttributesManager.applyAllScaling(player: Player)
 		local intelligenceValue = attribute:getValue()
 
 		-- Apply the scaling formula defined in the milestone
-		attributeMilestone.applyScaling(player, intelligenceValue)
+		attributeMilestone.applyScaling(playerId, intelligenceValue)
 	end
 	profileEnd(profileToken)
 end
@@ -422,6 +425,15 @@ dispatcherAny:onRequest("AttributesSpendPoint", function(requestData, _meta, con
 			}
 		end
 	end
+	
+	-- Update skill metadata after attribute changes (attributes affect stats which affect costs)
+	if spent > 0 then
+		task.defer(function()
+			local SkillMetadataService = require(script.Parent.Parent.SkillsFramework.SkillMetadataService)
+			SkillMetadataService.updateAllSkills(player)
+		end)
+	end
+	
 	return { success = spent > 0, spent = spent, snapshot = snapshot, error = spent > 0 and "" or "failed" }
 end)
 

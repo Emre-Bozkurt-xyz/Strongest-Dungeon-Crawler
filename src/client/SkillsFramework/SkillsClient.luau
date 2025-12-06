@@ -459,7 +459,7 @@ local availableSkills = {} :: { [string]: any }
 -- update client state for active skills
 dispatcher:on("SkillsUpdate", function(payload: any, _meta: any?)
 	if payload.updateType == "skill_added" then
-		local skillName = payload.skillName
+		local skillName = payload.data.skillName
 
 		-- instantiate skill class and store in availableSkills
 		local skillSpec = ClientSpec[skillName]

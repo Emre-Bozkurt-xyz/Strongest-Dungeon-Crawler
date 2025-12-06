@@ -1,4 +1,3 @@
---!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = game:GetService("ServerScriptService").Server
 
@@ -45,10 +44,10 @@ function SinglePunch:use()
 	local angle = self.config.hit.coneAngle
 
 	local targets =
-		HitboxService.newQuery(origin):caster(self:getCasterPlayer()):teamRelation("enemy"):cone(angle, range):collect()
+		HitboxService.newQuery(origin):casterEntityId(self.casterId):factionRelation("enemy"):cone(angle, range):collect()
 
 	for _, target in ipairs(targets) do
-		CombatService.applyDamage(target, baseDamage, self.caster)
+		CombatService.applyDamage(target, baseDamage, self.casterId)
 	end
 
 	if executionDuration and executionDuration > 0 then
@@ -60,6 +59,14 @@ function SinglePunch:use()
 			self:completeExecution()
 		end)
 	end
+	
+	-- Return success response for client
+	return {
+		success = true,
+		data = {
+			duration = executionDuration,
+		},
+	}
 end
 
 return SinglePunch

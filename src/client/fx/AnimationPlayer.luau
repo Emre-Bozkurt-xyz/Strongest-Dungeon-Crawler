@@ -28,14 +28,23 @@ local function loadTrack(key: string): AnimationTrack?
 		return cache[key]
 	end
 	if not AnimationsFolder then
+		warn(`[AnimationPlayer] AnimationsFolder not found`)
 		return nil
 	end
 	local animInstance = AssetLoader.getAnimation(key)
 	if not animInstance then
+		warn(`[AnimationPlayer] AssetLoader didn't find animation: {key}`)
 		local fallback = AnimationsFolder and AnimationsFolder:FindFirstChild(key)
 		if fallback and fallback:IsA("Animation") then
+			warn(`[AnimationPlayer] Found fallback animation: {key}`)
 			animInstance = fallback :: Animation
 		else
+			warn(`[AnimationPlayer] No fallback found for: {key}. Available:`)
+			if AnimationsFolder then
+				for _, child in AnimationsFolder:GetChildren() do
+					warn(`  - {child.Name}`)
+				end
+			end
 			return nil
 		end
 	end

@@ -11,7 +11,33 @@
 --   - If duration provided, schedules auto completion. Manual early completion cancels schedule.
 --   - Chaining allowed when active.skill == allowChainSkill.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Registrar = require(game.ServerScriptService.Server.Services.Registrar)
+local Networking = require(ReplicatedStorage.Shared.Networking)
+
+local EVENT_NAME = "ExecutionStateUpdate"
+local EXECUTION_CHANNEL_NAME = "Skills"
+
+local dispatcher = Networking.server()
+local dispatcherAny = dispatcher :: any
+dispatcherAny:_ensureChannel(EXECUTION_CHANNEL_NAME)
+
 local ExecutionService = {}
+
+-- Emit execution state to client
+local function emitStateToClient(caster: string, locked: boolean, skillName: string?)
+	local player = Registrar.getPlayerById(caster)
+	if not player then
+		return -- Only emit to player entities
+	end
+	
+	(dispatcher :: any):emit(EVENT_NAME, {
+		locked = locked,
+		skillName = skillName,
+	}, {
+		targets = player,
+	})
+end
 
 export type ExecState = {
 	skill: string,
@@ -31,7 +57,7 @@ export type ExecState = {
 	reason: string?,
 }
 
-type Caster = Instance
+type Caster = string
 
 local active: { [Caster]: ExecState } = {}
 local listeners: { (Caster, string, string, ExecState?) -> () } = {}
@@ -49,9 +75,11 @@ end
 
 local function fireComplete(caster: Caster, skill: string, reason: string, state: ExecState?)
 	for _, cb in ipairs(listeners) do
-		local ok = pcall(cb, caster, skill, reason, state)
-		if not ok then
-			warn("ExecutionService listener error")
+		local success, err = pcall(function()
+			cb(caster, skill, reason, state)
+		end)
+		if not success then
+			warn(`ExecutionService listener error: {err}`)
 		end
 	end
 end
@@ -86,13 +114,17 @@ local function autoFinish(caster: Caster, token: number)
 
 	if st.jumpLocked then
 		local humanoid = nil
-		if caster:IsA("Player") then
-			local char = caster.Character
+		local player = Registrar.getPlayerById(caster)
+		if player then
+			local char = player.Character
 			if char then
 				humanoid = char:FindFirstChildWhichIsA("Humanoid")
 			end
 		else
-			humanoid = caster:FindFirstChildWhichIsA("Humanoid", true)
+			local entity = Registrar.getEntityById(caster)
+			if entity then
+				humanoid = entity:FindFirstChildWhichIsA("Humanoid", true)
+			end
 		end
 
 		if humanoid then
@@ -102,6 +134,10 @@ local function autoFinish(caster: Caster, token: number)
 	end
 
 	active[caster] = nil
+	
+	-- Notify client that execution completed
+	emitStateToClient(caster, false, nil)
+	
 	fireComplete(caster, st.skill, "auto", st)
 end
 
@@ -146,11 +182,17 @@ function ExecutionService.begin(caster: Caster, skillName: string, opts: BeginOp
 	local timing = cloneTiming(opts and opts.timing or nil)
 
 	if opts and opts.lockJump then
-		local humanoid = caster:FindFirstChildWhichIsA("Humanoid", true)
-		if caster:IsA("Player") then
-			local char = caster.Character
+		local humanoid = nil
+		local player = Registrar.getPlayerById(caster)
+		if player then
+			local char = player.Character
 			if char then
 				humanoid = char:FindFirstChildWhichIsA("Humanoid")
+			end
+		else
+			local entity = Registrar.getEntityById(caster)
+			if entity then
+				humanoid = entity:FindFirstChildWhichIsA("Humanoid", true)
 			end
 		end
 
@@ -185,6 +227,9 @@ function ExecutionService.begin(caster: Caster, skillName: string, opts: BeginOp
 		end)
 	end
 
+	-- Notify client that execution started
+	emitStateToClient(caster, true, skillName)
+
 	return token, active[caster]
 end
 
@@ -198,13 +243,17 @@ function ExecutionService.complete(caster: Caster, token: number, reason: string
 
 	if st.jumpLocked then
 		local humanoid = nil
-		if caster:IsA("Player") then
-			local char = caster.Character
+		local player = Registrar.getPlayerById(caster)
+		if player then
+			local char = player.Character
 			if char then
 				humanoid = char:FindFirstChildWhichIsA("Humanoid")
 			end
 		else
-			humanoid = caster:FindFirstChildWhichIsA("Humanoid", true)
+			local entity = Registrar.getEntityById(caster)
+			if entity then
+				humanoid = entity:FindFirstChildWhichIsA("Humanoid", true)
+			end
 		end
 
 		if humanoid then
@@ -214,6 +263,10 @@ function ExecutionService.complete(caster: Caster, token: number, reason: string
 	end
 
 	active[caster] = nil
+	
+	-- Notify client that execution completed
+	emitStateToClient(caster, false, nil)
+	
 	fireComplete(caster, st.skill, reason or "normal", st)
 end
 

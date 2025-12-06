@@ -41,10 +41,9 @@ function Punch:onComboStep(step: number)
 
 	local origin = casterOriginCFrame(self)
 	if origin then
-		local casterPlayer = self:getCasterPlayer()
 		local targets = HitboxService.newQuery(origin)
-			:caster(casterPlayer)
-			:teamRelation("enemy")
+			:casterEntityId(self.casterId)
+			:factionRelation("enemy")
 			:playersOnly(false)
 			:cone(65, coneRange)
 			:collect()

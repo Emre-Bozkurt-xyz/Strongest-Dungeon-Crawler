@@ -7,6 +7,12 @@ local ClientSpec = {
 		class = "BasicComboSkill",
 		icon = "rbxassetid://13050670424",
 		label = "Punch",
+		tags = {"melee", "light"}, -- used for timing prediction
+		combo = {
+			steps = 3,
+			window = 0.6,
+			stepDurations = { 0.45, 0.4, 0.5 }, -- base durations per step
+		},
 		anim = {
 			-- Body animations for each combo step in order
 			comboSteps = {

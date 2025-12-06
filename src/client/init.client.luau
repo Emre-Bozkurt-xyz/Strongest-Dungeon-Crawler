@@ -37,7 +37,6 @@ end
 -- Set camera to first person
 local function _setupFirstPersonCamera()
 	_player.CameraMode = Enum.CameraMode.LockFirstPerson
-	print("📷 First-person camera enabled")
 end
 
 -- Wait for character to spawn
@@ -45,14 +44,16 @@ local function onCharacterAdded(character: Model)
 	-- Wait a moment for character to fully load
 	task.wait(1)
 
-	print(`📷 Setting up first-person camera and GUI for {character.Name}`)
-
 	-- Set up first-person camera
 	--_setupFirstPersonCamera()
 
 	-- Request initial data from server
 	StatsClient.requestStatsUpdate()
 	AttributesClient.requestAttributesData()
+	
+	-- Request skill metadata snapshot
+	local SkillMetadataClient = require(script.SkillsFramework.SkillMetadataClient)
+	SkillMetadataClient.requestSnapshot()
 
 	-- Ensure SystemPanelHandler is initialized so it listens for StatsDelta/AttributesDelta
 	SystemPanelHandler.get()
@@ -70,8 +71,6 @@ local function onCharacterAdded(character: Model)
 	local hud = playerGui:WaitForChild("HUD")
 	local anchor = hud:FindFirstChild("SkillSlots")
 	SkillSlotUI.mount(anchor)
-
-	print("📷 First-person camera and world GUI systems initialized")
 end
 
 -- Handle character spawning/respawning
@@ -91,10 +90,5 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 	end
 end)
 
--- Start client-side testing (monitoring is already auto-started)
-print("📊 Client testing initialized")
-
 -- Start overhead HP bars service
 OverheadHealthService.start()
-
-print("Client initialized")

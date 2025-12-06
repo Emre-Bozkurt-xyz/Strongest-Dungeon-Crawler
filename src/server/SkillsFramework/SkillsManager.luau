@@ -5,11 +5,13 @@ local Networking = require(ReplicatedStorage.Shared.Networking)
 local CooldownService = require(script.Parent.CooldownService)
 local ComboService = require(script.Parent.ComboService)
 local ExecutionService = require(script.Parent.ExecutionService)
+local Registrar = require(game.ServerScriptService.Server.Services.Registrar)
+
 require(script.Parent.SkillsEvent)
 
 local SkillsManager = {}
 
-type Caster = Instance
+type Caster = string
 
 local casterSkills: { [Caster]: { [string]: any } } = {} -- Table to hold skills per caster
 
@@ -21,10 +23,27 @@ local dispatcher = Networking.server()
 local dispatcherAny = dispatcher :: any
 dispatcherAny:_ensureChannel(SKILLS_CHANNEL_NAME)
 
+local function sendDelta(caster: Caster, type: string, data: any?)
+	local player = Registrar.getPlayerById(caster)
+	if player then
+		dispatcher:emit("SkillsUpdate", {
+			updateType = type,
+			data = data,
+		}, {
+			targets = player
+		})
+	end
+end
+
 function SkillsManager.addSkill(caster: Caster, name: string, override: SkillsConfig.SkillConfigOverride?)
 	local skill = SkillsConfig.addSkill(caster, name, override)
 	casterSkills[caster] = casterSkills[caster] or {}
 	casterSkills[caster][name] = skill
+
+	sendDelta(caster, "skill_added", {
+		skillName = name
+	})
+
 	return skill
 end
 
@@ -98,7 +117,6 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 
 	local skill = skills[skillName]
 	if not skill then
-		warn(`Skill '{skillName}' not found for caster {caster}`)
 		return
 	end
 
@@ -142,22 +160,24 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 			isNewChain = advance.isNewChain,
 			finalCd = comboCfg.comboCooldown or skill.cooldown,
 		}
-		skill:use(req)
-		return {
+		local skillData = skill:use(req)
+		local response = {
+			duration = skillData and skillData.duration,
 			step = advance.step,
 			total = comboCfg.steps,
 			window = comboCfg.window,
 		}
+		return response
 	else
 		-- Non-combo: just execute
+		local result
 		if requestData ~= nil then
-			skill:use(requestData)
+			result = skill:use(requestData)
 		else
-			skill:use()
+			result = skill:use()
 		end
+		return result
 	end
-
-	return
 end
 
 -- Assign to local alias after definition
@@ -169,7 +189,21 @@ function SkillsManager.removeAll(caster: Caster)
 		return
 	end
 	casterSkills[caster] = nil
+
+	sendDelta(caster, "all_skills_removed")
 	-- TODO: Consider calling cleanup hooks on skill instances if needed
+end
+
+function SkillsManager.removeSkill(caster: Caster, skillName: string)
+	local skills = casterSkills[caster]
+	if not skills then
+		return
+	end
+	skills[skillName] = nil
+
+	sendDelta(caster, "skill_removed", {
+		skillName = skillName
+	})
 end
 
 function SkillsManager.getSkill(caster: Caster, skillName: string)
@@ -202,22 +236,30 @@ dispatcherAny:onRequest("SkillsRequest", function(requestData, _meta, context)
 		return { success = false, error = "invalid_skill" }
 	end
 
-	useSkill(player, skillName, requestData)
+	local playerId = Registrar.getPlayerId(player)
+
+	useSkill(playerId, skillName, requestData)
 	return { success = true }
 end)
 
 dispatcher:onRequest("SkillRequestUse", function(requestData, _meta, context)
+	print("Received: ", requestData)
 	local player = context.player
 	if not player then
 		return { success = false, error = "no_player" }
 	end
 	local skillName = requestData.skillName
-	local result, reason = SkillsManager.canUse(player, skillName)
+	local playerId = Registrar.getPlayerId(player)
+	local result, reason = SkillsManager.canUse(playerId, skillName)
 	if not result then
 		return { success = false, error = reason }
 	end
-	local data = SkillsManager.useSkill(player, skillName, requestData)
-	return { success = true, data = data }
+	local data = SkillsManager.useSkill(playerId, skillName, requestData)
+	if data then
+		return { success = true, data = data }
+	end
+	-- useSkill returned nil - blocked by cooldown/execution/combo window
+	return { success = false, error = "blocked" }
 end)
 
 return SkillsManager

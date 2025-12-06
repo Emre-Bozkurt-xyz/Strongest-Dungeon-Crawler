@@ -1,4 +1,3 @@
---!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = game:GetService("ServerScriptService").Server
 
@@ -89,10 +88,9 @@ function TripleStrike:use()
 					local originCf = self:getCasterOriginCFrame(yaw)
 					local targets = {}
 					if originCf then
-						local casterPlayer = self:getCasterPlayer()
 						local q = HitboxService.newQuery(originCf)
-							:caster(casterPlayer)
-							:teamRelation("enemy")
+							:casterEntityId(self.casterId)
+							:factionRelation("enemy")
 							:playersOnly(false)
 							:cone(angle, range)
 						targets = q:collect(DEBUG_VIS)
@@ -100,10 +98,7 @@ function TripleStrike:use()
 					self:emitFX(i, { cframe = originCf, lifetime = 1 })
 					for _, model in ipairs(targets) do
 						local damage = baseDamage * mult
-						CombatService.applyDamage(model, damage, self.caster)
-						print(
-							`TripleStrike hit {model.Name} for {baseDamage} * {mult} = {damage} damage (base {baseDamage}, mult {mult})`
-						)
+						CombatService.applyDamage(model, damage, self.casterId)
 					end
 				end,
 			}
@@ -118,7 +113,14 @@ function TripleStrike:use()
 				self:completeExecution()
 			end)
 		end
-		return
+		
+		-- Return success response for client
+		return {
+			success = true,
+			data = {
+				duration = planned or 0,
+			},
+		}
 	end
 end
 

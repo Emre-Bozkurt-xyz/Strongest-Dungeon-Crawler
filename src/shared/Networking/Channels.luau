@@ -45,8 +45,8 @@ local Channels: { [string]: ChannelDefinition } = {
 		remoteFunction = "SkillsRequest",
 		direction = "bidirectional",
 		qos = "CRITICAL",
-		intents = { "SkillsRequest" },
-		events = { "SkillsEvent" },
+		intents = { "SkillsRequest", "SkillRequestUse", "SkillMetadataSnapshot" },
+		events = { "SkillsEvent", "SkillsUpdate", "ExecutionStateUpdate", "SkillMetadataUpdate" },
 	},
 	Cooldown = {
 		remote = "Cooldown",

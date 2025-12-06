@@ -75,9 +75,11 @@ local function regenerateEntity(entityId: string, deltaTime: number)
 end
 
 -- Main regeneration tick function
+local tickCount = 0
 local function onRegenerationTick()
 	local currentTime = tick()
 	local deltaTime = TICK_INTERVAL -- Fixed delta time for consistent regeneration
+	tickCount = tickCount + 1
 
 	for entityId, _ in pairs(Registrar.getAllEntities()) do
 		regenerateEntity(entityId, deltaTime)
@@ -85,6 +87,7 @@ local function onRegenerationTick()
 
 	-- Send updates only every UPDATE_INTERVAL to reduce network spam
 	if currentTime - lastUpdateTime >= UPDATE_INTERVAL then
+		local deltasSent = 0
 		for _, player in pairs(Players:GetPlayers()) do
 			local stats = StatsManager.getAllStats(player)
 			if stats then
@@ -121,6 +124,7 @@ local function onRegenerationTick()
 								maxValue = maxValue,
 							})
 							lastSentValues[player][poolType] = currentValue
+							deltasSent = deltasSent + 1
 						end
 					end
 				end

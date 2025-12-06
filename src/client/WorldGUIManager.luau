@@ -602,7 +602,6 @@ end
 -- Reset the initial panel position (useful when respawning or repositioning)
 function WorldGUIManager:resetInitialDirection()
 	self.idealPanelPosition = nil
-	print("🔄 WorldGUIManager: Panel position reset")
 end
 
 -- Get the GUI panel position for camera targeting

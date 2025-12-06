@@ -5,7 +5,7 @@ local FXPlayer = require(script.Parent.FXPlayer)
 local Players = game:GetService("Players")
 
 local dispatcher = Networking.client()
-dispatcher:_ensureChannel("FXReplicator")
+dispatcher:_ensureChannel("FX")
 
 local Replicator = {}
 

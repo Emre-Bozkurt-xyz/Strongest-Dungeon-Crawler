@@ -6,6 +6,7 @@ local Attribute = require(game.ReplicatedStorage.Shared.AttributeClass)
 local AttributeTypes = require(game.ReplicatedStorage.Shared.AttributeTypes)
 local StatTypes = require(game.ReplicatedStorage.Shared.StatTypes)
 local ModifierFactories = require(game.ReplicatedStorage.Shared.Modifiers.Factories)
+local Registrar = require(game.ServerScriptService.Server.Services.Registrar)
 
 -- Re-export the main types from AttributeTypes (single source of truth)
 export type PlayerAttributes = AttributeTypes.PlayerAttributes
@@ -96,10 +97,10 @@ AttributesConfig.ScalingFormulas = {
 -- ========================================
 
 local StatsManager = require(script.Parent.Parent.StatsManager)
-local function addOrUpdateScalingModifier(player: Player, statName: StatTypes.StatType, modifierId: string, value: number, description: string)
-	
-	if StatsManager.hasModifier(player, statName, modifierId) then
-		StatsManager.updateModifier(player, statName, modifierId, value)
+local function addOrUpdateScalingModifier(playerId: string, statName: StatTypes.StatType, modifierId: string, value: number, description: string)
+
+	if StatsManager.hasModifier(playerId, statName, modifierId) then
+		StatsManager.updateModifier(playerId, statName, modifierId, value)
 	else
 		local modifier = ModifierFactories.flatAdd({
 			sourceId = modifierId,
@@ -108,7 +109,7 @@ local function addOrUpdateScalingModifier(player: Player, statName: StatTypes.St
 			tags = { "attribute", "scaling" },
 			stackGroup = modifierId,
 		})
-		StatsManager.addModifier(player, statName, modifier)
+		StatsManager.addModifier(playerId, statName, modifier)
 	end
 end
 
@@ -116,40 +117,40 @@ end
 AttributesConfig.AttributeMilestones = {
 	{
 		attribute = AttributeTypes.Attributes.Intelligence,
-		applyScaling = function(player: Player, intelligenceValue: number)
+		applyScaling = function(playerId: string, intelligenceValue: number)
 			local newValue = AttributesConfig.ScalingFormulas.Intelligence.MagicDamageFromValue(intelligenceValue)
-			addOrUpdateScalingModifier(player, StatTypes.StaticStats.MagicDamage, "IntelligenceScaling", newValue, "Increased Magic Damage from Intelligence")
+			addOrUpdateScalingModifier(playerId, StatTypes.StaticStats.MagicDamage, "IntelligenceScaling", newValue, "Increased Magic Damage from Intelligence")
 		end,
 	},
 	{
 		attribute = AttributeTypes.Attributes.Intelligence,
-		applyScaling = function(player: Player, intelligenceValue: number)
+		applyScaling = function(playerId: string, intelligenceValue: number)
 			local newValue = AttributesConfig.ScalingFormulas.Intelligence.ManaFromValue(intelligenceValue)
-			addOrUpdateScalingModifier(player, StatTypes.PoolStats.Mana, "IntelligenceManaScaling", newValue, "Increased Mana from Intelligence")
+			addOrUpdateScalingModifier(playerId, StatTypes.PoolStats.Mana, "IntelligenceManaScaling", newValue, "Increased Mana from Intelligence")
 		end,
 	},
 	{
 		attribute = AttributeTypes.Attributes.Strength,
-		applyScaling = function(player: Player, strengthValue: number)
+		applyScaling = function(playerId: string, strengthValue: number)
 			local newValue = AttributesConfig.ScalingFormulas.Strength.PhysicalDamageFromValue(strengthValue)
-			addOrUpdateScalingModifier(player, StatTypes.StaticStats.PhysicalDamage, "StrengthScaling", newValue, "Increased Physical Damage from Strength")
+			addOrUpdateScalingModifier(playerId, StatTypes.StaticStats.PhysicalDamage, "StrengthScaling", newValue, "Increased Physical Damage from Strength")
 		end,
 	},
 	-- Perception drives reveal radius and info tier
 	{
 		attribute = AttributeTypes.Attributes.Perception,
-		applyScaling = function(player: Player, perceptionValue: number)
+		applyScaling = function(playerId: string, perceptionValue: number)
 			-- Example mapping: distance grows sublinearly; tier grows at breakpoints
 			-- Distance: base 60 + sqrt(perception)*6 studs
 			local dist = 60 + math.sqrt(math.max(perceptionValue, 0)) * 6
 			-- Use modifier as delta-from-base to avoid double-counting the default base value
-			local stat = StatsManager.getStat(player, StatTypes.StaticStats.PerceptionDistance)
+			local stat = StatsManager.getStat(playerId, StatTypes.StaticStats.PerceptionDistance)
 			local base = 0
 			if stat and (stat :: any).getBaseValue then
 				base = (stat :: any):getBaseValue()
 			end
 			local delta = math.max(0, dist - base)
-			addOrUpdateScalingModifier(player, StatTypes.StaticStats.PerceptionDistance, "PerceptionDistanceFromPerception", delta, "Reveal distance from Perception")
+			addOrUpdateScalingModifier(playerId, StatTypes.StaticStats.PerceptionDistance, "PerceptionDistanceFromPerception", delta, "Reveal distance from Perception")
 
 			-- Tier: 0(<1), 1(>=1), 2(>=10), 3(>=25), 4(>=50), 5(>=100)
 			local tier = 0
@@ -168,7 +169,7 @@ AttributesConfig.AttributeMilestones = {
 			if perceptionValue >= 100 then
 				tier = 5
 			end
-			addOrUpdateScalingModifier(player, StatTypes.StaticStats.PerceptionTier, "PerceptionTierFromPerception", tier, "Reveal tier from Perception")
+			addOrUpdateScalingModifier(playerId, StatTypes.StaticStats.PerceptionTier, "PerceptionTierFromPerception", tier, "Reveal tier from Perception")
 		end,
 	},
 } :: { 

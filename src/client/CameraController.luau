@@ -243,8 +243,6 @@ function CameraController:enable()
 
 	self.enabled = true
 	self:setMode(self.mode)
-
-	print("📷 CameraController: Over-the-shoulder camera enabled")
 end
 
 -- Disable and return to normal camera
@@ -259,8 +257,6 @@ function CameraController:disable()
 	self.camera.CameraType = self.originalCameraType
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
-
-	print("📷 CameraController: Camera control disabled")
 end
 
 -- Set a specific position for the camera to look at (optional override)

@@ -1,9 +1,7 @@
 --!strict
--- ProjectileService stub: spawns and owns projectile simulation; emits SkillsEvent for visuals
+-- ProjectileService stub: spawns and owns projectile simulation.
 
 local RunService = game:GetService("RunService")
-
-local event = require(script.Parent.SkillsEvent)
 
 local ProjectileService = {}
 
@@ -41,20 +39,6 @@ function ProjectileService.spawn(p: SpawnParams): number
 		pierce = p.pierce or 1,
 		fxKey = p.fxKey,
 	}
-	if event then
-		event:FireAllClients({
-			phase = "proj_spawn",
-			projId = id,
-			id = p.defId,
-			fxKey = p.fxKey,
-			origin = p.origin,
-			dir = p.dir,
-			speed = p.speed,
-			gravityY = p.gravityY or 0,
-			radius = p.radius or 1.5,
-			lifetime = p.lifetime or 1.5,
-		})
-	end
 	return id
 end
 
@@ -67,9 +51,6 @@ RunService.Heartbeat:Connect(function(dt)
 	for id, pr in pairs(active) do
 		pr.life -= dt
 		if pr.life <= 0 then
-			if event then
-				event:FireAllClients({ phase = "proj_end", projId = id, reason = "lifetime" })
-			end
 			active[id] = nil
 			continue
 		end

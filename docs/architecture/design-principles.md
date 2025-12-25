@@ -61,7 +61,7 @@
 ## Command-Driven Skill Execution Vision
 - **Single execution queue per actor**: Replace bespoke combo vs single-skill flows with a `CommandManager` that holds queued `SkillCommand` instances, each exposing `canExecute`, `execute`, `cancel`, and lifecycle callbacks.
 - **Composable commands**: Model combo chains as composite commands that enqueue their own steps, letting per-step delays, resource checks, and FX scheduling live inside the command rather than scattered across services.
-- **Deterministic gating**: Commands are enqueued only after shared gating (cooldowns, resources, combo tokens) pass; once queued, they own execution, call into `ExecutionService` for locks, and raise domain events for UI/FX observers.
+- **Deterministic gating**: Commands are enqueued only after shared gating (cooldowns, resources, combo windows) pass; once queued, they own execution, call into `SessionManager` for session transitions, and raise domain events for UI/FX observers.
 - **Extensibility hooks**: By standardizing lifecycle events (`onQueued`, `onStarted`, `onCompleted`, `onInterrupted`), downstream systems (projectiles, timeline FX, analytics) subscribe without bespoke glue, paving the way for replays or rollback.
 - **Migration strategy**: Start by wrapping an existing skill (`Punch`) with a command, prove parity, then incrementally port combos and asynchronous skills; maintain adaptor shims until the legacy path is removed.
 

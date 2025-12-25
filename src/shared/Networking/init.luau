@@ -11,12 +11,20 @@ Networking.ChannelRegistry = require(script.ChannelRegistry)
 Networking.Stats = require(script.Stats)
 Networking.ReplayBuffer = require(script.ReplayBuffer)
 
+-- Auto-load channel definitions when Networking module is first required
+-- This ensures channels are always available before any dispatcher is created
+local ChannelDefinitions = require(script.Channels)
+Networking.ChannelRegistry.load(ChannelDefinitions)
+
 local clientSingleton = nil
 local serverSingleton = nil
 
 function Networking.init(config: { [string]: any })
 	assert(type(config) == "table", "Networking.init expects a config table")
-	assert(config.peer == "client" or config.peer == "server", "Networking.init requires 'peer' to be 'client' or 'server'")
+	assert(
+		config.peer == "client" or config.peer == "server",
+		"Networking.init requires 'peer' to be 'client' or 'server'"
+	)
 	if config.peer == "client" then
 		return Networking.Client(config)
 	else

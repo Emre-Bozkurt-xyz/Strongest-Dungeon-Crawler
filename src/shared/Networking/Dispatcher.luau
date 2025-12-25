@@ -1,7 +1,6 @@
 --!strict
 -- Core dispatcher for the custom networking transport. Transport adapters will extend this.
 
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -170,17 +169,20 @@ function Dispatcher.new(config: Config)
 
 	local remoteFolder = ensureRemoteFolder(config.peer)
 
-	local self = setmetatable({
-		_peer = config.peer,
-		_stats = stats,
-		_replay = replayBuffer,
-		_listeners = {} :: { [string]: ListenerBucket },
-		_channelDefinitions = {} :: { [string]: ChannelDefinition },
-		_channelRemotes = {} :: { [string]: RemoteBundle },
-		_connections = {},
-		_remoteFolder = remoteFolder,
-		_requestHandlers = {},
-	} :: DispatcherImpl, Dispatcher)
+	local self = setmetatable(
+		{
+			_peer = config.peer,
+			_stats = stats,
+			_replay = replayBuffer,
+			_listeners = {} :: { [string]: ListenerBucket },
+			_channelDefinitions = {} :: { [string]: ChannelDefinition },
+			_channelRemotes = {} :: { [string]: RemoteBundle },
+			_connections = {},
+			_remoteFolder = remoteFolder,
+			_requestHandlers = {},
+		} :: DispatcherImpl,
+		Dispatcher
+	)
 
 	if config.channelRegistry then
 		ChannelRegistry.load(config.channelRegistry)
@@ -359,10 +361,15 @@ function Dispatcher:_ensureChannel(name: string)
 				newRemote.Parent = folder
 				remoteEvent = newRemote
 			else
-				remoteEvent = folder:WaitForChild(remoteEventName, 5) :: RemoteEvent
+				-- Client: Wait indefinitely for server to create the RemoteEvent
+				-- No rush - listeners will connect once server is ready
+				remoteEvent = folder:WaitForChild(remoteEventName) :: RemoteEvent
 			end
 		end
-		assert(remoteEvent and remoteEvent:IsA("RemoteEvent"), `RemoteEvent '{remoteEventName}' missing for channel '{name}'`)
+		assert(
+			remoteEvent and remoteEvent:IsA("RemoteEvent"),
+			`RemoteEvent '{remoteEventName}' is not a RemoteEvent for channel '{name}'`
+		)
 		bundle.event = remoteEvent
 		self:_bindEventChannel(name, definition, remoteEvent)
 	end
@@ -377,10 +384,14 @@ function Dispatcher:_ensureChannel(name: string)
 				newRemote.Parent = folder
 				remoteFunction = newRemote
 			else
-				remoteFunction = folder:WaitForChild(remoteFunctionName, 5) :: RemoteFunction
+				-- Client: Wait indefinitely for server to create the RemoteFunction
+				remoteFunction = folder:WaitForChild(remoteFunctionName) :: RemoteFunction
 			end
 		end
-		assert(remoteFunction and remoteFunction:IsA("RemoteFunction"), `RemoteFunction '{remoteFunctionName}' missing for channel '{name}'`)
+		assert(
+			remoteFunction and remoteFunction:IsA("RemoteFunction"),
+			`RemoteFunction '{remoteFunctionName}' missing for channel '{name}'`
+		)
 		bundle.request = remoteFunction
 		self:_bindRequestChannel(name, definition, remoteFunction)
 	end
@@ -418,7 +429,11 @@ function Dispatcher:_bindEventChannel(channelName: string, definition: ChannelDe
 	end
 end
 
-function Dispatcher:_bindRequestChannel(channelName: string, definition: ChannelDefinition, remoteFunction: RemoteFunction)
+function Dispatcher:_bindRequestChannel(
+	channelName: string,
+	definition: ChannelDefinition,
+	remoteFunction: RemoteFunction
+)
 	local impl = (self :: any) :: DispatcherImpl
 	if impl._peer == "server" then
 		if canReceiveFromPeer(definition, "server") then
@@ -503,7 +518,13 @@ function Dispatcher:_buildEnvelope(name: string, payload: any, options: SendOpti
 	return envelope
 end
 
-function Dispatcher:_sendEvent(channelName: string, definition: ChannelDefinition, bundle: RemoteBundle, envelope: EnvelopeType, options: SendOptions?)
+function Dispatcher:_sendEvent(
+	channelName: string,
+	definition: ChannelDefinition,
+	bundle: RemoteBundle,
+	envelope: EnvelopeType,
+	options: SendOptions?
+)
 	local impl = (self :: any) :: DispatcherImpl
 	local remoteEvent = bundle.event
 	assert(remoteEvent, `Channel '{channelName}' does not have a RemoteEvent bound`)
@@ -524,7 +545,13 @@ function Dispatcher:_sendEvent(channelName: string, definition: ChannelDefinitio
 	self:_record("outgoing", envelope, { channel = channelName, transport = "event" })
 end
 
-function Dispatcher:_invokeRequest(channelName: string, definition: ChannelDefinition, bundle: RemoteBundle, envelope: EnvelopeType, options: SendOptions?): any
+function Dispatcher:_invokeRequest(
+	channelName: string,
+	definition: ChannelDefinition,
+	bundle: RemoteBundle,
+	envelope: EnvelopeType,
+	options: SendOptions?
+): any
 	local impl = (self :: any) :: DispatcherImpl
 	local remoteFunction = bundle.request
 	assert(remoteFunction, `Channel '{channelName}' does not have a RemoteFunction bound`)
@@ -576,7 +603,10 @@ function Dispatcher:onRequest(intentName: string, handler: RequestHandler): () -
 	else
 		warn(`Dispatcher:onRequest received unknown intent '{intentName}'`)
 	end
-	assert(impl._requestHandlers[intentName] == nil, `Dispatcher already has a request handler for intent '{intentName}'`)
+	assert(
+		impl._requestHandlers[intentName] == nil,
+		`Dispatcher already has a request handler for intent '{intentName}'`
+	)
 	impl._requestHandlers[intentName] = handler
 	local disconnected = false
 	return function()

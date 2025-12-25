@@ -1,190 +1,184 @@
 --!strict
--- Client-side combo state tracking - replicates server ComboService timing logic
--- Uses metadata (window, stepDurations, stepDelays) + timing results to calculate exact window boundaries
--- Enables client to gate skill requests with same logic as server
+-- Client-side combo state tracking using SessionMirror
+-- Uses authoritative server window timings (windowOpensAt/windowExpiresAt) directly from sessions
+-- No client-side recalculation needed - SessionManager is single source of truth
 
-local SkillMetadataClient = require(script.Parent.SkillMetadataClient)
-local ExecutionClient = require(script.Parent.ExecutionClient)
+local SessionMirror = require(script.Parent.SessionMirror)
+
+-- DEBUG FLAG: Set to true to enable combo state logging
+local DEBUG_COMBO = false
+
+local function debugLog(...)
+	if DEBUG_COMBO then
+		print("[COMBO-STATE]", ...)
+	end
+end
 
 local ComboStateClient = {}
-
-type ComboState = {
-	skillName: string,
-	currentStep: number,
-	totalSteps: number,
-	-- Window timing (calculated from metadata + timing scale)
-	startTime: number, -- When this step started (os.clock)
-	busyUntil: number, -- Step execution completes (startTime + stepDuration)
-	windowOpenAt: number, -- When next input allowed (busyUntil + stepDelay)
-	windowCloseAt: number?, -- When window expires (windowOpenAt + window)
-	isFinal: boolean,
-}
-
--- Active combo states per skill
-local activeCombo: { [string]: ComboState } = {}
 
 local function now(): number
 	return os.clock()
 end
 
--- Listen to execution completion to clear final combo states
--- Note: Server sends skillName=nil on unlock, so we track last locked skill ourselves
-local lastLockedSkill: string? = nil
-
-ExecutionClient.onChanged(function(locked: boolean, skillName: string?)
-	if locked and skillName then
-		-- Track which skill is locking
-		lastLockedSkill = skillName
-	elseif not locked and lastLockedSkill then
-		-- Execution unlocked - check if it was a final combo step
-		local state = activeCombo[lastLockedSkill]
-		if state and state.isFinal then
-			-- Final step completed, clear combo state
-			activeCombo[lastLockedSkill] = nil
-		end
-		lastLockedSkill = nil
-	end
-end)
-
--- Calculate window timing using metadata (replicates ComboService.registerStepTiming)
-local function calculateWindowTiming(
-	skillName: string,
-	step: number,
-	totalSteps: number,
-	durationScale: number,
-	startTime: number
-): ComboState?
-	local metadata = SkillMetadataClient.get(skillName)
-	if not metadata or not metadata.combo then
-		warn(`🔮 [CLIENT-COMBO-STATE] {skillName} - No combo metadata found`)
-		return nil
-	end
-	
-	local combo = metadata.combo
-	local isFinal = step >= totalSteps
-	
-	-- Get base values from metadata (same logic as server BaseComboSkill)
-	local baseStepDuration
-	if combo.stepDurations and combo.stepDurations[step] then
-		baseStepDuration = combo.stepDurations[step]
-	else
-		local baseHitDelay = (combo.hitDelays and combo.hitDelays[step]) or 0
-		local baseRecovery = (combo.recovery or 0)
-		baseStepDuration = baseHitDelay + (isFinal and baseRecovery or 0)
-	end
-	
-	local baseStepDelay = (combo.stepDelays and combo.stepDelays[step]) or 0
-	local baseWindow = combo.window or 0
-	
-	-- Apply timing scale (from server)
-	local stepDuration = baseStepDuration * durationScale
-	local stepDelay = baseStepDelay * durationScale
-	local window = baseWindow * durationScale
-	
-	-- Calculate timing gates (same as server ComboService)
-	local busyUntil = startTime + stepDuration
-	local windowOpenAt = busyUntil + stepDelay
-	local windowCloseAt = if not isFinal then windowOpenAt + window else nil
-	
-	return {
-		skillName = skillName,
-		currentStep = step,
-		totalSteps = totalSteps,
-		startTime = startTime,
-		busyUntil = busyUntil,
-		windowOpenAt = windowOpenAt,
-		windowCloseAt = windowCloseAt,
-		isFinal = isFinal,
-	}
-end
-
--- Check if we can advance to next step (replicates ComboService.requestStep gating)
+-- Check if we can advance to next step (uses SessionMirror's authoritative window timing)
 function ComboStateClient.canAdvance(skillName: string): (boolean, string?)
-	local state = activeCombo[skillName]
-	if not state then
-		-- No active combo, can start fresh
+	debugLog("canAdvance called for", skillName)
+
+	local localCaster = SessionMirror.getLocalCasterId()
+	if not localCaster then
+		debugLog("  No local caster ID")
 		return true, nil
 	end
-	
+
+	local session = SessionMirror.getSession(localCaster)
+	if not session then
+		-- No active session, can start fresh
+		debugLog("  No active session -> can start fresh")
+		return true, nil
+	end
+
+	-- Only gate for matching skill
+	if session.skillId ~= skillName then
+		debugLog("  Session is for different skill (", session.skillId, ") -> can start fresh")
+		return true, nil
+	end
+
+	-- Check terminal states
+	if session.state == "COMPLETED" or session.state == "CANCELLED" then
+		debugLog("  Session is terminal (", session.state, ") -> can start fresh")
+		return true, nil
+	end
+
+	-- Non-combo sessions always allow (single execution)
+	if not session.combo then
+		debugLog("  Non-combo session, allowing")
+		return true, nil
+	end
+
 	local t = now()
-	
+	local combo = session.combo
+
+	debugLog("  Combo session: step=", combo.currentStep, "totalSteps=", combo.totalSteps)
+	debugLog(
+		"  Window: opensAt=",
+		combo.windowOpensAt and string.format("%.3f", combo.windowOpensAt) or "nil",
+		"expiresAt=",
+		combo.windowExpiresAt and string.format("%.3f", combo.windowExpiresAt) or "nil"
+	)
+
 	-- Check if final step already played
-	if state.isFinal then
+	local isFinal = combo.currentStep >= combo.totalSteps
+	if isFinal then
+		debugLog("  BLOCKED: combo_complete (isFinal=true)")
 		return false, "combo_complete"
 	end
-	
-	-- Check if too early (still busy or before window opens)
-	if t < state.windowOpenAt then
+
+	-- Check window timing (authoritative from server)
+	if not combo.windowOpensAt then
+		-- Window not yet set (execution just started), block
+		debugLog("  BLOCKED: combo_busy (window not yet open)")
 		return false, "combo_busy"
 	end
-	
+
+	-- Check if too early (before window opens)
+	if t < combo.windowOpensAt then
+		local diff = combo.windowOpensAt - t
+		debugLog("  BLOCKED: combo_busy (now < windowOpensAt, diff=", string.format("%.3f", diff), ")")
+		return false, "combo_busy"
+	end
+
 	-- Check if window expired
-	if state.windowCloseAt and t > state.windowCloseAt then
-		activeCombo[skillName] = nil -- Clear expired state
+	if combo.windowExpiresAt and t > combo.windowExpiresAt then
+		local diff = t - combo.windowExpiresAt
+		debugLog("  BLOCKED: combo_expired (now > windowExpiresAt, diff=", string.format("%.3f", diff), ")")
 		return false, "combo_expired"
 	end
-	
+
 	-- Within window, can advance
+	debugLog("  OK: within window, can advance")
 	return true, nil
 end
 
--- Predict next step number (doesn't check timing, just increments)
+-- Predict next step number (uses SessionMirror's authoritative step count)
 function ComboStateClient.predictNextStep(skillName: string, totalSteps: number): number
-	local state = activeCombo[skillName]
-	
-	if state and not state.isFinal then
-		local nextStep = state.currentStep + 1
-		if nextStep <= totalSteps then
-			return nextStep
-		end
+	debugLog("predictNextStep called for", skillName, "totalSteps=", totalSteps)
+
+	local localCaster = SessionMirror.getLocalCasterId()
+	if not localCaster then
+		debugLog("  No local caster, returning 1")
+		return 1
 	end
-	
-	-- No active combo or complete, start fresh
+
+	local session = SessionMirror.getSession(localCaster)
+	if not session or session.skillId ~= skillName then
+		debugLog("  No matching session, returning 1")
+		return 1
+	end
+
+	if session.state == "COMPLETED" or session.state == "CANCELLED" then
+		debugLog("  Session is terminal, returning 1")
+		return 1
+	end
+
+	if not session.combo then
+		debugLog("  Non-combo skill, returning 1")
+		return 1
+	end
+
+	local currentStep = session.combo.currentStep
+	local isFinal = currentStep >= session.combo.totalSteps
+
+	if not isFinal then
+		local nextStep = currentStep + 1
+		debugLog("  Current step=", currentStep, "-> next step=", nextStep)
+		return nextStep
+	end
+
+	-- Final step already, start fresh
+	debugLog("  Final step reached, returning 1")
 	return 1
 end
 
--- Reconcile with server confirmation (update state with authoritative timing)
-function ComboStateClient.reconcile(
-	skillName: string,
-	serverStep: number,
-	totalSteps: number,
-	durationScale: number
-)
-	local startTime = now()
-	local newState = calculateWindowTiming(skillName, serverStep, totalSteps, durationScale, startTime)
-	
-	if not newState then
-		warn(`[ComboStateClient] Failed to calculate window timing for {skillName}`)
-		return
-	end
-	
-	activeCombo[skillName] = newState
-end
-
--- Clear combo state (on completion or cancel)
-function ComboStateClient.clear(skillName: string)
-	activeCombo[skillName] = nil
-end
-
--- Get current step (nil if no active combo or expired)
+-- Reconcile with server confirmation (no longer needed - SessionMirror provides authoritative state)
+-- Get current step (uses SessionMirror's authoritative step count)
 function ComboStateClient.getCurrentStep(skillName: string): number?
-	local state = activeCombo[skillName]
-	if not state then
+	local localCaster = SessionMirror.getLocalCasterId()
+	if not localCaster then
 		return nil
 	end
-	
-	-- Check if window expired
-	if state.windowCloseAt and now() > state.windowCloseAt then
-		activeCombo[skillName] = nil
+
+	local session = SessionMirror.getSession(localCaster)
+	if not session or session.skillId ~= skillName then
 		return nil
 	end
-	
-	return state.currentStep
+
+	if session.state == "COMPLETED" or session.state == "CANCELLED" then
+		return nil
+	end
+
+	if not session.combo then
+		return nil
+	end
+
+	return session.combo.currentStep
 end
 
--- Check if combo is active (has valid state)
+-- Check if combo is active (has valid session)
 function ComboStateClient.isActive(skillName: string): boolean
-	return activeCombo[skillName] ~= nil
+	local localCaster = SessionMirror.getLocalCasterId()
+	if not localCaster then
+		debugLog("isActive called for", skillName, "= false (no local caster)")
+		return false
+	end
+
+	local session = SessionMirror.getSession(localCaster)
+	local active = session ~= nil
+		and session.skillId == skillName
+		and session.combo ~= nil
+		and session.state ~= "COMPLETED"
+		and session.state ~= "CANCELLED"
+	debugLog("isActive called for", skillName, "=", active)
+	return active
 end
 
 return ComboStateClient

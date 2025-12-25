@@ -92,7 +92,13 @@ export type HitboxQueryBuilder = {
 	-- execution
 	--- Execute the configured query and collect models. For rays, returns at most one model.
 	--- If debug is true, attempts to draw the hitbox shape briefly.
-	collect: (self: HitboxQueryBuilder, debug: boolean?) -> { Model },
+	collect: (
+		self: HitboxQueryBuilder,
+		params: { debug: boolean?, collectIds: boolean? }?
+	) -> {
+		models: { Model },
+		ids: { string }?,
+	},
 	--- Cast the configured ray and return (top-level Model?, RaycastResult?). Only valid for ray shape.
 	cast: (self: HitboxQueryBuilder) -> (Model?, RaycastResult?),
 }
@@ -129,19 +135,19 @@ local function shouldExclude(model: Model, opts: QueryOptions?): boolean
 	if not opts then
 		return false
 	end
-	
+
 	local targetEntityId = Registrar.getEntityId(model)
 	if not targetEntityId then
 		return true -- Exclude non-registered entities
 	end
-	
+
 	-- Exclude caster if requested
 	if opts.casterEntityId and targetEntityId == opts.casterEntityId then
 		if not opts.includeCaster then
 			return true
 		end
 	end
-	
+
 	-- Explicit model exclusion
 	local excl = opts.excludeModels
 	if excl then
@@ -151,7 +157,7 @@ local function shouldExclude(model: Model, opts: QueryOptions?): boolean
 			end
 		end
 	end
-	
+
 	-- Explicit entity ID exclusion
 	local exclIds = opts.excludeEntityIds
 	if exclIds then
@@ -161,14 +167,14 @@ local function shouldExclude(model: Model, opts: QueryOptions?): boolean
 			end
 		end
 	end
-	
+
 	-- Faction-based filtering
 	if opts.factionRelation and opts.casterEntityId then
 		local casterModel = Registrar.getEntityById(opts.casterEntityId)
 		if casterModel then
 			local casterFaction = EntityUtils.getFaction(casterModel)
 			local targetFaction = EntityUtils.getFaction(model)
-			
+
 			if opts.factionRelation == "ally" then
 				-- Only include allies (same faction)
 				if casterFaction ~= targetFaction then
@@ -185,7 +191,7 @@ local function shouldExclude(model: Model, opts: QueryOptions?): boolean
 			end
 		end
 	end
-	
+
 	return false
 end
 
@@ -559,12 +565,12 @@ local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
 
 	-- Execute the configured query and collect models.
 	-- For ray queries, returns a list with at most one model.
-	function b:collect(params: any?): { Model | string }
+	function b:collect(params: any?): { models: { Model }, ids: { string }? }
 		local debug = params and params.debug or false
 		local collectIds = params and params.collectIds or true
 		local cf = ensureOrigin()
 		if not shape then
-			return {}
+			return { models = {} }
 		end
 		local result = {}
 		if shape.kind == "sphere" then
@@ -612,9 +618,9 @@ local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
 		end
 
 		if collectIds then
-			return HitboxService.getEntityIds(result)
+			return { models = result, ids = HitboxService.getEntityIds(result) }
 		end
-		return result
+		return { models = result }
 	end
 
 	-- Cast the configured ray and return (top-level Model?, RaycastResult?).

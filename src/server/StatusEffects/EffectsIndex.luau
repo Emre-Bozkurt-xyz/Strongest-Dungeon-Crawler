@@ -1,8 +1,7 @@
---!strict
 -- Central catalog of status effect definitions. Server-only.
+-- This module is intentionally not strict to avoid cross-file type identity mismatches.
 
--- Keep this module untyped to avoid cross-file type identity mismatches.
-local defs = {} :: { [string]: any }
+local defs = {}
 
 -- Burn (DoT) — per-source stacks, each with own params/duration; ticks every second
 -- Recommended for cases where different skills contribute different power
@@ -22,19 +21,25 @@ defs.Burn = {
 		local p = params :: any
 		return (p.damagePerTick or p.power or 0)
 	end,
-	onTick = function(target: Instance, source: Player?, params: any?, _stacks: number, _dt: number, ctx: any)
+	onTick = function(target: string, source: string?, params: any?, _stacks: number, _dt: number, ctx: any)
 		local power = 0
 		if params then
 			local p = params :: any
 			power = (p.damagePerTick or p.power or 0)
 		end
 		local dmg = power -- per-entry tick uses its own params
-		if ctx and ctx.applyDamage then
-			ctx.applyDamage(target, dmg, source, {
-				kind = "magic",
-				element = "fire",
-				critAllowed = false,
-			})
+		if dmg > 0 and ctx and ctx.applyAttack then
+			local sourceId: string = if source then source else ""
+			local attack = {
+				packets = { {
+					type = "damage",
+					damageType = "Fire",
+					amount = dmg,
+				} },
+				sourceId = sourceId,
+				metadata = { effectId = "Burn", isCrit = false },
+			}
+			ctx.applyAttack(target, attack, sourceId)
 		end
 	end,
 }
@@ -60,18 +65,24 @@ defs.Poison = {
 		end
 		return { dpt = total }
 	end,
-	onTick = function(target: Instance, source: Player?, params: any?, _stacks: number, _dt: number, ctx: any)
+	onTick = function(target: string, source: string?, params: any?, _stacks: number, _dt: number, ctx: any)
 		local dpt = 0
 		if params then
 			local p = params :: any
 			dpt = p.dpt or 0
 		end
-		if dpt > 0 and ctx and ctx.applyDamage then
-			ctx.applyDamage(target, dpt, source, {
-				kind = "physical",
-				element = "poison",
-				critAllowed = false,
-			})
+		if dpt > 0 and ctx and ctx.applyAttack then
+			local sourceId: string = if source then source else ""
+			local attack = {
+				packets = { {
+					type = "damage",
+					damageType = "Poison",
+					amount = dpt,
+				} },
+				sourceId = sourceId,
+				metadata = { effectId = "Poison", isCrit = false },
+			}
+			ctx.applyAttack(target, attack, sourceId)
 		end
 	end,
 }
@@ -87,5 +98,11 @@ defs.Frenzy = {
 	capPolicy = "refreshOldest",
 	-- onApply/onRemove can notify UI or recalc derived stats
 }
+
+-- Blocking effects (use lowercase keys to match id fields)
+defs.stagger = require(script.Parent.Blocking.Stagger)
+defs.stun = require(script.Parent.Blocking.Stun)
+defs.root = require(script.Parent.Blocking.Root)
+defs.silence = require(script.Parent.Blocking.Silence)
 
 return defs

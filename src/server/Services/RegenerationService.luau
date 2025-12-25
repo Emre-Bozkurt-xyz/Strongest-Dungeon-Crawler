@@ -13,6 +13,12 @@ local Registrar = require(Server.Services.Registrar)
 
 local RegenerationService = {}
 
+-- Debug flag - set to true to see regeneration activity (non-spammy, periodic logging)
+local DEBUG_REGEN = false
+local lastDebugTime = 0
+local DEBUG_INTERVAL = 5 -- Log debug info every 5 seconds
+local globalTickCount = 0 -- Track ticks globally for debug logging
+
 -- Configuration
 local TICK_RATE = 30 -- 30 ticks per second for smooth regeneration
 local TICK_INTERVAL = 1 / TICK_RATE -- ~0.033 seconds per tick
@@ -36,6 +42,9 @@ local REGEN_MAPPING = {
 local function regenerateEntity(entityId: string, deltaTime: number)
 	local stats = StatsManager.getAllStats(entityId)
 	if not stats then
+		if DEBUG_REGEN then
+			warn(`[RegenerationService] No stats found for entityId: {entityId}`)
+		end
 		return {}
 	end
 
@@ -57,6 +66,10 @@ local function regenerateEntity(entityId: string, deltaTime: number)
 				},
 			}) or 0
 
+			if DEBUG_REGEN and globalTickCount % 150 == 0 then -- Log every 5 seconds (150 ticks at 30 tps)
+				print(`[RegenerationService] Entity {entityId} {poolType} regen: {regenPerSecond}/s`)
+			end
+
 			if regenPerSecond > 0 then
 				-- Calculate regeneration for this tick (smooth over the tick interval)
 				local regenThisTick = regenPerSecond * deltaTime
@@ -75,21 +88,44 @@ local function regenerateEntity(entityId: string, deltaTime: number)
 end
 
 -- Main regeneration tick function
-local tickCount = 0
+local entitiesProcessed = 0
+local poolsRegenerated = 0
+
 local function onRegenerationTick()
 	local currentTime = tick()
 	local deltaTime = TICK_INTERVAL -- Fixed delta time for consistent regeneration
-	tickCount = tickCount + 1
+	globalTickCount = globalTickCount + 1
+	local tickCount = globalTickCount
+	local tickEntitiesProcessed = 0
+	local tickPoolsRegenerated = 0
 
-	for entityId, _ in pairs(Registrar.getAllEntities()) do
-		regenerateEntity(entityId, deltaTime)
+	for _, entityId in ipairs(Registrar.getAllEntityIds()) do
+		local changedPools = regenerateEntity(entityId, deltaTime)
+		tickEntitiesProcessed = tickEntitiesProcessed + 1
+		tickPoolsRegenerated = tickPoolsRegenerated + #changedPools
+	end
+
+	entitiesProcessed = tickEntitiesProcessed
+	poolsRegenerated = tickPoolsRegenerated
+
+	-- Debug logging (non-spammy)
+	if DEBUG_REGEN and currentTime - lastDebugTime >= DEBUG_INTERVAL then
+		print(
+			`[RegenerationService] Tick #{tickCount}: Processed {entitiesProcessed} entities, {poolsRegenerated} pools regenerated`
+		)
+		lastDebugTime = currentTime
 	end
 
 	-- Send updates only every UPDATE_INTERVAL to reduce network spam
 	if currentTime - lastUpdateTime >= UPDATE_INTERVAL then
 		local deltasSent = 0
 		for _, player in pairs(Players:GetPlayers()) do
-			local stats = StatsManager.getAllStats(player)
+			local playerEntityId = Registrar.getPlayerId(player)
+			if not playerEntityId then
+				continue
+			end
+
+			local stats = StatsManager.getAllStats(playerEntityId)
 			if stats then
 				-- Initialize tracking for this player if needed
 				if not lastSentValues[player] then
@@ -99,19 +135,19 @@ local function onRegenerationTick()
 				for poolType, _ in pairs(REGEN_MAPPING) do
 					local pool = stats[poolType]
 					if pool then
-						local currentValue = StatsManager.getPoolCurrentValue(player, poolType, {
+						local currentValue = StatsManager.getPoolCurrentValue(playerEntityId, poolType, {
 							event = "regenerationResourceQuery",
 							metadata = {
-								entity = player,
+								entity = playerEntityId,
 								pool = poolType,
 								stage = "sync",
 							},
 						}) or pool:getCurrentValue()
 						local lastValue = lastSentValues[player][poolType]
-						local maxValue = StatsManager.getPoolMaxValue(player, poolType, {
+						local maxValue = StatsManager.getPoolMaxValue(playerEntityId, poolType, {
 							event = "regenerationResourceMax",
 							metadata = {
-								entity = player,
+								entity = playerEntityId,
 								pool = poolType,
 								stage = "sync",
 							},
@@ -119,10 +155,15 @@ local function onRegenerationTick()
 
 						-- Only send delta if the value actually changed
 						if not lastValue or math.abs(currentValue - lastValue) > 0.01 then
-							StatsManager.emitDelta(player, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, poolType, {
-								currentValue = currentValue,
-								maxValue = maxValue,
-							})
+							StatsManager.emitDelta(
+								playerEntityId,
+								StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED,
+								poolType,
+								{
+									currentValue = currentValue,
+									maxValue = maxValue,
+								}
+							)
 							lastSentValues[player][poolType] = currentValue
 							deltasSent = deltasSent + 1
 						end

@@ -15,40 +15,57 @@ local listeners: { [string]: { [string]: { (ctx: any) -> () } } } = {}
 
 -- active tracks to allow cleanup: track -> { skillName, options, connections = {RBXScriptConnection} }
 local activeTracks: { [AnimationTrack]: any } = {}
+local sessionTracks: { [string]: { [AnimationTrack]: boolean } } = {}
 
 -- Internal helper to call listeners for a skill/marker with ctx
 local function emitSkillMarker(skillName: string, markerName: string, ctx: any)
-	print(`🔔 [ANIM-COORD] Marker fired: skill={skillName} marker={markerName}`)
-	
 	local skillBucket = listeners[skillName]
 	if not skillBucket then
-		print(`❌ [ANIM-COORD] No listeners for skill: {skillName}`)
-		local availableSkills = {}
-		for k in pairs(listeners) do
-			table.insert(availableSkills, k)
-		end
-		print(`   Available skills: {table.concat(availableSkills, ", ")}`)
 		return
 	end
-	
+
 	local handlers = skillBucket[markerName]
 	if not handlers then
-		print(`❌ [ANIM-COORD] No handlers for marker: {markerName} in skill {skillName}`)
-		local availableMarkers = {}
-		for k in pairs(skillBucket) do
-			table.insert(availableMarkers, k)
-		end
-		print(`   Available markers: {table.concat(availableMarkers, ", ")}`)
 		return
 	end
-	
-	print(`✅ [ANIM-COORD] Found {#handlers} handler(s) for {skillName}.{markerName}`)
 	for _, fn in ipairs(handlers) do
 		local ok = pcall(fn, ctx)
 		if not ok then
 			warn("AnimationCoordinator handler for ", skillName, markerName, " failed")
 		end
 	end
+end
+
+local function trackSession(sessionId: string, track: AnimationTrack)
+	if not sessionId or sessionId == "" then
+		return
+	end
+	sessionTracks[sessionId] = sessionTracks[sessionId] or {}
+	sessionTracks[sessionId][track] = true
+	local info = activeTracks[track]
+	if info then
+		info.sessionId = sessionId
+	end
+end
+
+function AnimationCoordinator.attachTrackToSession(track: AnimationTrack?, sessionId: string?)
+	if not track or not sessionId or sessionId == "" then
+		return
+	end
+	trackSession(sessionId, track)
+end
+
+function AnimationCoordinator.stopSession(sessionId: string, fade: number?)
+	local bucket = sessionTracks[sessionId]
+	if not bucket then
+		return
+	end
+	for track in pairs(bucket) do
+		if track and track.Parent then
+			track:Stop(fade or 0.1)
+		end
+	end
+	sessionTracks[sessionId] = nil
 end
 
 -- Subscribe to a skill marker. Returns disconnect function.
@@ -60,7 +77,6 @@ function AnimationCoordinator.onSkillMarker(skillName: string, markerName: strin
 	listeners[skillName] = listeners[skillName] or {}
 	listeners[skillName][markerName] = listeners[skillName][markerName] or {}
 	table.insert(listeners[skillName][markerName], fn)
-	print(`📝 [ANIM-COORD] Registered handler: skill={skillName} marker={markerName} (now {#listeners[skillName][markerName]} handlers)`)
 	local disconnected = false
 	return function()
 		if disconnected then
@@ -100,8 +116,9 @@ function AnimationCoordinator.playSkillAnimation(skillName: string, animKey: str
 
 	-- store info for cleanup
 	activeTracks[track] = { skillName = skillName, options = opts, connections = {} }
-
-	print(`🎬 [ANIM-COORD] Animation track loaded for {skillName}: IsPlaying={track.IsPlaying} Length={track.Length}`)
+	if opts.sessionId then
+		trackSession(opts.sessionId, track)
+	end
 
 	-- Set up GetMarkerReachedSignal for each marker if listeners are registered
 	-- Modern Roblox uses GetMarkerReachedSignal(markerName), not KeyframeReached
@@ -109,9 +126,7 @@ function AnimationCoordinator.playSkillAnimation(skillName: string, animKey: str
 	if skillBucket then
 		for markerName, handlers in pairs(skillBucket) do
 			if #handlers > 0 then
-				print(`🔗 [ANIM-COORD] Connecting GetMarkerReachedSignal for marker: {markerName}`)
 				local markerConn = track:GetMarkerReachedSignal(markerName):Connect(function()
-					print(`🎯 [ANIM-COORD] Marker reached: {markerName} for skill={skillName}`)
 					local ctx = {
 						skill = skillName,
 						marker = markerName,
@@ -136,6 +151,12 @@ function AnimationCoordinator.playSkillAnimation(skillName: string, animKey: str
 		if info and info.connections then
 			for _, c in ipairs(info.connections) do
 				c:Disconnect()
+			end
+		end
+		if info and info.sessionId and sessionTracks[info.sessionId] then
+			sessionTracks[info.sessionId][track] = nil
+			if next(sessionTracks[info.sessionId]) == nil then
+				sessionTracks[info.sessionId] = nil
 			end
 		end
 		activeTracks[track] = nil

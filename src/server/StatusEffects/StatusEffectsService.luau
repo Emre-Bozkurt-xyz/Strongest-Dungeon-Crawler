@@ -1,12 +1,19 @@
---!strict
 -- Server-side status effects manager: register, apply, tick, and remove timed effects with stacking rules
 
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Networking = require(ReplicatedStorage.Shared.Networking)
+local Registrar = require(game.ServerScriptService.Server.Services.Registrar)
+
+local DEBUG = true -- Enable debug logging for blocking checks
 
 local StatusEffectsService = {}
 
+local dispatcher = Networking.server()
+
 export type EffectContext = {
-	applyDamage: (target: Instance, amount: number, source: Instance?, opts: any?) -> any,
+	applyAttack: (targetEntityId: string, attack: any, sourceEntityId: string) -> (),
 }
 
 export type StackingMode = "aggregate" | "multi" | "charges"
@@ -27,6 +34,8 @@ export type EffectDef = {
 	-- Optional helpers for advanced policies
 	paramCombine: ((entries: { any }) -> any)?, -- combine params for aggregate ticks
 	getPotency: ((params: any) -> number)?, -- for refreshWeakest
+	-- Action blocking (NEW)
+	blocksActions: { [string]: boolean }?, -- { cast = true, move = true, jump = true } etc
 	-- Callbacks
 	onApply: ((target: string, source: string?, params: any?, stacks: number) -> ())?,
 	onRefresh: ((target: string, source: string?, params: any?, stacks: number) -> ())?,
@@ -71,6 +80,32 @@ function StatusEffectsService.setContext(ctx: EffectContext)
 	context = ctx
 end
 
+-- Helper: emit blocking state changes to clients
+local function emitBlockingUpdate(entityId: string, effectDef: EffectDef, blocked: boolean)
+	if not effectDef.blocksActions then
+		return
+	end
+
+	local player = Registrar.getPlayerById(entityId)
+	if not player then
+		return
+	end
+
+	-- Emit one event per action that this effect blocks
+	for action, shouldBlock in effectDef.blocksActions do
+		if shouldBlock then
+			dispatcher:emit("StatusEffectBlocking", {
+				entityId = entityId,
+				action = action,
+				blocked = blocked,
+				effectId = effectDef.id,
+			}, {
+				targets = player,
+			})
+		end
+	end
+end
+
 local function getStacksFor(state: ActiveEffectState): number
 	if state.mode == "multi" then
 		local entries = state.entries :: { ActiveEntry }?
@@ -108,10 +143,43 @@ function StatusEffectsService.remove(target: string, id: string)
 	if st.def.onRemove then
 		pcall(st.def.onRemove, target, st.source, getStacksFor(st))
 	end
+
+	-- Emit blocking update to client (effect removed)
+	emitBlockingUpdate(target, st.def, false)
+
 	bucket[id] = nil
 	if next(bucket) == nil then
 		active[target] = nil
 	end
+end
+
+-- Check if entity has any effect blocking a specific action
+function StatusEffectsService.hasBlockingEffect(target: string, action: string): (boolean, string?)
+	local bucket = active[target]
+	if not bucket then
+		return false
+	end
+
+	-- Debug: List all active effects
+	if DEBUG then
+		local effectsList = {}
+		for id, _ in bucket do
+			table.insert(effectsList, id)
+		end
+		print("[STATUS-EFFECTS] Active effects on", target, ":", table.concat(effectsList, ", "))
+	end
+
+	for id, state in bucket do
+		local blocks = state.def.blocksActions
+		if blocks and blocks[action] then
+			if DEBUG then
+				print("[STATUS-EFFECTS] Effect", id, "blocks action", action)
+			end
+			return true, id
+		end
+	end
+
+	return false
 end
 
 function StatusEffectsService.clearAll(target: string)
@@ -123,6 +191,8 @@ function StatusEffectsService.clearAll(target: string)
 		if st.def.onRemove then
 			pcall(st.def.onRemove, target, st.source, getStacksFor(st))
 		end
+		-- Emit blocking update to client (effect removed)
+		emitBlockingUpdate(target, st.def, false)
 		bucket[id] = nil
 	end
 	active[target] = nil
@@ -466,6 +536,10 @@ function StatusEffectsService.apply(target: string, id: string, source: string?,
 		else
 			st.expiresAt = now + duration
 		end
+
+		-- Emit blocking update to client
+		emitBlockingUpdate(target, def, true)
+
 		return true
 	end
 end
@@ -548,6 +622,8 @@ RunService.Heartbeat:Connect(function(dt: number)
 					if def.onRemove then
 						pcall(def.onRemove, root, st.source, 0)
 					end
+					-- Emit blocking update (effect removed)
+					emitBlockingUpdate(root, def, false)
 					bucket[id] = nil
 					continue
 				end
@@ -572,6 +648,8 @@ RunService.Heartbeat:Connect(function(dt: number)
 					if def.onRemove then
 						pcall(def.onRemove, root, st.source, st.stacks)
 					end
+					-- Emit blocking update (effect removed)
+					emitBlockingUpdate(root, def, false)
 					bucket[id] = nil
 					continue
 				end

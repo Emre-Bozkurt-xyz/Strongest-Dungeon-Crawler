@@ -478,7 +478,7 @@ function StatsManager.addToPool(entityId: string, poolName: PoolType, amount: nu
 	end
 
 	local added = pool:addToCurrentValue(amount)
-	if added and Players:GetPlayerFromCharacter(entityId) then
+	if added and Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, poolName, {
 			currentValue = pool:getCurrentValue(),
 			maxValue = pool:getValue(stats),
@@ -503,14 +503,13 @@ function StatsManager.removeFromPool(
 		return context.pool:removeFromCurrentValue(finalAmount, context.stats)
 	end)
 
-	
 	if executed and removed ~= nil and Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, context.currentPoolName, {
 			currentValue = context.pool:getCurrentValue(),
 			maxValue = context.pool:getValue(context.stats),
 		})
 	end
-	
+
 	return removed ~= nil
 end
 
@@ -564,7 +563,7 @@ function StatsManager.addReservation(entityId: string, poolName: PoolType, reser
 	end
 	pool:addReservation(reservation)
 	StatsMediator.invalidateStat(entityId, poolName)
-	if Players:GetPlayerFromCharacter(entityId) then
+	if Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.RESERVATION_ADDED, poolName, reservation)
 	end
 	return true
@@ -584,7 +583,7 @@ function StatsManager.removeReservation(entityId: string, poolName: PoolType, so
 		return false
 	end
 	StatsMediator.invalidateStat(entityId, poolName)
-	if Players:GetPlayerFromCharacter(entityId) then
+	if Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.RESERVATION_REMOVED, poolName, { source_id = source_id })
 	end
 	return true
@@ -599,7 +598,7 @@ function StatsManager.addToResource(entityId: string, resourceName: ResourceType
 	local previousValue = resource:getCurrentValue()
 	local newValue = resource:addToCurrentValue(amount, stats)
 	local changed = math.abs(newValue - previousValue) > RESOURCE_DELTA_EPSILON
-	if changed and Players:GetPlayerFromCharacter(entityId) then
+	if changed and Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, resourceName, {
 			currentValue = newValue,
 			maxValue = resource:getMaxValue(stats),
@@ -623,7 +622,7 @@ function StatsManager.setResourceValue(entityId: string, resourceName: ResourceT
 	local previousValue = resource:getCurrentValue()
 	local newValue = resource:setCurrentValue(value, stats)
 	local changed = math.abs(newValue - previousValue) > RESOURCE_DELTA_EPSILON
-	if changed and Players:GetPlayerFromCharacter(entityId) then
+	if changed and Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, resourceName, {
 			currentValue = newValue,
 			maxValue = resource:getMaxValue(stats),

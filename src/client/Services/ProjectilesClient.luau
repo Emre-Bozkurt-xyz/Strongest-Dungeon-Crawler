@@ -20,7 +20,7 @@ local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 
 local dispatcher = Networking.client()
 local dispatcherAny = dispatcher :: any
-dispatcherAny:_ensureChannel("Projectiles")
+-- Note: Channel setup handled by ChannelRegistry.load() in init.client.luau
 
 local ProjectilesClient = {}
 

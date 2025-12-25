@@ -89,8 +89,7 @@ local function onStatsDelta(delta: any)
 	if not success then
 		warn("StatsClient: Failed to apply delta")
 	else
-		-- Print pool values after delta
-		if delta and delta.target and currentStats then
+		if DEBUG and delta and delta.target and currentStats then
 			local pool = (currentStats :: any)[delta.target]
 			if pool and pool.current then
 				print(`  {delta.target}: {pool.current}/{pool.max}`)
@@ -204,6 +203,49 @@ function StatsClient.getStatValue(statType: string): number?
 		return nil
 	end
 	return stat.value
+end
+
+-- Convenience: get both current and max for a pool in one call
+function StatsClient.getPool(poolType: string): { current: number?, max: number? }?
+	if not currentStats then
+		return nil
+	end
+	local current = StatsClient.getPoolCurrent(poolType)
+	local max = StatsClient.getPoolMax(poolType)
+	if current == nil and max == nil then
+		return nil
+	end
+	return { current = current, max = max }
+end
+
+-- Subscribe to changes for a specific pool (e.g., Health, Mana, Stamina)
+-- callback receives a table { current, max, pool, context }
+function StatsClient.onPoolChanged(poolType: string, callback: ({ [string]: any }) -> ()): () -> ()
+	return StatsClient.onChanged(function(stats, context)
+		local pool = (stats :: any)[poolType]
+		if not pool then
+			return
+		end
+		local current = pool.currentValue or pool.current
+		local max
+		if type(pool.getValue) == "function" then
+			local ok, result = pcall(function()
+				return pool:getValue(stats)
+			end)
+			if ok and type(result) == "number" then
+				max = result
+			end
+		end
+		if max == nil then
+			max = pool._cachedValue or pool.maxValue or pool.baseValue
+		end
+		callback({
+			current = current,
+			max = max,
+			pool = pool,
+			context = context,
+		})
+	end)
 end
 
 -- Initial request after character loads

@@ -1,10 +1,18 @@
 local BaseSkill = require(script.Parent.BaseSkill)
-local ComboService = require(script.Parent.Parent.ComboService)
+local SessionManager = require(script.Parent.Parent.SessionManager) -- Phase 3: Unified system
 -- Cooldown start will be handled centrally on execution completion (SkillsManager listener)
 
 local BaseComboSkill = {}
 BaseComboSkill.__index = BaseComboSkill
 setmetatable(BaseComboSkill, { __index = BaseSkill })
+
+local DEBUG_PHASE3 = false -- Phase 3: Track dual-system operation
+
+local function debugPhase3(...: any)
+	if DEBUG_PHASE3 then
+		print("[PHASE3-COMBO]", ...)
+	end
+end
 
 -- Contract: child implements onComboStep(self, step: number, requestData: any?)
 
@@ -20,11 +28,14 @@ function BaseComboSkill:use(requestData: any?): any
 	if req.combo == nil and incomingCombo ~= nil then
 		req.combo = incomingCombo
 	end
+	if requestData and requestData.sessionId then
+		self._sessionId = requestData.sessionId
+	end
 	local combo = req.combo or incomingCombo
 	local comboConfig = (self.config and self.config.combo) or nil
 	local step = combo and combo.step or 1
 	local total = combo and combo.total or (comboConfig and comboConfig.steps) or 1
-	local token = combo and combo.token or 0
+	local token = combo and combo.token or nil
 
 	local baseWindow = comboConfig and comboConfig.window or 0
 	local baseHitDelays: { number }? = comboConfig and comboConfig.hitDelays or nil
@@ -50,20 +61,23 @@ function BaseComboSkill:use(requestData: any?): any
 
 	local isFinal = (step == total)
 
-	if step > 1 then
-		self:emitComboWaitEnd()
-	end
-
 	if not self:applyResourceCost(req) then
-		self:completeExecution("insufficient_resources")
+		if self._execToken then
+			self:completeExecution("insufficient_resources")
+		elseif self._sessionId then
+			SessionManager.cancel(self._sessionId, "insufficient_resources")
+		end
 		return
 	end
 
 	if step == 1 then
+		-- Pass nil duration - combo skills manually control completion timing
 		self:beginExecution(nil, {
 			allowChainSkill = self.name, -- Allow same skill to chain (combo advancement)
 			lockJump = true,
 			timing = timingResult,
+			attemptId = requestData and requestData.attemptId or nil,
+			sessionId = requestData and requestData.sessionId or nil, -- Phase 3: Pass session ID
 		})
 	end
 
@@ -82,19 +96,6 @@ function BaseComboSkill:use(requestData: any?): any
 		targetDuration = stepDuration,
 	})
 
-	-- Let clients know the step started (to play the correct animation)
-	self:emitStep(step, {
-		total = total,
-		tempo = tempo,
-		speed = tempo,
-		durationScale = durationScale,
-		hitDelay = hitDelay,
-		recovery = recovery,
-		stepDuration = stepDuration,
-		baseDuration = baseStepDuration,
-		targetDuration = stepDuration,
-	})
-
 	-- Delay server-side hit logic to align with animation
 	local delaySec = hitDelay
 	if delaySec > 0 then
@@ -106,59 +107,32 @@ function BaseComboSkill:use(requestData: any?): any
 		self:onComboStep(step, req)
 	end
 
-	local windowInfo = nil
-	if token and token ~= 0 then
-		windowInfo = ComboService.registerStepTiming(self.casterId, self.name, token, {
-			stepDuration = stepDuration,
-			stepDelay = stepDelay,
-			windowDuration = if not isFinal then window else 0,
-			isFinal = isFinal,
-			startedAt = combo and combo.startedAt or nil,
-		})
-	end
-
-	if not isFinal and window > 0 and windowInfo then
-		local openAt = windowInfo.windowOpenAt
-		local closeAt = windowInfo.windowCloseAt
-		if openAt and closeAt and closeAt > openAt then
-			local nowClock = os.clock()
-			local openDelay = math.max(0, openAt - nowClock)
-			local waitDuration = math.max(0, closeAt - openAt)
-			if waitDuration > 0 then
-				task.delay(openDelay, function()
-					if ComboService.isTokenCurrent(self.casterId, self.name, token) then
-						self:emitComboWaitStart(waitDuration, step, total)
-					end
-				end)
-				task.delay(openDelay + waitDuration, function()
-					if ComboService.isTokenCurrent(self.casterId, self.name, token) then
-						self:emitComboWaitEnd()
-						self:completeExecution("expired")
-					end
-				end)
-			end
-		end
-	elseif not isFinal and window > 0 then
-		local waitDuration = window
-		self:emitComboWaitStart(waitDuration, step, total)
-		task.delay(waitDuration, function()
-			if ComboService.isTokenCurrent(self.casterId, self.name, token) then
-				self:emitComboWaitEnd()
-				self:completeExecution("expired")
-			end
-		end)
+	if self._sessionId and not isFinal then
+		local windowOpenDelay = stepDuration + stepDelay
+		SessionManager.extendComboWindow(self._sessionId, windowOpenDelay, window)
+		debugPhase3(
+			"Extended combo window:",
+			self._sessionId:sub(1, 8),
+			"openDelay=",
+			windowOpenDelay,
+			"window=",
+			window
+		)
 	end
 
 	if isFinal then
 		-- Schedule completion after the authoritative step duration (fallback to hit+recovery), ensuring onComboStep executes first.
 		local completionDelay = if stepDuration > 0 then stepDuration else delaySec + recovery
+		debugPhase3(`Step {step} is FINAL, scheduling completion in {completionDelay}s`)
 		if completionDelay > 0 then
 			task.delay(completionDelay, function()
+				debugPhase3(`Calling completeExecution for {self.name} after {completionDelay}s delay`)
 				self:completeExecution()
 			end)
 		else
 			-- Defer to guarantee order relative to immediate onComboStep
 			task.defer(function()
+				debugPhase3(`Calling completeExecution for {self.name} (deferred)`)
 				self:completeExecution()
 			end)
 		end

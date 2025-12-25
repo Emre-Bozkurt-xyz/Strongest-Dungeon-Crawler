@@ -16,8 +16,20 @@ local ClientSpec: { [Types.StatType]: StatDisplay } = {
 	-- Pools
 	Health = { label = "Health", description = "Health pool.", group = "Pools", format = "value", order = 10 },
 	Mana = { label = "Mana", description = "Resource used for skills.", group = "Pools", format = "value", order = 20 },
-	Stamina = { label = "Stamina", description = "Increases endurance and ability to act.", group = "Pools", format = "value", order = 30 },
-	ManaShield = { label = "Mana Shield", description = "Absorbs damage using mana.", group = "Pools", format = "value", order = 40 },
+	Stamina = {
+		label = "Stamina",
+		description = "Increases endurance and ability to act.",
+		group = "Pools",
+		format = "value",
+		order = 30,
+	},
+	ManaShield = {
+		label = "Mana Shield",
+		description = "Absorbs damage using mana.",
+		group = "Pools",
+		format = "value",
+		order = 40,
+	},
 
 	-- Offense
 	PhysicalDamage = {
@@ -47,6 +59,27 @@ local ClientSpec: { [Types.StatType]: StatDisplay } = {
 		group = "Offense",
 		format = "percent",
 		order = 140,
+	},
+	Armor = {
+		label = "Armor",
+		description = "Reduces incoming physical damage.",
+		group = "Offense",
+		format = "int",
+		order = 150,
+	},
+	AttackSpeed = {
+		label = "Attack Speed",
+		description = "Increases the speed of physical attacks.",
+		group = "Offense",
+		format = "int",
+		order = 160,
+	},
+	SpellCastSpeed = {
+		label = "Spell Cast Speed",
+		description = "Increases the speed of casting spells.",
+		group = "Offense",
+		format = "int",
+		order = 170,
 	},
 
 	-- Recovery

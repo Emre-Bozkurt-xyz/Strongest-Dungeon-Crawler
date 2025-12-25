@@ -9,6 +9,7 @@ local StatsManager = require(Server.Stats.StatsManager)
 local CombatService = require(script.Parent.Parent.Parent.Services.CombatService)
 local NPCManager = require(script.Parent.Parent.NPCManager)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
+local Registrar = require(Server.Services.Registrar)
 
 type PlayerStats = StatTypes.PlayerStats
 type DamageSource = CombatService.DamageSource
@@ -21,9 +22,22 @@ export type DamageableConfig = {
 local Damageable = {}
 Damageable.__index = Damageable
 
+-- Helper to get entityId from model
+local function getEntityId(model: Model): string?
+	return Registrar.getEntityId(model)
+end
+
 function Damageable.new(entityModel: Model, config: DamageableConfig?): any
 	local component = NPCManager.addComponent(entityModel, "Damageable")
-	StatsManager.register(entityModel, {
+
+	-- Get entityId for StatsManager (model must be registered by NPCManager first)
+	local entityId = getEntityId(entityModel)
+	if not entityId then
+		warn(`Damageable.new: Entity {entityModel.Name} has no entityId - was NPCManager.register called first?`)
+		return nil
+	end
+
+	StatsManager.register(entityId, {
 		stats = config and config.stats,
 		configure = config and config.configure,
 		skipSync = true,
@@ -33,6 +47,7 @@ function Damageable.new(entityModel: Model, config: DamageableConfig?): any
 
 	return setmetatable({
 		model = entityModel,
+		entityId = entityId,
 		component = component,
 	}, Damageable)
 end
@@ -43,32 +58,31 @@ function Damageable.get(entityModel: Model): any?
 	end
 	local component = NPCManager.getComponent(entityModel, "Damageable")
 
+	local entityId = getEntityId(entityModel)
+	if not entityId then
+		return nil
+	end
+
 	return setmetatable({
 		model = entityModel,
+		entityId = entityId,
 		component = component,
 	}, Damageable)
 end
 
 function Damageable:getHealth(): number
-	return StatsManager.getPoolCurrentValue(self.model, StatTypes.PoolStats.Health) or 0
+	return StatsManager.getPoolCurrentValue(self.entityId, StatTypes.PoolStats.Health) or 0
 end
 
 function Damageable:getMaxHealth(): number
-	return StatsManager.getPoolMaxValue(self.model, StatTypes.PoolStats.Health) or 0
-end
-
-function Damageable:applyDamage(amount: number, source: DamageSource?, damageType: string?)
-	if self.component then
-		self.component:SetAttribute("lastDamageAt", os.clock())
-	end
-	return CombatService.applyDamageDetailed(self.model, amount, source, { kind = damageType })
+	return StatsManager.getPoolMaxValue(self.entityId, StatTypes.PoolStats.Health) or 0
 end
 
 function Damageable:heal(amount: number)
 	if self.component then
 		self.component:SetAttribute("lastHealedAt", os.clock())
 	end
-	return StatsManager.addToPool(self.model, StatTypes.PoolStats.Health, amount)
+	return StatsManager.addToPool(self.entityId, StatTypes.PoolStats.Health, amount)
 end
 
 function Damageable:isAlive(): boolean

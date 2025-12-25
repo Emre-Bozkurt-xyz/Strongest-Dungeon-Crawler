@@ -6,7 +6,7 @@ local HitboxService = require(Server.SkillsFramework.HitboxService)
 local CombatService = require(Server.Services.CombatService)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
-local DEBUG_VIS = true
+local DEBUG_VIS = false
 
 local TripleStrike = {}
 TripleStrike.__index = TripleStrike
@@ -21,7 +21,7 @@ function TripleStrike.new(casterId: string, data: any)
 	return self
 end
 
-function TripleStrike:use()
+function TripleStrike:use(requestData: any?)
 	local hits = (self.config and self.config.hits) :: { any }?
 	local tail = 0.05
 	local baseTimelineDuration = 0
@@ -47,8 +47,8 @@ function TripleStrike:use()
 
 	local executionDuration = baseTimelineDuration * durationScale
 	local planned = executionDuration > 0 and executionDuration or nil
-	local stepTarget = planned or executionDuration
-	self:beginExecution(planned, { timing = timing })
+	local _stepTarget = planned or executionDuration
+	self:beginExecution(planned, { timing = timing, sessionId = requestData and requestData.sessionId or nil })
 	self:_updateExecutionState({
 		timing = timing,
 		tempo = tempo,
@@ -57,48 +57,44 @@ function TripleStrike:use()
 		targetDuration = planned,
 	})
 
-	local baseDamage = self:queryStatValue(StatTypes.StaticStats.PhysicalDamage, {
-		event = "skillDamageQuery",
-		metadata = {
-			stepCount = type(hits) == "table" and #hits or 0,
-		},
-	}) or 0
+	local baseDamage = self:resolveStat(StatTypes.StaticStats.PhysicalDamage, {
+		stepCount = type(hits) == "table" and #hits or 0,
+	})
 
 	if type(hits) == "table" and #hits > 0 then
 		local steps = {}
-		for i, h in ipairs(hits) do
+		for hitIndex, h in ipairs(hits) do
 			local baseTime = (h.t or 0) :: number
 			local scheduledTime = baseTime * durationScale
 			steps[#steps + 1] = {
 				t = scheduledTime,
 				fn = function()
-					self:emitStep(i, {
-						tempo = tempo,
-						speed = tempo,
-						durationScale = durationScale,
-						baseTime = baseTime,
-						scheduledTime = scheduledTime,
-						targetDuration = stepTarget,
-					})
 					local yaw = (h.yaw or 0) :: number
 					local angle = (h.coneAngle or 50) :: number
 					local range = (h.coneRange or 8) :: number
 					local mult = (h.damageMult or 1.0) :: number
 
 					local originCf = self:getCasterOriginCFrame(yaw)
-					local targets = {}
 					if originCf then
-						local q = HitboxService.newQuery(originCf)
+						local targets = HitboxService.newQuery(originCf)
 							:casterEntityId(self.casterId)
 							:factionRelation("enemy")
 							:playersOnly(false)
 							:cone(angle, range)
-						targets = q:collect(DEBUG_VIS)
-					end
-					self:emitFX(i, { cframe = originCf, lifetime = 1 })
-					for _, model in ipairs(targets) do
+							:collect({ debug = DEBUG_VIS, collectIds = true })
+
+						-- Build attack composition using resolver
 						local damage = baseDamage * mult
-						CombatService.applyDamage(model, damage, self.casterId)
+						local attack = self:resolveAttack({
+							damage = damage,
+							damageType = "Physical",
+							comboStep = hitIndex,
+						})
+
+						-- Apply to all targets
+						for _, targetEntityId in ipairs(targets.ids) do
+							CombatService.applyAttack(targetEntityId, attack, self.casterId)
+						end
 					end
 				end,
 			}
@@ -108,20 +104,11 @@ function TripleStrike:use()
 			task.delay(planned, function()
 				self:completeExecution()
 			end)
-		else
-			task.defer(function()
-				self:completeExecution()
-			end)
 		end
-		
-		-- Return success response for client
-		return {
-			success = true,
-			data = {
-				duration = planned or 0,
-			},
-		}
 	end
+
+	-- Explicit nil return to satisfy strict mode when no success payload is returned
+	return nil
 end
 
 return TripleStrike

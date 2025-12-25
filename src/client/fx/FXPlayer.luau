@@ -277,7 +277,7 @@ function FXPlayer.spawnAt(key: string, cframe: CFrame): FXHandle?
 		Stop = function()
 			local linger = computeMaxParticleLifetime(fx)
 			if linger > 0 then
-				game:GetService("Debris"):AddItem(fx, linger + 100)
+				game:GetService("Debris"):AddItem(fx, linger + 0.1)
 			else
 				fx:Destroy()
 			end

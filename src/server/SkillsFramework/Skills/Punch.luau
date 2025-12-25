@@ -12,6 +12,8 @@ Punch.__index = Punch
 
 setmetatable(Punch, { __index = BaseComboSkill })
 
+local DEBUG_HITS = false
+
 function Punch.new(casterId: string, data: any)
 	local self = BaseComboSkill.new(casterId, data)
 	setmetatable(self, Punch)
@@ -27,12 +29,10 @@ local function casterOriginCFrame(skill: any): CFrame?
 end
 
 function Punch:onComboStep(step: number)
-	-- Derive physical damage from server-side stats
-	local baseDamage = self:queryStatValue(StatTypes.StaticStats.PhysicalDamage, {
+	-- Derive physical damage from server-side stats via SkillMediator
+	local baseDamage = self:resolveStat(StatTypes.StaticStats.PhysicalDamage, {
 		step = step,
-	}, {
-		event = "skillDamageQuery",
-	}) or 0
+	})
 
 	-- Simple multipliers per combo step: jab, cross, heavy
 	local mult = if step == 3 then 1.25 elseif step == 2 then 0.9 else 0.8
@@ -46,12 +46,21 @@ function Punch:onComboStep(step: number)
 			:factionRelation("enemy")
 			:playersOnly(false)
 			:cone(65, coneRange)
-			:collect()
+			:collect({ collectIds = true, debug = true })
 
-		for _, m in ipairs(targets) do
-			-- for debugging
-			print("FOUND TARGET: " .. m.Name .. " for damage: " .. damage)
-			CombatService.applyDamage(m, damage, self.caster)
+		-- Build attack composition (damage + potential effects via resolver later)
+		local attack = self:resolveAttack({
+			damage = damage,
+			damageType = "Physical",
+			comboStep = step,
+		})
+
+		-- Apply to all targets hit
+		for _, targetEntityId in ipairs(targets.ids) do
+			if DEBUG_HITS then
+				print(`[Punch] Attacking entity {targetEntityId} with {damage} Physical damage (step {step})`)
+			end
+			CombatService.applyAttack(targetEntityId, attack, self.casterId)
 		end
 	end
 end

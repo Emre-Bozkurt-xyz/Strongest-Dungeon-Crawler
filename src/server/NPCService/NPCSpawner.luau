@@ -1,7 +1,8 @@
 --!strict
 -- NPCSpawner: creates NPC instances using mirrored structure
 -- Models: ReplicatedStorage/Assets/NPCPrefabs/<Name>
--- Specs:  ServerScriptService/NPCService/NPCPrefabs/<Name>/NPCSpec (server-only)
+-- Specs:  ServerScriptService/NPCService/NPCPrefabs/<Name>/NPCSpec (server-only behavior/stats)
+-- Visual: ReplicatedStorage/Shared/Characters/NPCs/<Name> (shared CharacterSpec)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -10,6 +11,7 @@ local Workspace = game:GetService("Workspace")
 local ComponentManager = require(script.Parent.ComponentManager)
 local NPCAnimationController = require(script.Parent.NPCAnimationController)
 local Registrar = require(ServerScriptService.Server.Services.Registrar)
+local CharacterSpecRegistry = require(ReplicatedStorage.Shared.Characters.CharacterSpecRegistry)
 
 local PREFABS_FOLDER_NAME = "NPCPrefabs"
 local ASSETS_ROOT_NAME = "Assets" -- Studio-managed assets root (not controlled by Rojo)
@@ -171,16 +173,20 @@ end
 
 local function attachComponents(
 	model: Model,
+	prefabName: string,
 	specOptions: { [string]: any },
 	overrides: { [string]: any }?
 ): ComponentHandles?
 	local merged = mergeOptions(specOptions, overrides or {})
 	local handles = ComponentManager.attachStandardSet(model, merged)
-	-- Register NPC animations if provided in spec
-	local animSpec = (specOptions and specOptions.animations) or (merged and merged.animations)
+
+	-- Register NPC animations from shared CharacterSpec (visual assets live there)
+	local sharedSpec = CharacterSpecRegistry.get(prefabName)
+	local animSpec = sharedSpec and sharedSpec.animations
 	if type(animSpec) == "table" then
 		NPCAnimationController.registerNPC(model, animSpec)
 	end
+
 	return handles
 end
 
@@ -190,6 +196,9 @@ function NPCSpawner.spawn(prefabName: string, options: { [string]: any }?): (Mod
 	if not clone then
 		return nil, nil
 	end
+
+	-- Store the spec ID as an attribute for client-side lookups
+	clone:SetAttribute("CharacterSpecId", prefabName)
 
 	clone.Parent = resolveParent(settings.parent, clone.Parent)
 	applyTransform(clone, settings, nil)
@@ -209,7 +218,7 @@ function NPCSpawner.spawn(prefabName: string, options: { [string]: any }?): (Mod
 	end
 
 	local specOptions = readSpecByName(prefabName)
-	local handles = attachComponents(clone, specOptions, settings.components)
+	local handles = attachComponents(clone, prefabName, specOptions, settings.components)
 
 	return clone, handles
 end
@@ -225,6 +234,9 @@ function NPCSpawner.spawnAtMarker(
 		return nil, nil
 	end
 
+	-- Store the spec ID as an attribute for client-side lookups
+	clone:SetAttribute("CharacterSpecId", prefabName)
+
 	local parent = settings.parent
 	if not parent and marker then
 		parent = marker.Parent
@@ -238,7 +250,7 @@ function NPCSpawner.spawnAtMarker(
 	end
 
 	local specOptions = readSpecByName(prefabName)
-	local handles = attachComponents(clone, specOptions, settings.components)
+	local handles = attachComponents(clone, prefabName, specOptions, settings.components)
 
 	return clone, handles
 end

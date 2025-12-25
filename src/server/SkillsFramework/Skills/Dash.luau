@@ -15,7 +15,7 @@ end
 function Dash:use(requestData: any?)
 	local timing = self:resolveTiming()
 
-	if not self:applyResourceCost(requestData) then
+	if not self:applyResourceCost({ timing = timing }) then
 		return
 	end
 
@@ -28,6 +28,7 @@ function Dash:use(requestData: any?)
 		allowChain = false,
 		autoComplete = false,
 		timing = timing,
+		sessionId = requestData and requestData.sessionId or nil, -- Phase 3
 	})
 	self:_updateExecutionState({
 		timing = timing,
@@ -77,7 +78,7 @@ function Dash:use(requestData: any?)
 	task.delay(executionDuration, function()
 		self:completeExecution()
 	end)
-	
+
 	-- Return success response for client
 	return {
 		success = true,

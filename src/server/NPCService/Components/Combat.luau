@@ -10,8 +10,11 @@ local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local NPCAnimationController = require(script.Parent.Parent.NPCAnimationController)
 local SkillsManager = require(Server.SkillsFramework.SkillsManager)
 local SkillsConfig = require(Server.SkillsFramework.SkillsConfig)
-local ExecutionService = require(Server.SkillsFramework.ExecutionService)
+local SessionManager = require(Server.SkillsFramework.SessionManager)
 local Registrar = require(Server.Services.Registrar)
+local ActionPermissions = require(ReplicatedStorage.Shared.ActionPermissions)
+
+local serverPermissions = ActionPermissions.server()
 
 type SkillData = SkillsConfig.SkillData
 type ComboData = {
@@ -26,13 +29,21 @@ type ComboData = {
 local Combat = {}
 Combat.__index = Combat
 
+-- Helper to get entityId from model (required for SkillsManager/SessionManager)
+local function getEntityId(model: Model): string?
+	return Registrar.getEntityId(model)
+end
+
 -- Static registry for Combat components
 local _Registry: { [Model]: boolean } = {}
 local function _register(model: Model)
 	_Registry[model] = true
 	model.Destroying:Connect(function()
 		_Registry[model] = nil
-		SkillsManager.removeAll(model)
+		local entityId = getEntityId(model)
+		if entityId then
+			SkillsManager.removeAll(entityId)
+		end
 	end)
 end
 
@@ -42,25 +53,34 @@ local function _collectSkillConfigs(model: Model, component: any?): { [string]: 
 	if not comp then
 		return configs
 	end
+	local entityId = getEntityId(model)
+	if not entityId then
+		return configs
+	end
 	local countAttr = comp:GetAttribute("skillCount")
 	local count = if typeof(countAttr) == "number" then countAttr else 0
 	for index = 1, count do
 		local skillName = comp:GetAttribute("skill_" .. index) :: string?
 		if skillName then
-			local cfg = SkillsManager.getSkillConfig(model, skillName)
+			local cfg = SkillsManager.getSkillConfig(entityId, skillName)
 			configs[skillName] = cfg or SkillsConfig.skills[skillName]
 		end
 	end
 	return configs
 end
 
-ExecutionService.onCompleted(function(caster: string, _skill: string, _reason: string)
+-- Listen to session completions for NPCs to trigger combo/sequence logic
+local _sessionCompletedConnection = SessionManager.listen("stateChanged", function(session, _newState, _reason)
+	if session.state ~= "COMPLETED" and session.state ~= "CANCELLED" then
+		return
+	end
+
 	-- Caster is an entityId (string) - resolve to entity
-	local entity = Registrar.getEntityById(caster)
+	local entity = Registrar.getEntityById(session.casterId)
 	if not entity then
 		return
 	end
-	
+
 	-- Filter for NPC models only (not Players)
 	if not entity:IsA("Model") then
 		return
@@ -96,20 +116,20 @@ export type CombatState = "passive" | "aggressive" | "attacking" | "cooldown" | 
 -- Create a Combat component for an NPC
 function Combat.new(npcModel: Model, config: CombatConfig): any
 	local component = NPCManager.addComponent(npcModel, "Combat")
-	
+
 	-- Set up combat attributes
 	npcModel:SetAttribute("BaseDamage", config.damage or 10)
 	npcModel:SetAttribute("AttackRange", config.attackRange or 5)
 	npcModel:SetAttribute("AttackCooldown", config.attackCooldown or 2)
 	npcModel:SetAttribute("AggroRange", config.aggroRange or 15)
 	npcModel:SetAttribute("AttackPattern", config.attackPattern or "basic")
-	
+
 	-- Combat state tracking
 	npcModel:SetAttribute("CombatState", "passive")
 	component:SetAttribute("currentTarget", "")
 	component:SetAttribute("lastAttackTime", 0)
 	component:SetAttribute("aggroTime", 0)
-	
+
 	-- Store skills and register them with the shared skill system
 	local configuredSkills = {}
 	if config.skills and #config.skills > 0 then
@@ -121,11 +141,18 @@ function Combat.new(npcModel: Model, config: CombatConfig): any
 	local existingCount = component:GetAttribute("skillCount")
 	local previousCount = if typeof(existingCount) == "number" then existingCount else 0
 
-	SkillsManager.removeAll(npcModel)
+	-- Get entityId for SkillsManager calls (model must be registered by NPCManager.register first)
+	local entityId = getEntityId(npcModel)
+	if not entityId then
+		warn(`Combat.new: NPC {npcModel.Name} has no entityId - was NPCManager.register called first?`)
+		return nil
+	end
+
+	SkillsManager.removeAll(entityId)
 	local registeredSkills = {}
 	for _, skillName in ipairs(configuredSkills) do
 		local override = if config.skillOverrides then config.skillOverrides[skillName] else nil
-		local ok, result = pcall(SkillsManager.addSkill, npcModel, skillName, override)
+		local ok, result = pcall(SkillsManager.addSkill, entityId, skillName, override)
 		if ok and result ~= nil then
 			table.insert(registeredSkills, skillName)
 		else
@@ -143,7 +170,9 @@ function Combat.new(npcModel: Model, config: CombatConfig): any
 	end
 
 	-- Initialize stats for this NPC if not already registered
-	local stats = StatsManager.register(npcModel)
+	-- Note: NPCManager.register already handles StatsManager.register with entityId
+	-- This call is a backup in case stats weren't initialized - use entityId not model
+	local stats = StatsManager.register(entityId)
 	local baseDamage = config.damage or 10
 	local damageStat = stats[StatTypes.StaticStats.PhysicalDamage]
 	if damageStat and damageStat.setBaseValue then
@@ -151,9 +180,10 @@ function Combat.new(npcModel: Model, config: CombatConfig): any
 	else
 		npcModel:SetAttribute("BaseDamage", baseDamage)
 	end
-	
+
 	local self = setmetatable({
 		model = npcModel,
+		entityId = entityId, -- Cache entityId for runtime use
 		component = component,
 		target = nil,
 		skillConfigs = _collectSkillConfigs(npcModel, component),
@@ -168,12 +198,20 @@ function Combat.get(npcModel: Model): any?
 	if not NPCManager.hasComponent(npcModel, "Combat") then
 		return nil
 	end
-	
+
 	local component = NPCManager.getComponent(npcModel, "Combat")
-	if not component then return nil end
-	
+	if not component then
+		return nil
+	end
+
+	local entityId = getEntityId(npcModel)
+	if not entityId then
+		return nil
+	end
+
 	return setmetatable({
 		model = npcModel,
+		entityId = entityId,
 		component = component,
 		target = nil,
 		skillConfigs = _collectSkillConfigs(npcModel, component),
@@ -193,15 +231,17 @@ end
 -- Get current target
 function Combat:getTarget(): Model?
 	local targetName = self.component:GetAttribute("currentTarget") :: string?
-	if not targetName or targetName == "" then return nil end
-	
+	if not targetName or targetName == "" then
+		return nil
+	end
+
 	-- Try to find target in workspace (could be player or another NPC)
 	for _, player in pairs(game.Players:GetPlayers()) do
 		if player.Name == targetName and player.Character then
 			return player.Character
 		end
 	end
-	
+
 	return nil
 end
 
@@ -225,8 +265,10 @@ end
 -- Check if target is in range
 function Combat:isTargetInRange(range: number?): boolean
 	local target = self:getTarget()
-	if not target then return false end
-	
+	if not target then
+		return false
+	end
+
 	local checkRange = range or self.model:GetAttribute("AttackRange") or 5
 	local distance = self:getDistanceToTarget()
 	return distance <= checkRange
@@ -235,8 +277,10 @@ end
 -- Get distance to current target
 function Combat:getDistanceToTarget(): number
 	local target = self:getTarget()
-	if not target then return math.huge end
-	
+	if not target then
+		return math.huge
+	end
+
 	local myPos = self:getPosition()
 	local targetPos = self:getTargetPosition(target)
 	return (myPos - targetPos).Magnitude
@@ -259,7 +303,7 @@ function Combat:findNearbyEnemies(): { Model }
 	local enemies = {}
 	local myPos = self:getPosition()
 	local aggroRange = self.model:GetAttribute("AggroRange") or 15
-	
+
 	-- Check all players
 	for _, player in pairs(game.Players:GetPlayers()) do
 		if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
@@ -269,21 +313,23 @@ function Combat:findNearbyEnemies(): { Model }
 			end
 		end
 	end
-	
+
 	-- Could also check other NPCs with different factions here
-	
+
 	return enemies
 end
 
 -- Find closest enemy
 function Combat:findClosestEnemy(): Model?
 	local enemies = self:findNearbyEnemies()
-	if #enemies == 0 then return nil end
-	
+	if #enemies == 0 then
+		return nil
+	end
+
 	local myPos = self:getPosition()
 	local closest = nil
 	local closestDistance = math.huge
-	
+
 	for _, enemy in ipairs(enemies) do
 		local distance = (myPos - self:getTargetPosition(enemy)).Magnitude
 		if distance < closestDistance then
@@ -291,19 +337,53 @@ function Combat:findClosestEnemy(): Model?
 			closestDistance = distance
 		end
 	end
-	
+
 	return closest
 end
 
--- Check if attack is ready (not on cooldown)
+-- Check if attack is ready (not on cooldown, not blocked by status effects)
 function Combat:canAttack(): boolean
-	local locked = ExecutionService.isLocked(self.model)
-	if locked then
+	if not self.entityId then
 		return false
 	end
+
+	-- Use ActionPermissions for centralized blocking checks (includes stagger, stun, etc.)
+	local canCast, _reason = serverPermissions:canCast(self.entityId)
+	if not canCast then
+		return false
+	end
+
 	local lastAttack = self.component:GetAttribute("lastAttackTime") or 0
 	local cooldown = self.model:GetAttribute("AttackCooldown") or 2
 	return (os.clock() - lastAttack) >= cooldown
+end
+
+-- Cancel any in-progress attack (called when staggered)
+function Combat:cancelAttack()
+	if not self.entityId then
+		return
+	end
+
+	-- Cancel any active session
+	local activeSession = SessionManager.getActive(self.entityId)
+	if activeSession then
+		local cancelled = SessionManager.cancel(activeSession.id, "staggered")
+		if cancelled then
+			self:setState("aggressive")
+			print(`[Combat:{self.model.Name}] Attack interrupted by stagger`)
+		end
+	end
+
+	-- Stop any active animation
+	local humanoid = self.model:FindFirstChildWhichIsA("Humanoid") :: Humanoid?
+	if humanoid then
+		local animator = humanoid:FindFirstChildWhichIsA("Animator") :: Animator?
+		if animator then
+			for _, track in animator:GetPlayingAnimationTracks() do
+				track:Stop(0.1)
+			end
+		end
+	end
 end
 
 -- Perform basic attack
@@ -328,14 +408,13 @@ function Combat:attack(): boolean
 		return true
 	end
 
-	-- Fallback path: direct damage if no skill configured or registration failed
-	local damage = self:_getBaseDamage()
-	self:_applyDamageToTarget(target, damage)
+	-- No skill configured - abort attack
+	warn(`[Combat] No valid skill configured for {self.model.Name}`)
 	self:_scheduleAggressiveFallback(0.5)
-	return true
+	return false
 end
 
--- Use a specific skill 
+-- Use a specific skill
 function Combat:useSkill(skillName: string): boolean
 	if not self:canAttack() then
 		return false
@@ -353,7 +432,7 @@ function Combat:useSkill(skillName: string): boolean
 	if self:_getSkillConfig(skillName) then
 		self:_executeSkill(skillName)
 	else
-		SkillsManager.useSkill(self.model, skillName, self:_buildSkillRequestData(target))
+		SkillsManager.useSkill(self.entityId, skillName, self:_buildSkillRequestData(target))
 		self:_scheduleAggressiveFallback(0.5)
 	end
 
@@ -383,7 +462,7 @@ function Combat:_getSkillConfig(skillName: string): SkillData?
 	if cfg then
 		return cfg
 	end
-	local runtimeCfg = SkillsManager.getSkillConfig(self.model, skillName)
+	local runtimeCfg = SkillsManager.getSkillConfig(self.entityId, skillName)
 	if runtimeCfg then
 		self.skillConfigs[skillName] = runtimeCfg
 		return runtimeCfg
@@ -409,7 +488,7 @@ function Combat:_executeSkill(skillName: string)
 	if skillConfig and skillConfig.combo then
 		self:_autoComboSequence(skillName, skillConfig.combo, 1)
 	else
-		SkillsManager.useSkill(self.model, skillName, self:_buildSkillRequestData(self:getTarget()))
+		SkillsManager.useSkill(self.entityId, skillName, self:_buildSkillRequestData(self:getTarget()))
 	end
 
 	local fallbackDuration = self:_estimateSkillDuration(skillConfig)
@@ -424,7 +503,7 @@ function Combat:_autoComboSequence(skillName: string, comboConfig: ComboData?, s
 		return
 	end
 
-	SkillsManager.useSkill(self.model, skillName, self:_buildSkillRequestData(self:getTarget()))
+	SkillsManager.useSkill(self.entityId, skillName, self:_buildSkillRequestData(self:getTarget()))
 
 	local totalSteps = comboConfig.steps or 1
 	if step >= totalSteps then
@@ -523,27 +602,19 @@ end
 function Combat:getSkills(): { string }
 	local skills = {}
 	local skillCount = self.component:GetAttribute("skillCount") or 0
-	
+
 	for i = 1, skillCount do
 		local skillName = self.component:GetAttribute("skill_" .. i) :: string?
 		if skillName then
 			table.insert(skills, skillName)
 		end
 	end
-	
+
 	return skills
 end
 
--- Private: Apply damage to target
-function Combat:_applyDamageToTarget(target: Model, damage: number)
--- Always use CombatService to apply damage, regardless of target type
-	local CombatService = require(script.Parent.Parent.Parent.Services.CombatService)
-	CombatService.applyDamage(target, damage, self.model)
-	print(`{self.model.Name} dealt {damage} damage to {target.Name}`)
-end
-
 function Combat:_getBaseDamage(): number
-	local base = StatsManager.getStatValue(self.model, StatTypes.StaticStats.PhysicalDamage)
+	local base = StatsManager.getStatValue(self.entityId, StatTypes.StaticStats.PhysicalDamage)
 	if base and base > 0 then
 		return base
 	end
@@ -563,7 +634,7 @@ function Combat:update(_deltaTime: number)
 		end
 		return
 	end
-	
+
 	if currentState == "passive" then
 		-- Look for enemies to aggro
 		local enemy = self:findClosestEnemy()
@@ -576,14 +647,14 @@ function Combat:update(_deltaTime: number)
 			self:setState("passive")
 			return
 		end
-		
+
 		-- Check if target is too far away (lost aggro)
 		local aggroRange = self.model:GetAttribute("AggroRange") or 15
 		if self:getDistanceToTarget() > aggroRange * 1.2 then -- 20% buffer
 			self:setTarget(nil)
 			return
 		end
-		
+
 		-- Try to attack if in range
 		if self:isTargetInRange() and self:canAttack() then
 			self:attack()

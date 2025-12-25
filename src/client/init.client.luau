@@ -2,14 +2,22 @@
 print("Client starting...")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ChannelRegistry = require(ReplicatedStorage.Shared.Networking.ChannelRegistry)
-local ChannelDefinitions = require(ReplicatedStorage.Shared.Networking.Channels)
+local HttpService = game:GetService("HttpService")
 local AssetLoader = require(script.AssetLoader)
 
-ChannelRegistry.load(ChannelDefinitions)
 AssetLoader.init()
 
+-- Initialize SessionMirror first so permission checks can use session state
+local SessionMirror = require(script.SkillsFramework.SessionMirror)
+SessionMirror.initialize()
+
+local ENABLE_SESSION_PERF_TIMER = false
+local SESSION_PERF_INTERVAL = 15
+
 -- Initialize the client systems (they auto-initialize when required)
+local ActionPermissions = require(ReplicatedStorage.Shared.ActionPermissions)
+ActionPermissions.client(SessionMirror) -- Initialize to listen for blocking events
+
 local StatsClient = require(script.StatsClient)
 local AttributesClient = require(script.AttributesClient)
 local CameraController = require(script.CameraController)
@@ -17,8 +25,23 @@ local StatusPreviewController = require(script.ui.controllers.StatusPreviewContr
 local SystemPanelHandler = require(script.ui.controllers.SystemPanelHandler)
 local SkillSlotUI = require(script.SkillsFramework.SkillSlotUI)
 local OverheadHealthService = require(script.OverheadHealthService)
--- Ensure projectile visuals client is initialized
-local _ProjectilesClient = require(script.Services.ProjectilesClient)
+local DamageNumberController = require(script.ui.DamageNumberController)
+DamageNumberController.init()
+local StaggerController = require(script.ui.controllers.StaggerController)
+StaggerController.init()
+
+if ENABLE_SESSION_PERF_TIMER then
+	task.spawn(function()
+		SessionMirror.resetPerfStats()
+		while true do
+			task.wait(SESSION_PERF_INTERVAL)
+			local stats = SessionMirror.getPerfStats()
+			print(`[SessionPerf] Client {HttpService:JSONEncode(stats)}`)
+			SessionMirror.resetPerfStats()
+		end
+	end)
+end
+
 local UserInputService = game:GetService("UserInputService")
 
 -- Example: Add some client-side commands for testing
@@ -40,7 +63,7 @@ local function _setupFirstPersonCamera()
 end
 
 -- Wait for character to spawn
-local function onCharacterAdded(character: Model)
+local function onCharacterAdded(_character: Model)
 	-- Wait a moment for character to fully load
 	task.wait(1)
 
@@ -50,7 +73,7 @@ local function onCharacterAdded(character: Model)
 	-- Request initial data from server
 	StatsClient.requestStatsUpdate()
 	AttributesClient.requestAttributesData()
-	
+
 	-- Request skill metadata snapshot
 	local SkillMetadataClient = require(script.SkillsFramework.SkillMetadataClient)
 	SkillMetadataClient.requestSnapshot()
@@ -92,3 +115,5 @@ end)
 
 -- Start overhead HP bars service
 OverheadHealthService.start()
+
+-- Phase 2: SessionMirror already initialized above

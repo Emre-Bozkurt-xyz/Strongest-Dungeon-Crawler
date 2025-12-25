@@ -16,40 +16,43 @@ function BasicSkill:use()
 		self:showRejectionFeedback(rejectionReason :: any)
 		return
 	end
-	
+
+	-- IMMEDIATE CAST SOUND: Play before animation starts (no network wait)
+	self:playCastSoundLocal()
+
 	-- Get animation key
 	local animSpec = self.config.anim and self.config.anim.start
 	if not animSpec then
 		warn("BasicSkill: No start animation configured for", self.name)
 		return
 	end
-	
+
 	-- Extract animKey string from spec
 	local animKey = type(animSpec) == "table" and animSpec.key or animSpec
 	if not animKey then
 		warn("BasicSkill: Invalid animation spec for", self.name)
 		return
 	end
-	
+
 	-- PREDICT duration using BaseSkill helper
 	local predictedDuration = self:predictDuration()
-	
+
+	-- Predict session locally to lock input until server confirmation
+	self:_predictSession(nil, predictedDuration)
+
 	-- PLAY ANIMATION IMMEDIATELY with predicted timing
 	self:playAnimation(animKey, {
 		duration = predictedDuration, -- may be nil, AnimationPlayer will use default
 	})
-	
+
 	-- REQUEST server validation with callbacks
-	self:requestUseAsync(
-		function(_data)
-			-- Server confirmed - prediction was successful
-			-- No action needed; animation already playing with predicted timing
-		end,
-		function(_reason)
-			-- Server rejected (rare - only on desync or edge cases)
-			-- Animation already playing; will be interrupted by error feedback
-		end
-	)
+	self:requestUseAsync(function(_data)
+		-- Server confirmed - prediction was successful
+		-- No action needed; animation already playing with predicted timing
+	end, function(_reason)
+		-- Server rejected (rare - only on desync or edge cases)
+		-- Animation already playing; will be interrupted by error feedback
+	end)
 end
 
 return BasicSkill

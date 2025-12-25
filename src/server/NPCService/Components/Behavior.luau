@@ -1,9 +1,14 @@
 --!strict
+local ServerScriptService = game:GetService("ServerScriptService")
+local Server = ServerScriptService.Server
+
 local NPCManager = require(script.Parent.Parent.NPCManager)
 local Movement = require(script.Parent.Movement)
 local Combat = require(script.Parent.Combat)
 local Damageable = require(script.Parent.Damageable)
 local BehaviorToolkit = require(script.Parent.Parent.BehaviorToolkit)
+local StatusEffectsService = require(Server.StatusEffects.StatusEffectsService)
+local Registrar = require(Server.Services.Registrar)
 
 type BehaviorContext = {
 	behavior: any,
@@ -225,6 +230,15 @@ function Behavior:isDead(): boolean
 	return damageable ~= nil and damageable:getHealth() <= 0
 end
 
+-- Stagger state management - queries StatusEffectsService for authoritative stagger state
+function Behavior:isStaggered(): boolean
+	local entityId = Registrar.getEntityId(self.model)
+	if not entityId then
+		return false
+	end
+	return StatusEffectsService.has(entityId, "stagger")
+end
+
 function Behavior:hasTarget(): boolean
 	local combat = Combat.get(self.model)
 	if not combat then
@@ -352,11 +366,14 @@ function Behavior:acquireTarget(ctx: BehaviorContext?)
 		local resumeDistance = self.config.returnHomeResumeDistance or 0
 		local distance = self:distanceFromSpawn()
 		if resumeDistance > 0 and distance > resumeDistance then
-			logDebugReturnHome(self, string.format(
-				"Suppressing target acquisition while returning home; distance=%.2f resume<=%.2f",
-				distance,
-				resumeDistance
-			))
+			logDebugReturnHome(
+				self,
+				string.format(
+					"Suppressing target acquisition while returning home; distance=%.2f resume<=%.2f",
+					distance,
+					resumeDistance
+				)
+			)
 			return
 		end
 		logDebugReturnHome(self, string.format("Resuming target acquisition; distance=%.2f", distance))
@@ -428,21 +445,27 @@ function Behavior:_maybePathTo(movement: any, goal: Vector3, now: number)
 		self.component:SetAttribute("LastPathGoal", goal)
 		self.component:SetAttribute("LastPathTime", now)
 		if self.memory.returningHome and (goal - self.memory.spawnPosition).Magnitude < 1e-3 then
-			logDebugReturnHome(self, string.format(
-				"Issued pathfind home; delta=%.2f dt=%.2f threshold=%.2f",
-				lastGoal and (goal - lastGoal).Magnitude or -1,
-				now - lastTime,
-				intervalThreshold
-			))
+			logDebugReturnHome(
+				self,
+				string.format(
+					"Issued pathfind home; delta=%.2f dt=%.2f threshold=%.2f",
+					lastGoal and (goal - lastGoal).Magnitude or -1,
+					now - lastTime,
+					intervalThreshold
+				)
+			)
 		end
 	elseif self.memory.returningHome then
 		local goalDelta = lastGoal and (goal - lastGoal).Magnitude or -1
-		logDebugReturnHome(self, string.format(
-			"Skipped pathfind; delta=%.2f dt=%.2f threshold=%.2f",
-			goalDelta,
-			now - lastTime,
-			intervalThreshold
-		))
+		logDebugReturnHome(
+			self,
+			string.format(
+				"Skipped pathfind; delta=%.2f dt=%.2f threshold=%.2f",
+				goalDelta,
+				now - lastTime,
+				intervalThreshold
+			)
+		)
 	end
 end
 
@@ -501,7 +524,11 @@ function Behavior:_setState(newState: string, now: number)
 	self.component:SetAttribute("StateChangedAt", now)
 end
 
-function Behavior:_applyTransitions(transitions: { BehaviorTransition }?, context: BehaviorContext, now: number): boolean
+function Behavior:_applyTransitions(
+	transitions: { BehaviorTransition }?,
+	context: BehaviorContext,
+	now: number
+): boolean
 	if not transitions then
 		return false
 	end
@@ -525,6 +552,25 @@ end
 
 function Behavior:update(deltaTime: number)
 	local now = os.clock()
+
+	-- Skip behavior updates while staggered
+	if self:isStaggered() then
+		-- Stop movement if we were moving (one-time stop)
+		if not self.memory.wasStaggered then
+			self.memory.wasStaggered = true
+			local movement = Movement.get(self.model)
+			if movement then
+				movement:stop()
+			end
+		end
+		return
+	else
+		-- Clear stagger flag when no longer staggered
+		if self.memory.wasStaggered then
+			self.memory.wasStaggered = false
+		end
+	end
+
 	if not self:_shouldThink(now) then
 		return
 	end

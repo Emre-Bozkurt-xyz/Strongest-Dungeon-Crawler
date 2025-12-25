@@ -97,4 +97,12 @@ function Registrar.getAllEntities(): { Model }
 	return result
 end
 
+function Registrar.getAllEntityIds(): { string }
+	local result: { string } = {}
+	for entityId, _ in pairs(idToEntityMap) do
+		table.insert(result, entityId)
+	end
+	return result
+end
+
 return Registrar

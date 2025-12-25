@@ -1,19 +1,23 @@
 --!strict
--- Simple combat utility to apply damage to Stats (players) or Humanoids (NPC fallback)
+-- Combat utility to apply damage using entityId-based architecture
+-- All damage flows through the Stats system using entityIds as the source of truth
 
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = game:GetService("ServerScriptService").Server
-local Registrar = require(Server.Services.Registrar)
 
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local StatsManager = require(Server.Stats.StatsManager)
 local StatusEffectsService = require(script.Parent.Parent.StatusEffects.StatusEffectsService)
+local AttackTypes = require(ReplicatedStorage.Shared.skills.AttackTypes)
+local Networking = require(ReplicatedStorage.Shared.Networking)
+local StaggerSystem = require(script.Parent.StaggerSystem)
+local Registrar = require(script.Parent.Registrar)
+
+local dispatcher = Networking.server() :: any
 
 local CombatService = {}
 
 export type DamageEffect = { id: string, chance: number?, params: any? }
-export type DamageSource = Instance
 
 export type DamageOptions = {
 	kind: string?, -- "physical" | "magic" | "true" | custom
@@ -44,80 +48,13 @@ export type DamageResult = {
 	resourceMeta: ResourceMetaSnapshot?,
 }
 
-local function modelOf(inst: Instance): Model?
-	local cur: Instance? = inst
-	while cur do
-		if cur:IsA("Model") then
-			return cur
-		end
-		cur = cur.Parent
-	end
-	return nil
-end
-
-local function getHumanoidFromModel(model: Model): Humanoid?
-	return model:FindFirstChildOfClass("Humanoid") :: Humanoid?
-end
-
-function CombatService.getHumanoid(target: Instance): Humanoid?
-	if target:IsA("Model") then
-		return getHumanoidFromModel(target)
-	end
-	local m = modelOf(target)
-	if m then
-		return getHumanoidFromModel(m)
-	end
-	return nil
-end
-
-local function playerFromTarget(target: Instance): Player?
-	local m: Model? = nil
-	if target:IsA("Model") then
-		m = target
-	else
-		m = modelOf(target)
-	end
-	if m then
-		return Players:GetPlayerFromCharacter(m)
-	end
-	return nil
-end
-
--- source should be entityId
--- local function resolveSourceInfo(source: string): (Player?, Model?, Instance?)
--- 	if not source then
--- 		return nil, nil, nil
--- 	end
-
--- 	if Registrar.isPlayerEntity(source) then
--- 		local player = Registrar.getPlayerById(source)
--- 		if not player then
--- 			return nil, nil, nil
--- 		end
--- 		local char = player.Character
--- 		local entity: Instance? = nil
--- 		if StatsManager.isRegistered(entityId) then
--- 			entity = player
--- 		elseif char and StatsManager.isRegistered(char) then
--- 			entity = char
--- 		end
--- 		return player, char, entity
--- 	end
-
--- 	local sourceModel = if source:IsA("Model") then source else modelOf(source)
--- 	local sourcePlayer = if sourceModel then Players:GetPlayerFromCharacter(sourceModel) else nil
-
--- 	local entity: Instance? = nil
--- 	if StatsManager.isRegistered(source) then
--- 		entity = source
--- 	elseif sourceModel and StatsManager.isRegistered(sourceModel) then
--- 		entity = sourceModel
--- 	elseif sourcePlayer and StatsManager.isRegistered(sourcePlayer) then
--- 		entity = sourcePlayer
--- 	end
-
--- 	return sourcePlayer, sourceModel, entity
--- end
+-- Extended result for damage numbers and UI
+export type AttackResult = DamageResult & {
+	byType: { [string]: number }, -- Damage breakdown by type (Physical, Fire, etc)
+	blocked: boolean, -- Was attack blocked by shield/guard
+	totalDamage: number, -- Sum of all damage types
+	staggerApplied: boolean?, -- Was stagger applied to target
+}
 
 local function resolveStatic(name: string): any
 	return (StatTypes.StaticStats :: any)[name]
@@ -227,11 +164,11 @@ local function roll(p: number): boolean
 	return (math.random() < prob)
 end
 
--- Main, extensible damage pipeline
-function CombatService.applyDamageDetailed(
-	target: Instance | string, -- entityId or an instance contained in entity
+-- Internal damage pipeline (private - use applyAttack for all damage)
+local function _applyDamageInternal(
+	targetEntityId: string, -- entityId only
 	baseAmount: number,
-	source: string, -- entityId
+	sourceEntityId: string, -- entityId only
 	opts: DamageOptions?
 ): DamageResult
 	local result: DamageResult = {
@@ -242,52 +179,29 @@ function CombatService.applyDamageDetailed(
 		absorbed = 0,
 		appliedToHealth = 0,
 		finalAmount = 0,
-		source = source,
-		targetEntity = "",
+		source = sourceEntityId,
+		targetEntity = targetEntityId,
 	}
 	if baseAmount <= 0 then
 		return result
 	end
 
-	local model = nil
-
-	if typeof(target) == "Instance" then
-		model = target:IsA("Model") and target or modelOf(target)
-	end
-
-	local targetEntity = typeof(target) == "string" and target or model and Registrar.getEntityId(model)
-
-	if targetEntity then
-		result.targetEntity = targetEntity
+	if not targetEntityId or targetEntityId == "" then
+		warn("[CombatService] Invalid targetEntityId provided")
+		return result
 	end
 
 	local damageKind = (opts and opts.kind) or "generic"
 	local amount = baseAmount
 
-	if not targetEntity then
-		if amount > 0 then
-			if not model then
-				return result
-			end
-			local targetHumanoid = model:FindFirstChildOfClass("Humanoid")
-			if targetHumanoid then
-				targetHumanoid:TakeDamage(amount)
-			end
-			result.appliedToHealth = amount
-			result.finalAmount = amount
-		end
-
-		return result
-	end
-
 	-- Pre-hit: dodge (target stat) if present
-	local dodge = normalizeChance(getEntityStatValueByName(targetEntity, "DodgeChance", {
+	local dodge = normalizeChance(getEntityStatValueByName(targetEntityId, "DodgeChance", {
 		event = "preDamageQuery",
 		metadata = {
 			stat = "DodgeChance",
 			phase = "avoidance",
-			target = targetEntity,
-			source = source,
+			target = targetEntityId,
+			source = sourceEntityId,
 		},
 	}))
 	if roll(dodge) then
@@ -297,22 +211,22 @@ function CombatService.applyDamageDetailed(
 
 	-- Attacker crit (optional, if stats exist)
 	if opts == nil or opts.critAllowed ~= false then
-		local critChance = normalizeChance(getEntityStatValueByName(source, "CriticalHitChance", {
+		local critChance = normalizeChance(getEntityStatValueByName(sourceEntityId, "CriticalHitChance", {
 			event = "preDamageQuery",
 			metadata = {
 				stat = "CriticalHitChance",
 				phase = "attack",
-				target = targetEntity,
-				source = source,
+				target = targetEntityId,
+				source = sourceEntityId,
 			},
 		}))
-		local critDamage = getEntityStatValueByName(source, "CriticalHitDamage", {
+		local critDamage = getEntityStatValueByName(sourceEntityId, "CriticalHitDamage", {
 			event = "preDamageQuery",
 			metadata = {
 				stat = "CriticalHitDamage",
 				phase = "attack",
-				target = targetEntity,
-				source = source,
+				target = targetEntityId,
+				source = sourceEntityId,
 			},
 		})
 		if roll(critChance) then
@@ -339,23 +253,23 @@ function CombatService.applyDamageDetailed(
 
 	-- Mitigation (armor/reduction) if present
 	if not (opts and opts.bypassArmor) then
-		local damageReduction = getEntityStatValueByName(targetEntity, "DamageReduction", {
+		local damageReduction = getEntityStatValueByName(targetEntityId, "DamageReduction", {
 			event = "preDamageQuery",
 			metadata = {
 				stat = "DamageReduction",
 				phase = "mitigation",
-				target = targetEntity,
-				source = source,
+				target = targetEntityId,
+				source = sourceEntityId,
 			},
 		})
 		local dr = (damageReduction > 1) and (damageReduction / 100) or damageReduction
-		local armor = getEntityStatValueByName(targetEntity, "Armor", {
+		local armor = getEntityStatValueByName(targetEntityId, "Armor", {
 			event = "preDamageQuery",
 			metadata = {
 				stat = "Armor",
 				phase = "mitigation",
-				target = targetEntity,
-				source = source,
+				target = targetEntityId,
+				source = sourceEntityId,
 			},
 		})
 		local armorFactor = (armor > 0) and (armor / (armor + ARMOR_K)) or 0
@@ -367,8 +281,8 @@ function CombatService.applyDamageDetailed(
 
 	-- Absorption (ManaShield) for players
 	local resourceMetaBase = {
-		target = targetEntity,
-		source = source,
+		target = targetEntityId,
+		source = sourceEntityId,
 		damageKind = damageKind,
 		crit = result.crit,
 		dodged = result.dodged,
@@ -387,7 +301,7 @@ function CombatService.applyDamageDetailed(
 			}
 		)
 		local currentShield = StatsManager.getPoolCurrentValue(
-			targetEntity,
+			targetEntityId,
 			StatTypes.PoolStats.ManaShield,
 			shieldQuery
 		) or 0
@@ -405,7 +319,7 @@ function CombatService.applyDamageDetailed(
 						absorbAmount = absorb,
 					}
 				)
-				StatsManager.removeFromPool(targetEntity, StatTypes.PoolStats.ManaShield, absorb, shieldSpend)
+				StatsManager.removeFromPool(targetEntityId, StatTypes.PoolStats.ManaShield, absorb, shieldSpend)
 				result.absorbed = absorb
 				amount -= absorb
 				if result.resourceMeta == nil then
@@ -427,7 +341,7 @@ function CombatService.applyDamageDetailed(
 				absorbed = result.absorbed,
 				appliedAmount = amount,
 			})
-		StatsManager.removeFromPool(targetEntity, StatTypes.PoolStats.Health, amount, healthSpend)
+		StatsManager.removeFromPool(targetEntityId, StatTypes.PoolStats.Health, amount, healthSpend)
 		result.appliedToHealth = amount
 		result.finalAmount = amount
 		if result.resourceMeta == nil then
@@ -445,7 +359,7 @@ function CombatService.applyDamageDetailed(
 		for _, eff in ipairs(opts.effects) do
 			local chance = (eff.chance ~= nil) and (eff.chance :: number) or 1
 			if roll(chance) then
-				if StatusEffectsService.apply(targetEntity, eff.id, source, eff.params) then
+				if StatusEffectsService.apply(targetEntityId, eff.id, sourceEntityId, eff.params) then
 					table.insert(applied, eff.id)
 				end
 			end
@@ -458,10 +372,165 @@ function CombatService.applyDamageDetailed(
 	return result
 end
 
--- Apply raw damage. Returns true if any damage was applied.
-function CombatService.applyDamage(target: Instance | string, amount: number, source: string): boolean
-	local r = CombatService.applyDamageDetailed(target, amount, source, nil)
-	return (r.finalAmount > 0) or (r.absorbed > 0)
+-- ============================================================================
+-- ATTACK COMPOSITION SYSTEM
+-- ============================================================================
+
+-- Apply a single damage packet (internal helper)
+local function applyDamagePacket(
+	targetEntityId: string,
+	packet: AttackTypes.AttackPacket,
+	sourceEntityId: string,
+	metadata: AttackTypes.AttackMetadata
+): DamageResult
+	local opts: DamageOptions = {
+		kind = packet.damageType or "generic",
+		element = packet.damageType,
+		critAllowed = metadata.isCrit ~= false, -- allow crit unless explicitly disabled
+		bypassShield = false,
+		bypassArmor = packet.penetration and packet.penetration >= 1.0,
+		effects = nil,
+	}
+
+	return _applyDamageInternal(targetEntityId, packet.amount or 0, sourceEntityId, opts)
+end
+
+-- Broadcast hit event to clients for damage numbers
+local function broadcastHit(
+	sourceEntityId: string,
+	targetEntityId: string,
+	attackResult: AttackResult,
+	skillId: string?
+)
+	print(
+		`[CombatService] Broadcasting hit: source={sourceEntityId}, target={targetEntityId}, total={attackResult.totalDamage}, byType=`,
+		attackResult.byType
+	)
+
+	dispatcher:emit("HitEvent", {
+		sourceId = sourceEntityId,
+		targetId = targetEntityId,
+		result = attackResult,
+		skillId = skillId, -- Pass skill ID for sound selection
+		timestamp = os.clock(),
+	})
+end
+
+-- Process attack composition: damage packets, status effects, heals, drains
+function CombatService.applyAttack(
+	targetEntityId: string,
+	attack: AttackTypes.AttackContext,
+	sourceEntityId: string
+): AttackResult
+	-- Initialize attack result
+	local attackResult: AttackResult = {
+		dodged = false,
+		crit = attack.metadata.isCrit or false,
+		baseAmount = 0,
+		mitigated = 0,
+		absorbed = 0,
+		appliedToHealth = 0,
+		finalAmount = 0,
+		targetEntity = targetEntityId,
+		source = sourceEntityId,
+		effectsApplied = {} :: { string },
+		byType = {},
+		blocked = false,
+		totalDamage = 0,
+	}
+
+	for _, packet in attack.packets do
+		if packet.type == "damage" then
+			-- Apply damage packet with type-specific logic
+			local result = applyDamagePacket(targetEntityId, packet, sourceEntityId, attack.metadata)
+
+			-- Accumulate damage by type
+			local damageType = packet.damageType or "Physical"
+			attackResult.byType[damageType] = (attackResult.byType[damageType] or 0) + result.finalAmount
+
+			-- Aggregate overall stats
+			attackResult.totalDamage = attackResult.totalDamage + result.finalAmount
+			attackResult.mitigated = attackResult.mitigated + result.mitigated
+			attackResult.absorbed = attackResult.absorbed + result.absorbed
+			attackResult.appliedToHealth = attackResult.appliedToHealth + result.appliedToHealth
+			attackResult.finalAmount = attackResult.finalAmount + result.finalAmount
+			attackResult.dodged = attackResult.dodged or result.dodged
+
+			-- Track base amount from first packet
+			if attackResult.baseAmount == 0 then
+				attackResult.baseAmount = result.baseAmount
+			end
+		elseif packet.type == "effect" then
+			-- Roll chance and apply status effect
+			if not packet.effectId then
+				continue
+			end
+
+			local shouldApply = true
+			if packet.chance then
+				shouldApply = roll(packet.chance)
+			end
+
+			if shouldApply then
+				StatusEffectsService.apply(targetEntityId, packet.effectId, sourceEntityId, packet.params)
+				if attackResult.effectsApplied then
+					table.insert(attackResult.effectsApplied, packet.effectId)
+				end
+			end
+		elseif packet.type == "heal" then
+			-- Heal packet: restore pool value
+			local poolType = (packet.poolType or StatTypes.PoolStats.Health) :: any
+			local amount = packet.amount or 0
+			if amount > 0 then
+				StatsManager.addToPool(targetEntityId, poolType, amount)
+			end
+		elseif packet.type == "drain" then
+			-- Drain packet: remove from target, add to source
+			local poolType = (packet.poolType or StatTypes.PoolStats.Health) :: any
+			local amount = packet.amount or 0
+			if amount > 0 then
+				StatsManager.removeFromPool(targetEntityId, poolType, amount, {
+					metadata = {
+						source = sourceEntityId,
+						skillId = attack.metadata.skillId,
+						reason = "drain_packet",
+					},
+				})
+				StatsManager.addToPool(sourceEntityId, poolType, amount)
+			end
+			-- Note: knockback packet type not yet implemented
+		end
+	end
+
+	-- Apply stagger if damage was dealt (before broadcasting so client gets the flag)
+	if attackResult.totalDamage > 0 then
+		-- Resolve specId from entity's CharacterSpecId attribute, fallback to PlayerCharacter
+		local specId = "PlayerCharacter"
+		local targetModel = Registrar.getEntityById(targetEntityId)
+		if targetModel then
+			local attributeSpecId = targetModel:GetAttribute("CharacterSpecId")
+			if attributeSpecId and type(attributeSpecId) == "string" then
+				specId = attributeSpecId
+			elseif not Registrar.isPlayerEntity(targetEntityId) then
+				-- NPC without attribute - use model name as fallback
+				specId = targetModel.Name
+			end
+		end
+
+		attackResult.staggerApplied =
+			StaggerSystem.tryStagger(targetEntityId, attackResult.totalDamage, sourceEntityId, specId)
+	end
+
+	-- Broadcast hit event to clients for damage numbers
+	if
+		attackResult.totalDamage > 0
+		or attackResult.dodged
+		or (attackResult.effectsApplied and #attackResult.effectsApplied > 0)
+	then
+		broadcastHit(sourceEntityId, targetEntityId, attackResult, attack.metadata.skillId)
+	end
+
+	return attackResult
 end
 
 return CombatService

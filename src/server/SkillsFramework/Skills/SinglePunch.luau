@@ -17,7 +17,7 @@ function SinglePunch.new(casterId: string, data: any)
 	return self
 end
 
-function SinglePunch:use()
+function SinglePunch:use(requestData: any?)
 	local timing = self:resolveTiming()
 
 	if not self:applyResourceCost({ timing = timing }) then
@@ -34,32 +34,37 @@ function SinglePunch:use()
 		allowChain = false,
 		autoComplete = false,
 		timing = timing,
+		sessionId = requestData and requestData.sessionId or nil, -- Phase 3
 	})
 
-	local baseDamage = self:queryStatValue(StatTypes.StaticStats.PhysicalDamage) or 0
+	local baseDamage = self:resolveStat(StatTypes.StaticStats.PhysicalDamage)
+	-- Build attack composition using resolver
+	local attack = self:resolveAttack({
+		damage = baseDamage,
+		damageType = "Physical",
+	})
 
-	local origin = self:getCasterOriginCFrame(self)
+	local origin = self:getCasterOriginCFrame()
 
-	local range = self.config.hit.coneRange
-	local angle = self.config.hit.coneAngle
-
-	local targets =
-		HitboxService.newQuery(origin):casterEntityId(self.casterId):factionRelation("enemy"):cone(angle, range):collect()
-
-	for _, target in ipairs(targets) do
-		CombatService.applyDamage(target, baseDamage, self.casterId)
+	for _, hit in ipairs(self.config.hits) do
+		local range = hit.coneRange
+		local angle = hit.coneAngle
+		task.delay(hit.t, function()
+			local targets = HitboxService.newQuery(origin)
+				:casterEntityId(self.casterId)
+				:factionRelation("enemy")
+				:cone(angle, range)
+				:collect({ collectIds = true, debug = true })
+			-- Apply to all targets
+			for _, targetEntityId in ipairs(targets.ids) do
+				CombatService.applyAttack(targetEntityId, attack, self.casterId)
+			end
+		end)
 	end
 
-	if executionDuration and executionDuration > 0 then
-		task.delay(executionDuration, function()
-			self:completeExecution()
-		end)
-	else
-		task.defer(function()
-			self:completeExecution()
-		end)
-	end
-	
+	-- ExecutionService auto-completes based on duration passed to beginExecution
+	-- No manual completion needed
+
 	-- Return success response for client
 	return {
 		success = true,

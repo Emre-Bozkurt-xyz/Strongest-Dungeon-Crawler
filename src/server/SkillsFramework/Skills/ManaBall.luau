@@ -1,10 +1,12 @@
 -- ManaBall: Fires a single magic projectile, scales on magic, uses mana
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local Server = ServerScriptService.Server
 
 local BaseSkill = require(script.Parent.BaseSkill)
-local ProjectileService = require(ServerScriptService.Server.Services.ProjectileService)
-local CombatService = require(ServerScriptService.Server.Services.CombatService)
+local ProjectileService = require(Server.Services.ProjectileService)
+local CombatService = require(Server.Services.CombatService)
+local Registrar = require(Server.Services.Registrar)
 local EntityUtils = require(ReplicatedStorage.Shared.EntityUtils)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
@@ -40,6 +42,7 @@ function ManaBall:use(requestData: any?)
 		allowChain = false,
 		autoComplete = false,
 		timing = timing,
+		sessionId = requestData and requestData.sessionId or nil, -- Phase 3
 	})
 
 	-- spawn-and-hold: we attach the visual to the caster's hand and let the client
@@ -47,8 +50,8 @@ function ManaBall:use(requestData: any?)
 	-- the client requests it. We still provide an authoritative launchSpeed.
 	local speed = 60
 
-	-- Magic scaling (assume StatsMediator or similar exists)
-	local magicDmg = self:queryStatValue(StatTypes.StaticStats.MagicDamage)
+	-- Magic scaling resolved via SkillMediator
+	local magicDmg = self:resolveStat(StatTypes.StaticStats.MagicDamage)
 
 	ProjectileService.spawnProjectile({
 		templateKey = templateKey,
@@ -63,8 +66,14 @@ function ManaBall:use(requestData: any?)
 		-- tell clients which impact FX to play by key (clients map keys -> actual assets)
 		extraData = { impactKey = "ManaBallImpact" },
 		onHit = function(_proj, _hitPart, hitEntity, _result)
-			-- Only damage first valid target
-			CombatService.applyDamage(hitEntity, magicDmg, self.casterId)
+			-- hitEntity is a Model from ProjectileService
+			-- Convert to entityId for damage application
+			local targetEntityId = Registrar.getEntityId(hitEntity)
+			if targetEntityId then
+				CombatService.applyDamage(targetEntityId, magicDmg, self.casterId)
+			else
+				warn(`[ManaBall] Hit entity {hitEntity.Name} has no entityId - skipping damage`)
+			end
 			return false -- stop after first hit
 		end,
 	})
@@ -72,7 +81,7 @@ function ManaBall:use(requestData: any?)
 	task.delay(durationScale, function()
 		self:completeExecution()
 	end)
-	
+
 	-- Return success response for client
 	return {
 		success = true,

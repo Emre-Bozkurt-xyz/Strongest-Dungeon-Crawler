@@ -16,6 +16,7 @@ export type FXEventOptions = {
 	offset: CFrame?,
 	lifetime: number?,
 	action: string?,
+	step: number?, -- Combo step for proper FX keying
 	meta: { [string]: any }?,
 }
 
@@ -41,8 +42,13 @@ local function findEntityPosition(entityId: string): Vector3
 	return Vector3.zero
 end
 
-dispatcher:on("FXEvent", function(payload: FXEventOptions, _meta: any)
+dispatcher:on("FXEvent", function(payload: FXEventOptions, meta: any)
+	-- Server relay: broadcast to other players in range, EXCLUDING sender to prevent echo-back
+	local sender = meta.player
+	local targets = findAllPlayersInRange(payload.origin or findEntityPosition(payload.entityId), payload.range or 50)
+
 	dispatcher:emit("FXEvent", payload, {
-		targets = findAllPlayersInRange(payload.origin or findEntityPosition(payload.entityId), payload.range or 50),
+		targets = targets,
+		exclude = sender, -- Critical: don't send back to the client that triggered it
 	})
 end)

@@ -2,6 +2,8 @@
 
 **IMPORTANT:** All code must be free of TypeErrors (red errors) before completion. TypeErrors are not allowed in any committed or delivered code.
 
+**IMPORTANT:** Before implementing new features or systems, **always** read `docs/architecture-overview.md` first. This document contains comprehensive documentation of all existing systems, APIs, and patterns. Use existing infrastructure instead of creating duplicate systems.
+
 These project-specific instructions help an AI assistant work effectively in this Roblox (Luau) codebase.
 Keep responses concise, reference concrete files, and follow the established execution / cooldown architecture.
 

@@ -1,17 +1,28 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = game:GetService("ServerScriptService").Server
+local HttpService = game:GetService("HttpService")
 
 local Timeline = require(script.Parent.Parent.Timeline)
-local ExecutionService = require(script.Parent.Parent.ExecutionService)
+local SessionManager = require(script.Parent.Parent.SessionManager) -- Phase 3: Unified system
 local Registrar = require(Server.Services.Registrar)
-local event = require(script.Parent.Parent.SkillsEvent)
 local StatsManager = require(Server.Stats.StatsManager)
-local ComboService = require(Server.SkillsFramework.ComboService)
+local SkillMediator = require(Server.Stats.SkillMediator)
+local AttackResolver = require(script.Parent.Parent.AttackResolver)
+local SkillQueryTypes = require(ReplicatedStorage.Shared.skills.SkillQueryTypes)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local SkillTimingService = require(script.Parent.Parent.SkillTimingService)
+local AttackTypes = require(ReplicatedStorage.Shared.skills.AttackTypes)
 
 local BaseSkill = {}
 BaseSkill.__index = BaseSkill
+
+local DEBUG_PHASE3 = false -- Phase 3: Track dual-system operation
+
+local function debugPhase3(...: any)
+	if DEBUG_PHASE3 then
+		print("[PHASE3-SKILL]", ...)
+	end
+end
 
 function BaseSkill.new(entityId: string, data: any)
 	local self = setmetatable({}, BaseSkill)
@@ -28,6 +39,8 @@ function BaseSkill.new(entityId: string, data: any)
 	self._execToken = nil
 	self._execState = nil
 	self._lastTiming = nil
+	self._sessionId = nil -- Phase 3: Track session ID
+	self._autoCompleteToken = nil
 	return self
 end
 
@@ -42,61 +55,105 @@ local function cloneTable(source: { [any]: any }?): { [any]: any }
 	return target
 end
 
-function BaseSkill:_buildSkillMetadata(extra: { [any]: any }?, overrides: { [any]: any }?): { [any]: any }
-	local metadata = {}
-	metadata.skill = self.name
-	metadata.skillId = self.id
-	metadata.skillCategory = self.config and self.config.category or nil
-	metadata.skillTags = self.config and (self.config.tags or self.config.categories) or nil
-	metadata.casterId = self.casterId
+-- Build a standard SkillQueryContext for resolving a stat value in the context of this skill.
+function BaseSkill:resolveStat(statType: any, extraMeta: { [string]: any }?): number
+	local baseValue = StatsManager.getStatValue(self.casterId, statType) or 0
+	local meta = cloneTable(extraMeta)
+	meta.source = meta.source or "skill"
+	meta.skill = self.name
+	meta.skillId = self.id
+	meta.skillCategory = self.config and self.config.category or nil
+	meta.skillTags = self.config and (self.config.tags or self.config.categories) or nil
+	meta.casterId = self.casterId
 
-	local overrideMeta = overrides and overrides.metadata or nil
-	if overrideMeta then
-		for key, value in pairs(overrideMeta) do
-			metadata[key] = value
-		end
+	local ctx: SkillQueryTypes.SkillQueryContext = {
+		entityId = self.casterId,
+		skillId = self.name,
+		event = "resolveStat",
+		tags = (self.config and self.config.tags) or nil,
+		step = meta.step,
+		metadata = meta,
+		base = {
+			stat = statType,
+			value = baseValue,
+		},
+	}
+
+	local result = SkillMediator.resolve(ctx)
+	local values = result.values
+	local resolved = values and values.value
+	if typeof(resolved) == "number" then
+		return resolved
 	end
-
-	if extra then
-		for key, value in pairs(extra) do
-			metadata[key] = value
-		end
-	end
-
-	return metadata
+	return baseValue
 end
 
-function BaseSkill:_buildSkillQueryOptions(defaultEvent: string, extraMetadata: { [any]: any }?, overrides)
-	local options = if overrides then cloneTable(overrides) else {}
-	if overrides and overrides.metadata then
-		options.metadata = cloneTable(overrides.metadata)
-	end
-	options.metadata = self:_buildSkillMetadata(extraMetadata, options)
-	if defaultEvent and options.event == nil then
-		options.event = defaultEvent
-	end
-	return options
-end
+-- Build a standard SkillQueryContext for resolving skill cost.
+function BaseSkill:_buildCostContext(
+	baseResource: any,
+	baseAmount: number,
+	extraMeta: { [string]: any }?
+): SkillQueryTypes.SkillQueryContext
+	local meta = cloneTable(extraMeta)
+	meta.resource = baseResource
+	meta.skill = self.name
+	meta.skillId = self.id
+	meta.skillCategory = self.config and self.config.category or nil
+	meta.skillTags = self.config and (self.config.tags or self.config.categories) or nil
+	meta.casterId = self.casterId
 
-function BaseSkill:queryStatValue(statType: any, metadata: { [any]: any }?, overrides)
-	local options = self:_buildSkillQueryOptions("skillStatQuery", metadata, overrides)
-	return StatsManager.getStatValue(self.casterId, statType, options)
-end
-
-function BaseSkill:queryPoolCurrent(poolType: any, metadata: { [any]: any }?, overrides)
-	local options = self:_buildSkillQueryOptions("resolveSkillResource", metadata, overrides)
-	return StatsManager.getPoolCurrentValue(self.casterId, poolType, options)
-end
-
-function BaseSkill:queryPoolMax(poolType: any, metadata: { [any]: any }?, overrides)
-	local options = self:_buildSkillQueryOptions("resolveSkillResourceMax", metadata, overrides)
-	return StatsManager.getPoolMaxValue(self.casterId, poolType, options)
+	return {
+		entityId = self.casterId,
+		skillId = self.name,
+		event = "resolveSkillCost",
+		tags = (self.config and self.config.tags) or nil,
+		step = meta.step,
+		metadata = meta,
+		base = {
+			resource = baseResource,
+			amount = baseAmount,
+		},
+	}
 end
 
 function BaseSkill:resolveTiming()
 	-- Simplified: timing service now infers tempo and durationScale from skill tags and entity stats.
 	return SkillTimingService.resolve(self.casterId, self.name)
 end
+
+-- DEPRECATED: Cast sounds are now played client-side immediately via ImmediateHitFeedback
+-- This method is kept for reference but should not be used.
+-- Client-side approach: BaseSkill:playCastSoundLocal() in src/client/SkillsFramework/Skills/BaseSkill.luau
+--[[
+function BaseSkill:playCastSound()
+	local castSounds = self.config and self.config.castSounds
+	if not castSounds or type(castSounds) ~= "table" or #castSounds == 0 then
+		return
+	end
+	local soundId = castSounds[math.random(1, #castSounds)]
+	if not soundId or soundId == "" then
+		return
+	end
+	local casterEntity = self.caster
+	if not casterEntity then
+		return
+	end
+	local position: Vector3
+	if casterEntity:IsA("Model") then
+		local hrp = casterEntity:FindFirstChild("HumanoidRootPart") :: BasePart?
+		position = hrp and hrp.Position or casterEntity:GetPivot().Position
+	elseif casterEntity:IsA("BasePart") then
+		position = casterEntity.Position
+	else
+		return
+	end
+	dispatcher:emit("SkillCastSound", {
+		skillId = self.id,
+		soundId = soundId,
+		position = position,
+	})
+end
+]]
 
 function BaseSkill:_captureTiming(timing: { [string]: any }?)
 	if timing == nil then
@@ -137,7 +194,6 @@ function BaseSkill:_updateExecutionState(update: { [string]: any }?)
 	if payload.targetDuration == nil and type(payload.stepDuration) == "number" then
 		payload.targetDuration = payload.stepDuration
 	end
-	ExecutionService.annotate(self.casterId, self._execToken, payload)
 	local state = self._execState
 	if state then
 		for key, value in pairs(payload) do
@@ -145,14 +201,6 @@ function BaseSkill:_updateExecutionState(update: { [string]: any }?)
 		end
 	end
 end
-
--- function BaseSkill:applyResourceCost(poolType: any, amount: number, metadata: { [any]: any }?, overrides)
--- 	local meta = metadata or {}
--- 	meta.baseCost = amount
-
--- 	local options = self:_buildSkillQueryOptions("resolveSkillCost", meta, overrides)
--- 	return StatsManager.removeFromPool(self.caster, poolType, amount, options)
--- end
 
 function BaseSkill:getBaseCost(data: any?): number
 	local comboConfig = data and data.combo or nil
@@ -175,78 +223,58 @@ end
 
 function BaseSkill:applyResourceCost(data: any?): boolean
 	local comboConfig = data and data.combo or nil
-
+	local timingInfo = data and data.timing
 	local cost = self:getBaseCost(data)
-
-	
-	-- Determine base resource to be consumed
 	local baseResource = self.config and self.config.baseResource or StatTypes.PoolStats.Stamina
-	
-	-- No cost to apply
+
 	if cost <= 0 then
 		return true
 	end
-	
-	-- Preview cost to determine actual pool and final cost after observers' modification
-	local timingInfo = data and data.timing
+
 	local costMetadata = {
-		resource = baseResource,
 		step = comboConfig and comboConfig.step or nil,
 	}
 	if timingInfo then
-		-- Provide durationScale to cost observers explicitly (tempo is derivable as 1/durationScale)
 		costMetadata.durationScale = timingInfo.durationScale
 		if timingInfo.metadata then
 			costMetadata.timingMetadata = timingInfo.metadata
 		end
 	end
-	
-	
-	local preview = self:previewResourceCost(baseResource, cost, costMetadata)
-	local targetPool = baseResource
-	local finalCost = cost
-	local currentValue = 0
-	local removalOverrides = nil
-	
-	if preview then
-		targetPool = preview.poolName
-		finalCost = preview.finalCost
-		currentValue = preview.currentValue
-		local overrideMeta = table.clone(preview.metadata or {})
-		overrideMeta.resource = targetPool
-		removalOverrides = {
-			metadata = overrideMeta,
-			overrideStat = if targetPool ~= baseResource then targetPool else nil,
-		}
-	else
-		currentValue = self:queryPoolCurrent(baseResource, {
-			resource = baseResource,
-			step = comboConfig and comboConfig.step or nil,
-		}) or 0
-	end
-	
-	if currentValue + 1e-3 < finalCost then
-		if comboConfig then
-			ComboService.clear(self.casterId, self.name)
-		end
+
+	local ctx = self:_buildCostContext(baseResource, cost, costMetadata)
+	local result = SkillMediator.resolve(ctx)
+	local values = result.values
+	local resolvedResource = (values and values.resource) or baseResource
+	local resolvedAmount = (values and values.amount) or cost
+
+	-- Check affordability using resolved values
+	local preview = StatsManager.resolvePoolCost(self.casterId, resolvedResource, resolvedAmount, {
+		metadata = ctx.metadata,
+	})
+	if not preview or (preview.currentValue + 1e-3 < preview.finalCost) then
 		return false
 	end
-	
-	local removalMetadata = {
-		resource = targetPool,
-		step = comboConfig and comboConfig.step or nil,
-		baseCost = finalCost,
-	}
-	
-	local options = self:_buildSkillQueryOptions("applySkillCost", removalMetadata, removalOverrides)
-	StatsManager.removeFromPool(self.casterId, targetPool, finalCost, options)
 
+	StatsManager.removeFromPool(self.casterId, resolvedResource, resolvedAmount, {
+		metadata = ctx.metadata,
+	})
 	return true
 end
 
-function BaseSkill:previewResourceCost(poolType: any, amount: number, metadata: { [any]: any }?, overrides)
-	local options = self:_buildSkillQueryOptions("resolveSkillCost", metadata, overrides)
-	return StatsManager.resolvePoolCost(self.casterId, poolType, amount, options)
+function BaseSkill:previewResourceCost(poolType: any, amount: number, metadata: { [any]: any }?, _overrides)
+	local ctx = self:_buildCostContext(poolType, amount, metadata or {})
+	local result = SkillMediator.resolve(ctx)
+	local values = result.values
+	local resolvedResource = (values and values.resource) or poolType
+	local resolvedAmount = (values and values.amount) or amount
+	local preview = StatsManager.resolvePoolCost(self.casterId, resolvedResource, resolvedAmount, {
+		metadata = ctx.metadata,
+	})
+	if preview then
+		preview.poolName = resolvedResource
+		preview.finalCost = resolvedAmount
+	end
+	return preview
 end
 
 function BaseSkill:use()
@@ -254,64 +282,52 @@ function BaseSkill:use()
 	error("BaseSkill:use() must be implemented by child: " .. tostring(self.name))
 end
 
+-- ============================================================================
+-- ATTACK COMPOSITION SYSTEM
+-- ============================================================================
+
+-- Build an attack composition from base damage values
+-- Uses SkillMediator resolver pipeline for modifier support
+function BaseSkill:resolveAttack(base: {
+	damage: number,
+	damageType: string,
+	[string]: any,
+}): AttackTypes.AttackContext
+	-- Build attack query context
+	local queryCtx = {
+		entityId = self.casterId,
+		skillId = self.name,
+		queryType = "resolveAttack",
+		tags = self.config and self.config.tags or nil,
+		step = base.comboStep,
+		metadata = base.metadata,
+		baseAttack = {
+			damage = base.damage,
+			damageType = base.damageType,
+			effectId = base.effectId,
+			effectChance = base.effectChance,
+			comboStep = base.comboStep,
+			isCrit = base.isCrit or false,
+		},
+	}
+
+	-- Resolve through AttackResolver (will apply modifiers once registry exists)
+	local result = AttackResolver.resolve(queryCtx)
+
+	-- Convert query result to AttackContext
+	return {
+		packets = result.packets,
+		sourceId = self.casterId,
+		metadata = result.metadata or {
+			skillId = self.name,
+			tags = self.config and self.config.tags or nil,
+			isCrit = base.isCrit or false,
+			comboStep = base.comboStep,
+		},
+	}
+end
+
 -- Emit a start phase; children can override before/after
-function BaseSkill:emitStart(extra: any?)
-	event:FireAllClients({ phase = "start", id = self.name, casterId = self.casterId, data = extra })
-end
-
--- Emit an impact with optional cframe/targets and step index
--- Emit a generic FX signal (replaces old 'impact')
--- params:
---   step: number (combo step or sequence index)
---   opts: { cframe: CFrame?, anchor: { mode: string, name: string, offset: CFrame?, fallback: string? }?, fxKey: string?, lifetime: number?, meta: any? }
-function BaseSkill:emitFX(step: number, opts: any?)
-	local o = opts or {}
-	event:FireAllClients({
-		phase = "fx",
-		id = self.name,
-		casterId = self.casterId,
-		step = step,
-		cframe = o.cframe,
-		anchor = o.anchor,
-		fxKey = o.fxKey,
-		lifetime = o.lifetime,
-		data = o.meta,
-	})
-end
-
--- Emit a step begin (for playing combo step animations client-side)
-function BaseSkill:emitStep(step: number, extra: any?)
-	event:FireAllClients({
-		phase = "step",
-		id = self.name,
-		casterId = self.casterId,
-		step = step,
-		data = extra,
-	})
-end
-
--- Emit an end/cleanup
-function BaseSkill:emitEnd(extra: any?)
-	event:FireAllClients({ phase = "end", id = self.name, casterId = self.casterId, data = extra })
-end
-
--- Combo helpers: open/close combo wait window for client idle anims
-function BaseSkill:emitComboWaitStart(durationSec: number, step: number, totalSteps: number)
-	event:FireAllClients({
-		phase = "combo_wait",
-		open = true,
-		id = self.name,
-		casterId = self.casterId,
-		step = step,
-		total = totalSteps,
-		duration = durationSec,
-	})
-end
-
-function BaseSkill:emitComboWaitEnd()
-	event:FireAllClients({ phase = "combo_wait", open = false, id = self.name, casterId = self.casterId })
-end
-
 function BaseSkill:schedule(steps: { { t: number, fn: () -> () } })
 	local tl = Timeline.new()
 	tl:sequence(steps)
@@ -324,6 +340,8 @@ export type ExecutionOptions = {
 	speedMult: number?,
 	timing: { [string]: any }?,
 	lockJump: boolean?,
+	attemptId: string?,
+	sessionId: string?, -- Phase 3: Session ID from SkillsManager
 }
 
 -- Execution helpers: wrap emitStart/emitEnd with execution lock semantics.
@@ -332,7 +350,11 @@ function BaseSkill:beginExecution(duration: number?, opts: ExecutionOptions)
 	if self._execToken then
 		return
 	end -- already executing
-	-- Compute tempo for ExecutionService from timing.durationScale (tempo == 1/durationScale)
+
+	-- Phase 3: Extract sessionId from opts (passed by SkillsManager)
+	self._sessionId = opts.sessionId
+
+	-- Compute tempo for execution state from timing.durationScale (tempo == 1/durationScale)
 	local tempo = opts.speedMult or nil
 	if
 		tempo == nil
@@ -342,53 +364,68 @@ function BaseSkill:beginExecution(duration: number?, opts: ExecutionOptions)
 	then
 		tempo = 1 / opts.timing.durationScale
 	end
-	local token, state = ExecutionService.begin(self.casterId, self.name, {
-		duration = duration,
-		allowChainSkill = opts.allowChain and self.name or nil,
+
+	local token = HttpService:GenerateGUID(false)
+	local now = os.clock()
+	local state = {
+		skill = self.name,
+		token = token,
+		startedAt = now,
+		plannedDuration = duration,
+		targetDuration = duration,
 		tempo = tempo,
 		durationScale = opts.timing and opts.timing.durationScale or nil,
 		timing = opts.timing,
-		targetDuration = duration,
-		lockJump = opts.lockJump,
-	})
-	if not token then
-		return false
-	end
+		attemptId = opts.attemptId,
+	}
 	self._execToken = token
 	self._execState = state
 	if opts.timing then
 		self:_captureTiming(opts.timing)
 	end
-	local startTempo = tempo or 1
-	local startDuration = if state and state.targetDuration
-		then state.targetDuration
-		elseif duration and duration > 0 then duration
-		else state and state.plannedDuration or nil
-	local startData = {
-		tempo = startTempo,
-		speed = startTempo,
-		duration = duration,
-		plannedDuration = duration,
-		durationScale = opts.timing and opts.timing.durationScale or (state and state.durationScale),
-		-- Removed baseDuration
-		startedAt = state and state.startedAt or nil,
-		finishAt = state and state.finishAt or nil,
-		targetDuration = startDuration,
-	}
-	self:emitStart(startData)
+
+	-- Auto-complete if a duration is provided (mirrors previous ExecutionService behavior)
+	if duration and duration > 0 then
+		local capturedToken = token
+		self._autoCompleteToken = capturedToken
+		task.delay(duration, function()
+			if self._execToken == capturedToken then
+				self:completeExecution("auto")
+			end
+		end)
+	end
+
+	-- Phase 3: Transition session to ACTIVE
+	if self._sessionId then
+		local success = SessionManager.transition(self._sessionId, "ACTIVE", "execution_started")
+		debugPhase3("Session transition to ACTIVE:", self._sessionId:sub(1, 8), "success=", success)
+	end
+
 	return true
 end
 
 function BaseSkill:completeExecution(reason: string?)
+	debugPhase3(
+		`completeExecution called for {self.name}, reason: {reason or "nil"}, _execToken: {self._execToken or "nil"}`
+	)
 	if not self._execToken then
+		debugPhase3(`EARLY EXIT: No _execToken for {self.name}`)
 		return
 	end
-	local tok = self._execToken
 	local state = self._execState
+	local sessionId = self._sessionId
 	self._execToken = nil
 	self._execState = nil
-	ExecutionService.complete(self.casterId, tok, reason)
-	local finishedAt = state and state.completedAt or os.clock()
+	self._sessionId = nil
+	self._autoCompleteToken = nil
+
+	-- Phase 3: Transition session to COMPLETED
+	if sessionId then
+		local success = SessionManager.transition(sessionId, "COMPLETED", reason or "execution_completed")
+		debugPhase3("Session transition to COMPLETED:", sessionId:sub(1, 8), "success=", success)
+	end
+
+	local finishedAt = os.clock()
 	local startedAt = state and state.startedAt or nil
 	local elapsed = nil
 	if startedAt then
@@ -397,7 +434,7 @@ function BaseSkill:completeExecution(reason: string?)
 	local timing = self._lastTiming
 	local durationScale = state and state.durationScale or (timing and timing.durationScale)
 	local tempo = state and state.tempo or (durationScale and durationScale ~= 0 and 1 / durationScale) or nil
-	local endData = {
+	local _endData = {
 		reason = reason,
 		tempo = tempo,
 		durationScale = durationScale,
@@ -408,10 +445,36 @@ function BaseSkill:completeExecution(reason: string?)
 		targetDuration = state and state.targetDuration or (state and state.plannedDuration) or nil,
 	}
 	if state and state.plannedDuration then
-		endData.duration = state.plannedDuration
+		_endData.duration = state.plannedDuration
 	end
-	self:emitEnd(endData)
 	self._lastTiming = nil
+end
+
+function BaseSkill:onSessionEnded(sessionId: string, newState: string, reason: string?)
+	if self._sessionId ~= sessionId then
+		return
+	end
+	if not self._execToken then
+		self._sessionId = nil
+		self._autoCompleteToken = nil
+		self._lastTiming = nil
+		return
+	end
+	self._execToken = nil
+	self._execState = nil
+	self._sessionId = nil
+	self._autoCompleteToken = nil
+	self._lastTiming = nil
+	debugPhase3(
+		"Cleared local execution for",
+		self.name,
+		"session",
+		sessionId:sub(1, 8),
+		"state=",
+		newState,
+		"reason=",
+		reason or "none"
+	)
 end
 
 function BaseSkill:getCasterModel(): Model?
@@ -422,9 +485,8 @@ function BaseSkill:getCasterModel(): Model?
 end
 
 function BaseSkill:getCasterRootPart(): BasePart?
-	local model = self:getCasterModel()
-	if model then
-		return model:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if self.caster then
+		return self.caster:FindFirstChild("HumanoidRootPart") :: BasePart?
 	end
 	return nil
 end

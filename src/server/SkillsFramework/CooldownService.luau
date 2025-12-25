@@ -63,7 +63,14 @@ end
 
 -- Replication helpers via dispatcher
 local function emit(caster: Caster, payload: any)
+	-- Only emit cooldown updates to player entities
+	if not Registrar.isPlayerEntity(caster) then
+		return
+	end
 	local player = Registrar.getPlayerById(caster)
+	if not player then
+		return
+	end
 	dispatcherAny:emit(EVENT_NAME, payload, {
 		targets = player,
 		qos = DEFAULT_QOS,

@@ -1,6 +1,12 @@
 -- Main server initialization script
 print("Server starting...")
 
+-- Service imports
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
 -- Registrar for new players
 local Registrar = require(script.Services.Registrar)
 
@@ -12,9 +18,7 @@ local AttributesManager = require(script.Stats.AttributesManager)
 local RegenerationService = require(script.Services.RegenerationService)
 RegenerationService.start()
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SessionManager = require(script.SkillsFramework.SessionManager)
 local SkillsManager = require(script.SkillsFramework.SkillsManager)
 local SkillMetadataService = require(script.SkillsFramework.SkillMetadataService)
 local AttributeTypes = require(ReplicatedStorage.Shared.AttributeTypes)
@@ -24,11 +28,38 @@ local NPCSpawner = require(script.NPCService.NPCSpawner)
 local ComponentManager = require(script.NPCService.ComponentManager)
 local NPCManager = require(script.NPCService.NPCManager)
 local EntityInfoService = require(script.Services.EntityInfoService)
-local ChannelRegistry = require(ReplicatedStorage.Shared.Networking.ChannelRegistry)
-local ChannelDefinitions = require(ReplicatedStorage.Shared.Networking.Channels)
-local StatsMediator = require(script.Stats.StatsMediator)
+local SkillModifierRegistry = require(script.Stats.SkillModifierRegistry)
+local StaggerSystem = require(script.Services.StaggerSystem)
+local SkillQueryTypes = require(ReplicatedStorage.Shared.skills.SkillQueryTypes)
+local TestModifiers = require(script.SkillsFramework.TestModifiers)
 
-ChannelRegistry.load(ChannelDefinitions)
+local ENABLE_SESSION_PERF_TIMER = false
+local SESSION_PERF_INTERVAL = 15
+
+-- Initialize StatusEffectsService context for attack composition
+local StatusEffectsService = require(script.StatusEffects.StatusEffectsService)
+local CombatService = require(script.Services.CombatService)
+
+-- Networking singleton already created at top with all channels loaded
+-- No manual _ensureChannel() calls needed anymore
+
+StatusEffectsService.setContext({
+	applyAttack = function(targetEntityId: string, attack: any, sourceEntityId: string)
+		CombatService.applyAttack(targetEntityId, attack, sourceEntityId)
+	end,
+})
+
+if ENABLE_SESSION_PERF_TIMER then
+	task.spawn(function()
+		SessionManager.resetPerfStats()
+		while true do
+			task.wait(SESSION_PERF_INTERVAL)
+			local stats = SessionManager.getPerfStats()
+			print(`[SessionPerf] Server {HttpService:JSONEncode(stats)}`)
+			SessionManager.resetPerfStats()
+		end
+	end)
+end
 
 local Testing = require(script.Testing.Testing)
 
@@ -53,11 +84,9 @@ end
 -- Example function to test the system
 local function setupPlayerCommands(player: Player)
 	local playerId = Registrar.getPlayerId(player)
-	print("ATTENTTIOOOOONN: Setting up player commands for", player.Name, "with EntityId:", playerId)
-	
+
 	NPCSpawner.spawn("Dummy", {
 		position = Vector3.new(90, 5, 0),
-		debug = true,
 	})
 
 	-- NPCSpawner.spawn("Dummy", {
@@ -73,7 +102,8 @@ local function setupPlayerCommands(player: Player)
 	SkillsManager.addSkill(playerId, "Punch")
 	SkillsManager.addSkill(playerId, "TripleStrike")
 	SkillsManager.addSkill(playerId, "Dash")
-	SkillsManager.addSkill(playerId, "ManaBall")
+	-- ManaBall disabled - projectile system needs rework
+	-- SkillsManager.addSkill(playerId, "ManaBall")
 
 	StatsManager.addModifier(
 		playerId,
@@ -86,24 +116,44 @@ local function setupPlayerCommands(player: Player)
 		})
 	)
 
+	local meleeDoubleCost: SkillModifierRegistry.SkillModifier = {
+		id = "Test_MeleeManaDouble",
+		priority = 100,
+		matches = function(ctx: SkillQueryTypes.SkillQueryContext): boolean
+			if ctx.event ~= "resolveSkillCost" then
+				return false
+			end
+			local base = ctx.base
+			if base.resource ~= StatTypes.PoolStats.Stamina then
+				return false
+			end
+			local tags = ctx.tags
+			if not tags then
+				return false
+			end
+			for _, tag in ipairs(tags) do
+				if tag == "melee" then
+					return true
+				end
+			end
+			return false
+		end,
+		apply = function(_ctx: SkillQueryTypes.SkillQueryContext, result: SkillQueryTypes.SkillQueryResult)
+			local baseAmount = result.values.amount
+
+			if typeof(baseAmount) ~= "number" then
+				return
+			end
+
+			-- Convert to health and scale by 1.5x
+			result.values.resource = StatTypes.PoolStats.Health
+			result.values.amount = baseAmount * 1.5
+		end,
+	}
+
+	SkillModifierRegistry.register(playerId, "resolveSkillCost", meleeDoubleCost)
+
 	wait(5)
-
-	-- StatsMediator.observe("resolveSkillCost", function(ctx)
-	-- 	print("Observing skill cost resolution for", ctx.entity.Name)
-	-- 	local meta = ctx.options and ctx.options.metadata
-	-- 	if not meta then return end
-
-	-- 	if meta.skillTags and typeof(meta.skillTags) == "table" and table.find(meta.skillTags, "melee")  then
-	-- 		local cost = meta.adjustedCost or meta.baseCost or ctx.compute()
-	-- 		meta.adjustedCost = math.max(0, cost * 1.5)
-	-- 		meta.overrideStat = StatTypes.PoolStats.Health
-	-- 		local options = ctx.options
-	-- 		if options then
-	-- 			options.overrideStat = StatTypes.PoolStats.Health
-	-- 		end
-	-- 	end
-	-- 	return nil
-	-- end)
 
 	StatsManager.setBaseStat(playerId, StatTypes.StaticStats.AttackSpeed, 1)
 	StatsManager.addModifier(
@@ -124,51 +174,6 @@ local function setupPlayerCommands(player: Player)
 
 	-- Apply attribute scaling after stats and attributes are initialized
 	AttributesManager.applyAllScaling(player)
-
-	-- StatsManager.setProfilingEnabled(true)
-	-- AttributesManager.setProfilingEnabled(true)
-
-	-- require(script.Testing.TestStatsProfiler).run({ iterations = 50000 })
-
-	-- StatsManager.setProfilingEnabled(false)
-	-- AttributesManager.setProfilingEnabled(false)
-
-	-- Testing.runAllTests(player)
-	-- Testing.testCombatLogCoverage(player)
-	-- Testing.testModifierOperations(player)
-
-	-- small scale testing
-
-	-- print(`🧪 Server: Testing attribute operations for {player.Name}`)
-
-	-- -- Test adding intelligence
-	-- AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Intelligence, 5)
-	-- print(`Added 5 Intelligence to {player.Name}`)
-
-	-- -- Debug available points
-	-- local availablePoints = AttributesManager.getAvailableAttributePoints(player)
-	-- print(`{player.Name} has {availablePoints} available attribute points`)
-
-	-- StatsManager.removeFromPool(player, StatTypes.PoolStats.Mana, 30)
-	-- StatsManager.removeFromPool(player, StatTypes.PoolStats.Health, 30)
-	-- StatsManager.removeFromPool(player, StatTypes.PoolStats.Stamina, 30)
-
-	-- wait(2)
-
-	-- -- Test spending an attribute point
-	-- AttributesManager.spendAttributePoint(player, AttributeTypes.Attributes.Intelligence)
-	-- print(`{player.Name} spent 1 attribute point on Intelligence`)
-
-	-- AttributesManager.addToAttribute(player, AttributeTypes.Attributes.Perception, 20)
-
-	-- wait(2)
-
-	-- -- Add intelligence modifier
-	-- AttributesManager.addModifier(player, AttributeTypes.Attributes.Intelligence, {
-	-- 	value = 3, -- +3 Intelligence
-	-- 	source_id = "intelligence_modifier_test",
-	-- 	description = "Test Intelligence Modifier",
-	-- })
 end
 
 -- Connect to new players for demo purposes
@@ -178,11 +183,19 @@ Players.PlayerAdded:Connect(function(player)
 		task.defer(function()
 			StatsManager.initializePlayerStats(player)
 			setupPlayerCommands(player)
-			
+
 			-- Send initial skill metadata after stats are initialized
 			-- Small delay to ensure all stats/modifiers are applied
 			task.delay(0.5, function()
 				SkillMetadataService.updateAllSkills(player)
+			end)
+
+			-- Run modifier tests after player is fully initialized
+			task.delay(1.0, function()
+				local entityId = Registrar.getEntityId(character)
+				if entityId then
+					TestModifiers.runTests(entityId)
+				end
 			end)
 		end)
 	end)
@@ -205,3 +218,9 @@ end)
 
 -- Start presence-only entity info streaming (Phase 2 scaffold)
 EntityInfoService.start()
+
+-- Initialize stagger system
+StaggerSystem.init()
+
+-- Phase 0: Start SessionManager heartbeat (module already required at top)
+SessionManager.startHeartbeat()

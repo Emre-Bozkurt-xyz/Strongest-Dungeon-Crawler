@@ -41,6 +41,7 @@ export type StaticStatType =
 	| "MagicDamage"
 	| "AttackSpeed"
 	| "SpellCastSpeed"
+	| "Armor"
 	| "CriticalHitChance"
 	| "CriticalHitDamage"
 	| "HealthRegeneration"
@@ -77,6 +78,7 @@ export type PlayerStats = {
 	MagicDamage: typeof(Stat.new({ baseValue = 0, name = "" })),
 	AttackSpeed: typeof(Stat.new({ baseValue = 0, name = "" })),
 	SpellCastSpeed: typeof(Stat.new({ baseValue = 0, name = "" })),
+	Armor: typeof(Stat.new({ baseValue = 0, name = "" })),
 	CriticalHitChance: typeof(Stat.new({ baseValue = 0, name = "" })),
 	CriticalHitDamage: typeof(Stat.new({ baseValue = 0, name = "" })),
 	HealthRegeneration: typeof(Stat.new({ baseValue = 0, name = "" })),
@@ -145,7 +147,7 @@ export type PoolReservation = {
 }
 
 -- ========================================
--- ENUM-LIKE CONSTANTS (Like C# static classes)
+-- ENUM-LIKE CONSTANTS
 -- ========================================
 
 -- Static stat names (like C# enum)
@@ -154,6 +156,7 @@ Types.StaticStats = {
 	MagicDamage = "MagicDamage" :: StaticStatType,
 	AttackSpeed = "AttackSpeed" :: StaticStatType,
 	SpellCastSpeed = "SpellCastSpeed" :: StaticStatType,
+	Armor = "Armor" :: StaticStatType,
 	CriticalHitChance = "CriticalHitChance" :: StaticStatType,
 	CriticalHitDamage = "CriticalHitDamage" :: StaticStatType,
 	HealthRegeneration = "HealthRegeneration" :: StaticStatType,
@@ -195,6 +198,9 @@ Types.StatClassTypes = {
 Types.AllStaticStatNames = {
 	"PhysicalDamage",
 	"MagicDamage",
+	"AttackSpeed",
+	"SpellCastSpeed",
+	"Armor",
 	"CriticalHitChance",
 	"CriticalHitDamage",
 	"HealthRegeneration",
@@ -233,6 +239,9 @@ Types.AllStatNames = {
 	"StaminaRegeneration",
 	"PerceptionDistance",
 	"PerceptionTier",
+	"AttackSpeed",
+	"SpellCastSpeed",
+	"Armor",
 } :: { StatType }
 
 return Types

@@ -1,22 +1,12 @@
 --!strict
--- Goblin NPC specification (server-only)
+-- Dummy NPC specification (server-only behavior/stats)
+-- Visual assets (animations, sounds) live in shared/Characters/NPCs/Dummy.luau
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local BehaviorToolkit = require(script.Parent.Parent.Parent.BehaviorToolkit)
 
 return {
-	animations = {
-		attack = {
-			default = { "rbxassetid://122752973149294" },
-			bySkill = {
-				-- Example: Punch = { "rbxassetid://GOBLIN_PUNCH_A", "rbxassetid://GOBLIN_PUNCH_B" },
-			},
-			byCategory = {
-				-- melee_light = { "rbxassetid://GOBLIN_LIGHT_A", "rbxassetid://GOBLIN_LIGHT_B" }
-			},
-		}
-    },
 	movement = {
 		walkSpeed = 10,
 		runSpeed = 16,
@@ -52,10 +42,10 @@ return {
 				healthPool:fillToMax()
 			end
 
-			local healthRegen = stats[StatTypes.StaticStats.HealthRegeneration]
-			if healthRegen and healthRegen.setBaseValue then
-				healthRegen:setBaseValue(5)
-			end
+			-- local healthRegen = stats[StatTypes.StaticStats.HealthRegeneration]
+			-- if healthRegen and healthRegen.setBaseValue then
+			-- 	healthRegen:setBaseValue(5)
+			-- end
 
 			local physicalDamage = stats[StatTypes.StaticStats.PhysicalDamage]
 			if physicalDamage and physicalDamage.setBaseValue then

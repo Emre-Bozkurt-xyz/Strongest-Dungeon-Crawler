@@ -29,6 +29,8 @@ local TICK_RATE = 2 -- Hz per player
 local _accum = 0
 local DEBUG_ENTITY_INFO = false -- set true to enable sample logs
 local _debugNextLogAt = 0.0
+local _debugTickCount = 0
+local _debugEntitiesFound = 0
 
 local function isAliveModel(mdl: Model?): boolean
 	if not mdl or not mdl.Parent then
@@ -142,16 +144,23 @@ local function tickPlayer(player: Player)
 	local r2 = radius * radius
 	local tier = (StatsManager.getStatValue(entityId, StatTypes.StaticStats.PerceptionTier) or 0)
 	local items = {}
+	local entitiesInRange = 0
 	for _, m in ipairs(collectEntities()) do
 		if m ~= char then
 			local mhrp = m:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if mhrp and sqrDist(center, mhrp.Position) <= r2 then
 				local item = buildPresenceRecord(m)
-				applyReveal(player, m, mhrp, sqrDist(center, mhrp.Position), item, tier)
+				local mEntityId = Registrar.getEntityId(m)
+				if mEntityId then
+					applyReveal(player, mEntityId, mhrp, sqrDist(center, mhrp.Position), item, tier)
+				end
 				table.insert(items, item)
+				entitiesInRange = entitiesInRange + 1
 			end
 		end
 	end
+
+	_debugEntitiesFound = entitiesInRange
 
 	-- Always send presence payload (even when empty) so clients can handle hide/destroy when out of range
 	dispatcherAny:emit("EntityInfoDelta", {
@@ -201,8 +210,18 @@ function EntityInfoService.start()
 		_accum += dt
 		if _accum >= (1 / TICK_RATE) then
 			_accum = 0
+			_debugTickCount = _debugTickCount + 1
 			for _, plr in ipairs(Players:GetPlayers()) do
 				tickPlayer(plr)
+			end
+
+			-- Debug log every 5 seconds (non-spammy)
+			if DEBUG_ENTITY_INFO and os.clock() >= _debugNextLogAt then
+				_debugNextLogAt = os.clock() + 5.0
+				local allEntities = collectEntities()
+				print(
+					`[EntityInfoService] Tick #{_debugTickCount}: {#Players:GetPlayers()} players, {#allEntities} alive entities, last scan found {_debugEntitiesFound} in range`
+				)
 			end
 		end
 	end)

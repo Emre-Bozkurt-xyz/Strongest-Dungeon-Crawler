@@ -14,14 +14,14 @@
 2. The default resolver queries `StatsManager.getStatValue` with `StatsMediator` options so observers can hook `resolveSkillTempo`.
 3. Tempo output is clamped (`MIN_TEMPO`, `MAX_TEMPO`) and converted into `durationScale = 1 / tempo`.
 
-The result feeds back into `BaseSkill:_updateExecutionState`, which annotates the execution lock with `tempo`, `durationScale`, and `targetDuration` so the client can stay in sync.
+The result feeds into `BaseSkill` timing calculations, producing `durationScale` and per-step durations used by `SessionManager` and client prediction.
 
 ## Combo Windows
 
-`ComboService.luau` tracks per-caster state:
+`SessionManager.luau` tracks per-caster combo state inside the active session:
 
-- `requestStep` validates cooldown windows and issues a `token` for the next step (blocking further inputs until `registerStepTiming` clears `pendingToken`).
-- `registerStepTiming` stores `busyUntil`, `windowOpenAt`, and `windowCloseAt`. Non-final steps open a follow-up window where another `requestStep` is allowed.
-- `isTokenCurrent` lets skills verify the current token before emitting wait indicators or expiring executions.
+- `advanceCombo` validates the current window and increments `currentStep`/`stepToken`.
+- `extendComboWindow` sets `windowOpensAt` and `windowExpiresAt` for the next input.
+- The heartbeat loop expires windows and completes sessions deterministically.
 
-Separation between timing resolution and combo gating ensures server authority over both execution duration and player input windows.
+Clients read the same window data via `SessionMirror`, keeping combo gating consistent across server and client.

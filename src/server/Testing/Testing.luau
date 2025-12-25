@@ -12,6 +12,7 @@ local AttributesManager = require(Server.Stats.AttributesManager)
 local RegenerationService = require(Server.Services.RegenerationService)
 local CombatService = require(Server.Services.CombatService)
 local ModifierFactories = require(ReplicatedStorage.Shared.Modifiers.Factories)
+local Registrar = require(Server.Services.Registrar)
 
 local Testing = {}
 Testing.testResults = {} -- Track test results
@@ -84,7 +85,6 @@ function Testing.runAllTests(player: Player)
 
 	-- Test 9: Combat metadata logging
 	Testing.testCombatLogCoverage(player)
-
 
 	-- Wait a bit then run continuous tests
 	wait(2)
@@ -349,7 +349,11 @@ function Testing.testResourceStats(player: Player)
 
 	local currentEnergy = StatsManager.getResourceCurrentValue(player, resourceType) or 0
 	recordTest("Resource Regeneration", currentEnergy > 10, `Energy value: {math.floor(currentEnergy)}`)
-	recordTest("Resource Restored Event", hasEvent(log, "restored"), hasEvent(log, "restored") and "Restored fired" or "Restored missing")
+	recordTest(
+		"Resource Restored Event",
+		hasEvent(log, "restored"),
+		hasEvent(log, "restored") and "Restored fired" or "Restored missing"
+	)
 
 	local maxEnergy = StatsManager.getResourceMaxValue(player, resourceType)
 	if maxEnergy then
@@ -421,10 +425,27 @@ function Testing.testCombatLogCoverage(player: Player)
 	subscribe("resolveCombatCost")
 
 	local damageAmount = 45
-	local result = CombatService.applyDamageDetailed(character, damageAmount, nil, {
-		critAllowed = false,
-		bypassArmor = true,
-	})
+	local characterEntityId = Registrar.getPlayerId(player)
+	if not characterEntityId then
+		warn("[Testing] Player has no entityId, skipping damage test")
+		return
+	end
+
+	-- Use attack composition instead of legacy damage API
+	local AttackTypes = require(ReplicatedStorage.Shared.skills.AttackTypes)
+	local attack: AttackTypes.AttackContext = {
+		packets = {
+			{
+				type = "damage",
+				damageType = "Physical",
+				amount = damageAmount,
+				penetration = 1.0, -- bypass armor
+			},
+		},
+		sourceId = "",
+		metadata = { isCrit = false, tags = { "test" } },
+	}
+	local result = CombatService.applyAttack(characterEntityId, attack, "")
 	local resourceMeta = result.resourceMeta
 	local shieldMeta: { [any]: any }? = nil
 	local healthMeta: { [any]: any }? = nil

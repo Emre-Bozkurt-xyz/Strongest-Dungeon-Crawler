@@ -1,17 +1,19 @@
 --!strict
 -- Centralized definitions for networking channels shared by client and server.
 
+local Names = require(script.Parent.ChannelNames)
+
 export type ChannelDefinition = {
 	remote: string,
 	remoteEvent: string?,
 	remoteFunction: string?,
 	direction: "server_to_client" | "client_to_server" | "bidirectional",
 	qos: "CRITICAL" | "HIGH" | "NORMAL" | "BACKGROUND",
-	intents: { string }?,
-	events: { string }?,
+	intents: { Names.IntentName }?,
+	events: { Names.EventName }?,
 }
 
-local Channels: { [string]: ChannelDefinition } = {
+local Channels: { [Names.ChannelName]: ChannelDefinition } = {
 	DebugEcho = {
 		remote = "DebugEcho",
 		remoteEvent = "DebugEchoEvent",
@@ -45,7 +47,13 @@ local Channels: { [string]: ChannelDefinition } = {
 		remoteFunction = "SkillsRequest",
 		direction = "bidirectional",
 		qos = "CRITICAL",
-		intents = { "SkillsRequest", "SkillRequestUse", "SkillMetadataSnapshot" },
+		intents = {
+			"SkillRequestUse",
+			"SkillRequestStart",
+			"SkillRequestRelease",
+			"SkillRequestMarker",
+			"SkillMetadataSnapshot",
+		},
 		events = { "SkillsUpdate", "SkillMetadataUpdate" },
 	},
 	Cooldown = {
@@ -65,6 +73,15 @@ local Channels: { [string]: ChannelDefinition } = {
 		qos = "BACKGROUND",
 		intents = { "EntityInfoRequest" },
 		events = { "EntityInfoDelta" },
+	},
+	Inventory = {
+		remote = "Inventory",
+		remoteEvent = "InventoryEvent",
+		remoteFunction = "InventoryRequest",
+		direction = "bidirectional",
+		qos = "HIGH",
+		intents = { "InventoryRequest", "InventoryAction" },
+		events = { "InventoryDelta" },
 	},
 	Projectiles = {
 		remote = "Projectiles",
@@ -111,6 +128,15 @@ local Channels: { [string]: ChannelDefinition } = {
 		qos = "CRITICAL",
 		intents = nil,
 		events = { "SkillSession" },
+	},
+	TimeSync = {
+		remote = "TimeSync",
+		remoteEvent = nil,
+		remoteFunction = "TimeSyncRequest",
+		direction = "bidirectional",
+		qos = "HIGH",
+		intents = { "TimeSyncRequest" },
+		events = nil,
 	},
 }
 

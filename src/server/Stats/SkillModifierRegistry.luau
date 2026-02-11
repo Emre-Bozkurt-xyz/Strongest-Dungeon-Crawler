@@ -15,6 +15,19 @@ local Registry: {
 } = {}
 
 local SkillModifierRegistry = {}
+local listeners: { (string, string, string) -> () } = {} -- entityId, event, modifierId
+
+function SkillModifierRegistry.onChanged(callback: (string, string, string) -> ())
+	table.insert(listeners, callback)
+	return function()
+		for i, cb in ipairs(listeners) do
+			if cb == callback then
+				table.remove(listeners, i)
+				break
+			end
+		end
+	end
+end
 
 function SkillModifierRegistry.register(entityId: string, event: string, modifier: SkillModifier)
 	local byEvent = Registry[entityId]
@@ -35,6 +48,14 @@ function SkillModifierRegistry.register(entityId: string, event: string, modifie
 		end
 		return a.priority < b.priority
 	end)
+	for _, cb in ipairs(listeners) do
+		task.spawn(function()
+			local ok, err = pcall(cb, entityId, event, modifier.id)
+			if not ok then
+				warn("[SkillModifierRegistry] listener error:", err)
+			end
+		end)
+	end
 end
 
 function SkillModifierRegistry.unregister(entityId: string, event: string, modifierId: string)
@@ -56,6 +77,14 @@ function SkillModifierRegistry.unregister(entityId: string, event: string, modif
 	end
 	if next(byEvent) == nil then
 		Registry[entityId] = nil
+	end
+	for _, cb in ipairs(listeners) do
+		task.spawn(function()
+			local ok, err = pcall(cb, entityId, event, modifierId)
+			if not ok then
+				warn("[SkillModifierRegistry] listener error:", err)
+			end
+		end)
 	end
 end
 

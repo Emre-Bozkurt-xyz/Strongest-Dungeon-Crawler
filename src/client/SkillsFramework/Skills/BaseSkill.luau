@@ -8,7 +8,11 @@ local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 local Replicator = require(script.Parent.Parent.Parent.fx.Replicator)
 local ImmediateHitFeedback = require(script.Parent.Parent.Parent.fx.ImmediateHitFeedback)
 local ActionPermissions = require(ReplicatedStorage.Shared.ActionPermissions)
-local SessionMirror = require(script.Parent.Parent.SessionMirror)
+local Schema = require(ReplicatedStorage.Shared.Debug.Schema)
+local Clock = require(ReplicatedStorage.Shared.Time.Clock)
+local SkillPacer = require(script.Parent.Parent.SkillPacer)
+local ProjectilesClient = require(script.Parent.Parent.Parent.Services.ProjectilesClient)
+local Registrar = require(script.Parent.Parent.Parent.Services.Registrar)
 
 -- Client-side state mirrors
 local CooldownClient = require(script.Parent.Parent.CooldownClient)
@@ -16,7 +20,7 @@ local _SkillMetadataClient = require(script.Parent.Parent.SkillMetadataClient) -
 local StatsClient = require(script.Parent.Parent.Parent.StatsClient)
 
 -- Attempt tracking and unified stats store
-local AttemptStore = require(script.Parent.Parent.AttemptStore)
+local PredictionController = require(script.Parent.Parent.PredictionController)
 local ClientStatsStore = require(script.Parent.Parent.Parent.Stats.ClientStatsStore)
 
 local dispatcher = Networking.client()
@@ -46,7 +50,7 @@ function BaseSkill.new(name: string?, config: any?)
 	self.clientSpec = ClientSpec
 
 	self.player = Players.LocalPlayer
-	self.entityId = self.player.Character and self.player.Character:GetAttribute("EntityId")
+	self.entityId = Registrar.getEntityId(self.player.Character)
 
 	self.config = config or {}
 	self.fxMap = {} :: { [string]: any }
@@ -69,7 +73,7 @@ end
 
 -- Play cast sound immediately (no network wait)
 -- Call this at the start of skill:use() after validation passes
-function BaseSkill:playCastSoundLocal()
+function BaseSkill:playCastSoundLocal(castSoundsOverride: { string }?)
 	-- Stop any previous cast sound part (avoid stacking)
 	if self.currentCastSoundPart then
 		pcall(function()
@@ -78,7 +82,7 @@ function BaseSkill:playCastSoundLocal()
 		self.currentCastSoundPart = nil
 	end
 
-	local castSounds = self.config and self.config.castSounds
+	local castSounds = castSoundsOverride or (self.config and self.config.castSounds)
 	if not castSounds or type(castSounds) ~= "table" or #castSounds == 0 then
 		return
 	end
@@ -102,11 +106,11 @@ function BaseSkill:_disconnectMarkerListeners()
 	self.markerEventListenerDestroyers = {}
 end
 
-function BaseSkill:cancelLocalPrediction(reason: string?)
-	-- Early exit if nothing is active (avoid redundant cleanup)
-	if not self.currentAnimationHandle and not self.currentCastSoundPart and not self.currentAttemptId then
+function BaseSkill:cancelLocalPrediction(reason: string?): boolean
+	-- Early exit if no active prediction/session (avoid redundant cleanup)
+	if not self.currentAttemptId and not self.currentSessionId then
 		-- print(`[{self.name}] cancelLocalPrediction called but nothing active, skipping`)
-		return
+		return false
 	end
 
 	if DEBUG_PREDICTION then
@@ -140,11 +144,15 @@ function BaseSkill:cancelLocalPrediction(reason: string?)
 
 	-- Mark attempt as rejected so attempt-based FX cleanup runs too
 	if self.currentAttemptId then
-		AttemptStore.reject(self.currentAttemptId, reason or "cancelled")
+		ProjectilesClient.cancelPredicted(self.currentAttemptId)
+		PredictionController.reject(self.currentAttemptId, reason or "cancelled", self.name)
 		self.currentAttemptId = nil
+	else
+		PredictionController.reject(nil, reason or "cancelled", self.name)
 	end
 
 	self.currentSessionId = nil
+	return true
 end
 
 function BaseSkill:_attachSessionId(sessionId: string?)
@@ -160,10 +168,14 @@ function BaseSkill:_attachSessionId(sessionId: string?)
 	end
 end
 
-function BaseSkill:_predictSession(comboInfo: { currentStep: number, totalSteps: number, windowOpensAt: number?, windowExpiresAt: number? }?, predictedDuration: number?)
-	local now = os.clock()
-	local expiresAt = predictedDuration and (now + predictedDuration) or nil
-	SessionMirror.predictStart(self.name, comboInfo, expiresAt)
+function BaseSkill:_predictSession(
+	comboInfo: { currentStep: number, totalSteps: number, windowOpensAt: number?, windowExpiresAt: number? }?,
+	predictedDuration: number?,
+	attemptMetadata: { [string]: any }?
+): string?
+	local attemptId = PredictionController.beginLocal(self.name, self.entityId, comboInfo, predictedDuration, attemptMetadata)
+	self.currentAttemptId = attemptId
+	return attemptId
 end
 
 function BaseSkill:onSessionEnded(state: string, reason: string?)
@@ -177,9 +189,11 @@ function BaseSkill:onSessionEnded(state: string, reason: string?)
 
 	self:_stopAllLocalLoopFX()
 	self:_disconnectMarkerListeners()
+	self.currentAnimationHandle = nil
+	self.currentCastSoundPart = nil
 
 	if self.currentAttemptId then
-		AttemptStore.complete(self.currentAttemptId, reason or "completed")
+		PredictionController.complete(self.currentAttemptId, reason or "completed")
 		self.currentAttemptId = nil
 	end
 
@@ -209,7 +223,8 @@ function BaseSkill:playAnimation(animKey: string, opts: { [string]: any }?): Ani
 	self:_disconnectMarkerListeners()
 
 	-- Bind marker events from config
-	local fxConfig = self.config.fx
+	local fxConfig = (opts and opts.fx) or self.config.fx
+	local hitSounds = (opts and opts.hitSounds) or self.config.hitSounds
 	local markers = fxConfig and fxConfig.markers
 	if markers then
 		for markerName, val in pairs(markers) do
@@ -236,7 +251,7 @@ function BaseSkill:playAnimation(animKey: string, opts: { [string]: any }?): Ani
 				-- IMMEDIATE HIT FEEDBACK: Trigger on hit markers
 				if isHitMarker then
 					local hitOpts = {
-						hitSounds = self.config.hitSounds,
+						hitSounds = hitSounds,
 						coneAngle = self.config.hitConeAngle,
 						coneRange = self.config.hitConeRange,
 					}
@@ -332,9 +347,20 @@ end
 -- isComboAdvance: true if this is a combo skill trying to advance to the next step
 function BaseSkill:canUseLocally(comboStep: number?, isComboAdvance: boolean?): (boolean, RejectionReason?)
 	-- Keep entityId fresh across respawns
-	local liveEntityId = self.player.Character and self.player.Character:GetAttribute("EntityId")
+	local liveEntityId = Registrar.getEntityId(self.player.Character)
 	if type(liveEntityId) == "string" and liveEntityId ~= "" then
 		self.entityId = liveEntityId
+	end
+
+	if SkillPacer.isLocked(self.name) then
+		return false, "locked"
+	end
+
+	if not isComboAdvance then
+		local canStart, reason = SkillPacer.canStart(self.name)
+		if not canStart then
+			return false, reason or "locked"
+		end
 	end
 
 	-- Check action permissions (includes execution lock + blocking status effects)
@@ -345,16 +371,8 @@ function BaseSkill:canUseLocally(comboStep: number?, isComboAdvance: boolean?): 
 			isCombo = isComboAdvance == true,
 		})
 		if not canCast then
-			-- Map permission reason to rejection reason
-			if reason == "blocked" then
-				-- Blocked by status effect (stagger, stun, etc.)
-				return false, "locked" -- User feedback: "locked" means can't cast
-			elseif reason == "unknown_entity" then
-				-- Prevent client prediction until we have a stable entityId
-				return false, "locked"
-			else
-				return false, "locked"
-			end
+			-- Blocked by status effect or missing entity context
+			return false, "locked"
 		end
 	end
 
@@ -425,7 +443,10 @@ function BaseSkill:predictTiming(): (number, number?)
 		return 1, nil -- fallback to 1.0 tempo if stats not loaded yet
 	end
 
-	local skillTags = self.config and (self.config.tags or self.config.categories) or nil
+	local metadata = _SkillMetadataClient.get(self.name)
+	local skillTags = (metadata and metadata.tags)
+		or (self.config and (self.config.tags or self.config.categories))
+		or nil
 
 	-- Create stat lookup from client's cached stats
 	local function statLookup(statType: any): number?
@@ -444,7 +465,9 @@ end
 -- Calculate predicted duration for animation
 -- Returns: predictedDuration (number?)
 function BaseSkill:predictDuration(): number?
+	local metadata = _SkillMetadataClient.get(self.name)
 	local baseDuration = self.config.baseDuration
+		or (metadata and (metadata.baseDuration or metadata.executionDuration))
 	if not baseDuration then
 		return nil
 	end
@@ -463,58 +486,62 @@ end
 
 -- Request skill use from server (blocking)
 -- Use requestUseAsync for non-blocking with callbacks
-function BaseSkill:requestUse(attemptId: string?): any
-	local response = dispatcher:request("SkillRequestUse", {
+function BaseSkill:requestUse(attemptId: string?, extra: { [string]: any }?): any
+	local payload = {
 		skillName = self.name,
 		userId = self.player.UserId,
 		attemptId = attemptId,
-	})
+		inputTime = Clock.serverNow(),
+	}
+	if extra and type(extra) == "table" then
+		for k, v in pairs(extra) do
+			payload[k] = v
+		end
+	end
+	if not Schema.checkSkillRequest(payload) then
+		return { success = false, error = "invalid_request" }
+	end
+	local response = dispatcher:request("SkillRequestUse", payload)
 	return response
 end
 
 -- Request skill use from server (non-blocking with callbacks)
 -- onConfirm: Called when server confirms skill use with response data
 -- onReject: Called when server rejects skill use with error reason
-function BaseSkill:requestUseAsync(onConfirm: ((data: any) -> ())?, onReject: ((reason: string) -> ())?)
+function BaseSkill:requestUseAsync(
+	onConfirm: ((data: any) -> ())?,
+	onReject: ((reason: string) -> ())?,
+	extra: { [string]: any }?
+)
 	task.spawn(function()
 		local attemptId = self.currentAttemptId
 
 		-- Transition current attempt to pending_server state
-		if attemptId then
-			AttemptStore.markPending(attemptId)
-		end
+		PredictionController.markPending(attemptId)
 
-		local response = self:requestUse(attemptId)
+		local response = self:requestUse(attemptId, extra)
 
 		-- Handle nil response (server error or timeout)
 		if not response then
-			if attemptId then
-				AttemptStore.reject(attemptId, "server_error")
-			end
-			SessionMirror.cancelPrediction(self.name)
+			PredictionController.reject(attemptId, "server_error", self.name)
 			if onReject then
 				onReject("server_error")
 			end
 			return
 		end
 
-	if response.success then
-		if response.data and response.data.sessionId then
-			self:_attachSessionId(response.data.sessionId)
-		end
-		-- Server confirmed - update attempt state
-		if attemptId then
-			AttemptStore.confirm(attemptId, response.data)
-		end
+		if response.success then
+			if response.data and response.data.sessionId then
+				self:_attachSessionId(response.data.sessionId)
+			end
+			-- Server confirmed - update attempt state
+			PredictionController.confirm(attemptId, response.data)
 			if onConfirm then
 				onConfirm(response.data or {})
 			end
 		else
 			-- Server rejected - mark attempt as rejected
-			if attemptId then
-				AttemptStore.reject(attemptId, response.error or "unknown")
-			end
-			SessionMirror.cancelPrediction(self.name)
+			PredictionController.reject(attemptId, response.error or "unknown", self.name)
 			if onReject then
 				onReject(response.error or "unknown")
 			end

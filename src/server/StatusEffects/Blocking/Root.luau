@@ -3,6 +3,7 @@
 
 return {
 	id = "root",
+	isHarmful = true,
 	duration = 2.0, -- 2 second default root
 	maxStacks = 1,
 	stacking = "aggregate",

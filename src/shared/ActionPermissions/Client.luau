@@ -13,10 +13,8 @@ export type CastOptions = {
 	isCombo: boolean?,
 }
 
-function Client.new(sessionMirror: any?)
-	local self = setmetatable({
-		_sessionMirror = sessionMirror,
-	}, { __index = Client })
+function Client.new(_sessionMirror: any?)
+	local self = setmetatable({}, { __index = Client })
 
 	local dispatcher = Networking.client()
 
@@ -42,30 +40,14 @@ function Client.new(sessionMirror: any?)
 	return self
 end
 
-function Client:setSessionMirror(sessionMirror: any?)
-	self._sessionMirror = sessionMirror
+function Client:setSessionMirror(_sessionMirror: any?)
+	-- no-op (legacy hook)
 end
 
 -- Check if entity can perform specific action (local mirror)
 function Client:canPerformAction(entityId: string?, action: string, options: CastOptions?): (boolean, string?)
 	if type(entityId) ~= "string" or entityId == "" then
 		return false, "unknown_entity"
-	end
-
-	-- Check execution lock (blocks cast)
-	if action == "cast" then
-		local mirror = self._sessionMirror
-		if mirror and mirror.getSession then
-			local session = mirror.getSession(entityId)
-			if session and session.state ~= "COMPLETED" and session.state ~= "CANCELLED" then
-				local opts = options or {}
-				if opts.isCombo and opts.skillName and session.skillId == opts.skillName then
-					-- Combo chaining allowed - same skill can re-cast
-				else
-					return false, "executing_skill"
-				end
-			end
-		end
 	end
 
 	-- Check blocking effects

@@ -3,12 +3,10 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
 local Server = game:GetService("ServerScriptService").Server
 
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local Registrar = require(Server.Services.Registrar)
-local NPCManager = require(Server.NPCService.NPCManager)
 local StatsManager = require(Server.Stats.StatsManager)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
@@ -20,10 +18,6 @@ local ENTITYINFO_CHANNEL_NAME = "EntityInfo"
 local dispatcher = Networking.server()
 local dispatcherAny = dispatcher :: any
 dispatcherAny:_ensureChannel(ENTITYINFO_CHANNEL_NAME)
-
--- Identity registry
-local idByEntity: { [Instance]: string } = {}
-local entityById: { [string]: Instance } = {}
 
 local TICK_RATE = 2 -- Hz per player
 local _accum = 0

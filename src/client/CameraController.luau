@@ -30,6 +30,8 @@ local _FOCUS_DISTANCE = 6.0
 local _FOCUS_UP = 0.5
 local _FOCUS_TWEEN = 0.3
 
+local BASE_FOV = 70
+
 -- Mouse-look configuration (Over-Shoulder)
 local MOUSE_SENS_YAW = 0.0025
 local MOUSE_SENS_PITCH = 0.0020
@@ -48,6 +50,14 @@ type CameraControllerType = {
 	targetLookPosition: Vector3?,
 	minZoom: number,
 	maxZoom: number,
+	_modifierId: number,
+	_modifiers: { [string]: any },
+	_lockYaw: boolean,
+	_lockPitch: boolean,
+	_yawAssist: number,
+	_lookAtProvider: (() -> Vector3?)?,
+
+	_computeOverrides: (self: CameraControllerType) -> CameraSettings,
 
 	-- Cursor lock state and API
 	isCursorUnlocked: (self: CameraControllerType) -> boolean,
@@ -61,8 +71,11 @@ type CameraControllerType = {
 	disable: (self: CameraControllerType) -> (),
 	setTargetLookPosition: (self: CameraControllerType, position: Vector3?) -> (),
 	tweenToPosition: (self: CameraControllerType, targetCFrame: CFrame, duration: number?) -> Tween,
+	pushModifier: (self: CameraControllerType, spec: { [string]: any }) -> string,
+	popModifier: (self: CameraControllerType, id: string) -> (),
+	clearModifiers: (self: CameraControllerType) -> (),
 	_updateCamera: (self: CameraControllerType) -> (),
-	_getIdealCameraPosition: (self: CameraControllerType) -> Vector3,
+	_getIdealCameraPosition: (self: CameraControllerType, settings: { [string]: any }, yawOverride: number?, pitchOverride: number?) -> Vector3,
 	_checkCollision: (self: CameraControllerType, startPos: Vector3, endPos: Vector3) -> Vector3,
 	_getLookAtPosition: (self: CameraControllerType) -> Vector3,
 	_startUpdateLoop: (self: CameraControllerType) -> (),
@@ -70,6 +83,49 @@ type CameraControllerType = {
 	focusOn: (self: CameraControllerType, target: BasePart, tweenTime: number?) -> (),
 	clearFocus: (self: CameraControllerType) -> (),
 	destroy: (self: CameraControllerType) -> (),
+}
+
+type CameraShake = {
+	strength: number?,
+	frequency: number?,
+}
+
+type CameraSettings = {
+	shoulderRight: number,
+	shoulderUp: number,
+	shoulderBack: number,
+	followSmoothness: number,
+	lookSmoothness: number,
+	fov: number,
+	lockYaw: boolean,
+	lockPitch: boolean,
+	shake: CameraShake?,
+	yawAssist: { maxYaw: number, deadzone: number, smoothness: number }?,
+	lookAtProvider: (() -> Vector3?)?,
+}
+
+type CameraModifierSpec = {
+	priority: number?,
+	duration: number?,
+	shoulderOffset: Vector3?,
+	shoulderRight: number?,
+	shoulderUp: number?,
+	shoulderBack: number?,
+	followSmoothness: number?,
+	lookSmoothness: number?,
+	fov: number?,
+	lockYaw: boolean?,
+	lockPitch: boolean?,
+	shake: CameraShake?,
+	yawAssist: { maxYaw: number, deadzone: number, smoothness: number }?,
+	lookAtProvider: (() -> Vector3?)?,
+}
+
+type CameraModifierEntry = {
+	id: string,
+	spec: CameraModifierSpec,
+	priority: number,
+	expiresAt: number?,
 }
 
 local CameraController_Instance = nil
@@ -95,9 +151,16 @@ function CameraController.new()
 	self._isFocusing = false
 	self._savedCamCF = nil
 	self._focusTarget = nil
+	self._lookAtProvider = nil
 	self._yaw = 0
 	self._pitch = 0
 	self._cursorUnlocked = false
+	self._modifierId = 0
+	self._modifiers = {} :: { [string]: CameraModifierEntry }
+	self._lockYaw = false
+	self._lockPitch = false
+	self._yawAssist = 0
+	self.camera.FieldOfView = BASE_FOV
 
 	-- Enforce zoom limits for Free camera
 	self.player.CameraMinZoomDistance = self.minZoom
@@ -195,10 +258,12 @@ function CameraController:setMode(mode: Mode)
 	self._inputConn = UserInputService.InputChanged:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseMovement then
 			-- Ignore mouse deltas while cursor is unlocked for UI interaction in OS mode
-			if not self._cursorUnlocked then
+			if not self._cursorUnlocked and not self._lockYaw then
 				local d = input.Delta
 				self._yaw += -d.X * MOUSE_SENS_YAW
-				self._pitch = math.clamp(self._pitch + -d.Y * MOUSE_SENS_PITCH, PITCH_MIN, PITCH_MAX)
+				if not self._lockPitch then
+					self._pitch = math.clamp(self._pitch + -d.Y * MOUSE_SENS_PITCH, PITCH_MIN, PITCH_MAX)
+				end
 			end
 		end
 	end)
@@ -278,8 +343,102 @@ function CameraController:tweenToPosition(targetCFrame: CFrame, duration: number
 	return tween
 end
 
+function CameraController:pushModifier(spec: CameraModifierSpec): string
+	self._modifierId += 1
+	local id = `cam_mod_{self._modifierId}`
+	local duration = spec.duration
+	self._modifiers[id] = {
+		id = id,
+		spec = spec,
+		priority = spec.priority or 0,
+		expiresAt = duration and (os.clock() + duration) or nil,
+	}
+	return id
+end
+
+function CameraController:popModifier(id: string)
+	self._modifiers[id] = nil
+end
+
+function CameraController:clearModifiers()
+	self._modifiers = {}
+end
+
+function CameraController:_computeOverrides(): CameraSettings
+	local now = os.clock()
+	local ordered: { CameraModifierEntry } = {}
+	for key, entry in pairs(self._modifiers) do
+		if entry.expiresAt and now >= entry.expiresAt then
+			self._modifiers[key] = nil
+		else
+			table.insert(ordered, entry)
+		end
+	end
+	table.sort(ordered, function(a, b)
+		return (a.priority or 0) < (b.priority or 0)
+	end)
+
+	local settings = {
+		shoulderRight = SHOULDER_RIGHT,
+		shoulderUp = SHOULDER_UP,
+		shoulderBack = SHOULDER_BACK,
+		followSmoothness = FOLLOW_SMOOTHNESS,
+		lookSmoothness = LOOK_SMOOTHNESS,
+		fov = BASE_FOV,
+		lockYaw = false,
+		lockPitch = false,
+		shake = nil,
+		yawAssist = nil,
+		lookAtProvider = nil,
+	}
+
+	for _, entry in ipairs(ordered) do
+		local spec = entry.spec or {}
+		if spec.shoulderOffset then
+			settings.shoulderRight = spec.shoulderOffset.X
+			settings.shoulderUp = spec.shoulderOffset.Y
+			settings.shoulderBack = spec.shoulderOffset.Z
+		end
+		if spec.shoulderRight ~= nil then
+			settings.shoulderRight = spec.shoulderRight
+		end
+		if spec.shoulderUp ~= nil then
+			settings.shoulderUp = spec.shoulderUp
+		end
+		if spec.shoulderBack ~= nil then
+			settings.shoulderBack = spec.shoulderBack
+		end
+		if spec.followSmoothness ~= nil then
+			settings.followSmoothness = spec.followSmoothness
+		end
+		if spec.lookSmoothness ~= nil then
+			settings.lookSmoothness = spec.lookSmoothness
+		end
+		if spec.fov ~= nil then
+			settings.fov = spec.fov
+		end
+		if spec.lockYaw ~= nil then
+			settings.lockYaw = spec.lockYaw
+		end
+		if spec.lockPitch ~= nil then
+			settings.lockPitch = spec.lockPitch
+		end
+		if spec.shake ~= nil then
+			settings.shake = spec.shake
+		end
+		if spec.yawAssist ~= nil then
+			settings.yawAssist = spec.yawAssist
+		end
+		if spec.lookAtProvider ~= nil then
+			settings.lookAtProvider = spec.lookAtProvider
+		end
+	end
+
+	return settings
+end
+
 -- Get the ideal camera position based on player position
-function CameraController:_getIdealCameraPosition(): Vector3
+function CameraController:_getIdealCameraPosition(settings: CameraSettings, yawOverride: number?, pitchOverride: number?): Vector3
 	local character = self.player.Character
 	if not character or not character:FindFirstChild("HumanoidRootPart") then
 		return self.camera.CFrame.Position
@@ -288,8 +447,11 @@ function CameraController:_getIdealCameraPosition(): Vector3
 	local rootPart = character.HumanoidRootPart :: BasePart
 	local rootPos = rootPart.Position
 	-- Build camera rotation from yaw/pitch
-	local camRot = CFrame.Angles(0, self._yaw, 0) * CFrame.Angles(self._pitch, 0, 0)
-	local offsetWorld = camRot:VectorToWorldSpace(Vector3.new(SHOULDER_RIGHT, SHOULDER_UP, SHOULDER_BACK))
+	local yaw = yawOverride or self._yaw
+	local pitch = pitchOverride or self._pitch
+	local camRot = CFrame.Angles(0, yaw, 0) * CFrame.Angles(pitch, 0, 0)
+	local offsetWorld =
+		camRot:VectorToWorldSpace(Vector3.new(settings.shoulderRight, settings.shoulderUp, settings.shoulderBack))
 	local idealPosition = rootPos + offsetWorld
 
 	-- Check for collisions and adjust if necessary
@@ -359,6 +521,19 @@ function CameraController:_getLookAtPosition(): Vector3
 		end
 	end
 
+	if self._lookAtProvider then
+		local pos = self._lookAtProvider()
+		if pos then
+			local char = self.player.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if hrp and hrp:IsA("BasePart") then
+				local headY = (hrp :: BasePart).Position.Y + LOOK_UP_OFFSET_Y
+				return Vector3.new(pos.X, headY, pos.Z)
+			end
+			return pos
+		end
+	end
+
 	-- Over-shoulder: look forward in the same direction as the player, not at the head
 	local character = self.player.Character
 	if not character then
@@ -391,19 +566,63 @@ function CameraController:_updateCamera()
 		return
 	end
 
-	local idealPosition = self:_getIdealCameraPosition()
+	local settings = self:_computeOverrides()
+	self._lockYaw = settings.lockYaw
+	self._lockPitch = settings.lockPitch
+	self.camera.FieldOfView = settings.fov
+	self._lookAtProvider = settings.lookAtProvider
+
+	local yawOffset = 0
+	if settings.yawAssist then
+		local assist = settings.yawAssist
+		local viewport = self.camera.ViewportSize
+		if viewport.X > 0 then
+			local mousePos = UserInputService:GetMouseLocation()
+			local centerX = viewport.X * 0.5
+			local normalized = (mousePos.X - centerX) / centerX
+			if math.abs(normalized) < assist.deadzone then
+				normalized = 0
+			else
+				local sign = normalized >= 0 and 1 or -1
+				normalized = sign * (math.abs(normalized) - assist.deadzone) / (1 - assist.deadzone)
+			end
+			local targetOffset = math.clamp(normalized, -1, 1) * assist.maxYaw
+			local smooth = assist.smoothness or 0.2
+			local current = self._yawAssist or 0
+			self._yawAssist = current + (targetOffset - current) * math.clamp(smooth, 0, 1)
+			yawOffset = self._yawAssist
+		end
+	else
+		self._yawAssist = 0
+	end
+
+	local idealPosition = self:_getIdealCameraPosition(settings, self._yaw + yawOffset, self._pitch)
 	local lookAtPosition = self:_getLookAtPosition()
 
 	-- Smooth interpolation
 	local currentPosition = self.camera.CFrame.Position
-	local newPosition = currentPosition:Lerp(idealPosition, FOLLOW_SMOOTHNESS)
+	local newPosition = currentPosition:Lerp(idealPosition, settings.followSmoothness)
 
 	-- Create new camera CFrame looking at target
 	local newCFrame = CFrame.lookAt(newPosition, lookAtPosition)
 
 	-- Smooth rotation interpolation
 	local currentCFrame = self.camera.CFrame
-	local finalCFrame = currentCFrame:Lerp(newCFrame, LOOK_SMOOTHNESS)
+	local finalCFrame = (currentCFrame:Lerp(newCFrame, settings.lookSmoothness)) :: CFrame
+
+	if settings.shake then
+		local strength = settings.shake.strength or 0
+		local frequency = settings.shake.frequency or 20
+		if strength > 0 then
+			local t = os.clock() * frequency
+			local offset = Vector3.new(
+				(math.noise(t, 0, 0) - 0.5) * 2,
+				(math.noise(0, t, 0) - 0.5) * 2,
+				(math.noise(0, 0, t) - 0.5) * 2
+			) * strength
+			finalCFrame = finalCFrame + offset
+		end
+	end
 
 	self.camera.CFrame = finalCFrame
 end
@@ -425,6 +644,9 @@ function CameraController:_startUpdateLoop()
 		local hum = character and character:FindFirstChildOfClass("Humanoid")
 		if hrpAny and hrpAny:IsA("BasePart") and hum then
 			local hrp = hrpAny :: BasePart
+			if hrp:GetAttribute("ExternalFacing") == true then
+				return
+			end
 			local pos = hrp.Position
 			local desired = CFrame.new(pos) * CFrame.Angles(0, self._yaw, 0)
 			hrp.CFrame = desired

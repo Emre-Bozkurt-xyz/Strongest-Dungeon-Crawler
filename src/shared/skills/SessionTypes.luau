@@ -27,6 +27,8 @@ export type SkillSession = {
 		totalSteps: number, -- Total steps in the combo
 		windowOpensAt: number?, -- When the next input window opens (nil = open immediately)
 		windowExpiresAt: number?, -- When combo input window closes (nil = no window active)
+		windowHardExpiresAt: number?, -- Server-only: latest expiry allowing for network delay
+		lastInputTime: number?, -- Server-only: last accepted inputTime for monotonic validation
 		stepToken: number, -- Sequencing token for validation
 	}?,
 

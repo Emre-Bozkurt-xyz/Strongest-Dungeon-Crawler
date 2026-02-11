@@ -9,6 +9,7 @@ local Registrar = require(Server.Services.Registrar)
 
 return {
 	id = "stagger",
+	isHarmful = true,
 	duration = 1.5, -- 1.5 second default stagger
 	maxStacks = 1,
 	stacking = "aggregate",

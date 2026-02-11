@@ -99,7 +99,7 @@ function BaseComboSkill:use(requestData: any?): any
 	-- Delay server-side hit logic to align with animation
 	local delaySec = hitDelay
 	if delaySec > 0 then
-		task.delay(delaySec, function()
+		self:guardedDelay(delaySec, function()
 			self:onComboStep(step, req)
 		end)
 	else
@@ -109,7 +109,7 @@ function BaseComboSkill:use(requestData: any?): any
 
 	if self._sessionId and not isFinal then
 		local windowOpenDelay = stepDuration + stepDelay
-		SessionManager.extendComboWindow(self._sessionId, windowOpenDelay, window)
+		SessionManager.extendComboWindow(self._sessionId, windowOpenDelay, window, requestData and requestData.inputTime)
 		debugPhase3(
 			"Extended combo window:",
 			self._sessionId:sub(1, 8),
@@ -125,13 +125,13 @@ function BaseComboSkill:use(requestData: any?): any
 		local completionDelay = if stepDuration > 0 then stepDuration else delaySec + recovery
 		debugPhase3(`Step {step} is FINAL, scheduling completion in {completionDelay}s`)
 		if completionDelay > 0 then
-			task.delay(completionDelay, function()
+			self:guardedDelay(completionDelay, function()
 				debugPhase3(`Calling completeExecution for {self.name} after {completionDelay}s delay`)
 				self:completeExecution()
 			end)
 		else
 			-- Defer to guarantee order relative to immediate onComboStep
-			task.defer(function()
+			self:guardedDefer(function()
 				debugPhase3(`Calling completeExecution for {self.name} (deferred)`)
 				self:completeExecution()
 			end)

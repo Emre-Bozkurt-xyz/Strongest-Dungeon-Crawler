@@ -30,9 +30,9 @@ end
 
 local function notify(newRec: AttemptRecord, oldRec: AttemptRecord?)
 	for _, cb in ipairs(listeners) do
-		local ok, err = pcall(cb, newRec, oldRec)
+		local ok = pcall(cb, newRec, oldRec)
 		if not ok then
-			warn("AttemptStore listener error:", err)
+			warn("AttemptStore listener error")
 		end
 	end
 end

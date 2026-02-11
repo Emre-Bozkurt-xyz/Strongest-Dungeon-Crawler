@@ -37,7 +37,42 @@ local function normalize()
     end
 end
 
+local function getShiftDown(): boolean
+	return UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+end
+
+local function getCtrlDown(): boolean
+	return UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)
+end
+
+local function getAltDown(): boolean
+	return UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) or UserInputService:IsKeyDown(Enum.KeyCode.RightAlt)
+end
+
+local function anyModifierDown(): boolean
+	return getShiftDown() or getCtrlDown() or getAltDown()
+end
+
+local function modifiersMatch(modifiers: { shift: boolean?, ctrl: boolean?, alt: boolean? }?): boolean
+	if modifiers == nil then
+		return not anyModifierDown()
+	end
+	if modifiers.shift and not getShiftDown() then
+		return false
+	end
+	if modifiers.ctrl and not getCtrlDown() then
+		return false
+	end
+	if modifiers.alt and not getAltDown() then
+		return false
+	end
+	return true
+end
+
 local function bindingMatches(b, input: InputObject, began: boolean)
+	if not modifiersMatch(b.modifiers) then
+		return false
+	end
     if b.key and input.KeyCode == b.key then
         if b.type == "press" and began then return true end
         if b.type == "release" and not began then return true end
@@ -60,8 +95,10 @@ function InputManager.new()
             if contextEnabled[act.context] then
                 for _, b in ipairs(act.bindings) do
                     if bindingMatches(b, input, true) then
+                        local meta = b.meta and table.clone(b.meta) or {}
+                        meta.type = b.type
                         for _, cb in ipairs(act.callbackList) do
-                            task.spawn(cb, act.name, b.meta)
+                            task.spawn(cb, act.name, meta)
                         end
                         break
                     end
@@ -76,8 +113,10 @@ function InputManager.new()
             if contextEnabled[act.context] then
                 for _, b in ipairs(act.bindings) do
                     if bindingMatches(b, input, false) then
+                        local meta = b.meta and table.clone(b.meta) or {}
+                        meta.type = b.type
                         for _, cb in ipairs(act.callbackList) do
-                            task.spawn(cb, act.name, b.meta)
+                            task.spawn(cb, act.name, meta)
                         end
                         break
                     end

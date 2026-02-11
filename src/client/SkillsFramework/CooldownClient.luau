@@ -5,6 +5,10 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Networking = require(ReplicatedStorage.Shared.Networking)
+local TimeSync = require(script.Parent.Parent.Services.TimeSync)
+
+-- Client-paced cooldowns: ignore server cooldown events for local UX gating.
+local USE_SERVER_COOLDOWNS = false
 
 local EVENT_NAME = "CooldownEvents"
 local SNAPSHOT_REQUEST = "CooldownSnapshotRequest"
@@ -28,6 +32,7 @@ export type CooldownRecord = {
 }
 
 local cooldowns: { [string]: CooldownRecord } = {}
+local localCooldowns: { [string]: CooldownRecord } = {}
 
 local listeners: { (string, string?) -> () } = {} -- (eventType, key?)
 
@@ -35,6 +40,43 @@ local CooldownClient = {}
 
 local function now(): number
 	return os.clock()
+end
+
+local function toClientTime(value: number?): number?
+	if typeof(value) ~= "number" then
+		return nil
+	end
+	return TimeSync.toClientTime(value)
+end
+
+local function getRemainingFor(rec: CooldownRecord?): number
+	if not rec then
+		return 0
+	end
+	local rem = rec.endAt - now()
+	if rem <= 0 then
+		return 0
+	end
+	return rem
+end
+
+local function getBestRecord(key: string): CooldownRecord?
+	local serverRec = cooldowns[key]
+	local localRec = localCooldowns[key]
+	local serverRem = getRemainingFor(serverRec)
+	local localRem = getRemainingFor(localRec)
+	if serverRem <= 0 and serverRec then
+		cooldowns[key] = nil
+		serverRec = nil
+	end
+	if localRem <= 0 and localRec then
+		localCooldowns[key] = nil
+		localRec = nil
+	end
+	if localRem > serverRem then
+		return localRec
+	end
+	return serverRec or localRec
 end
 
 local function fire(eventType: string, key: string?)
@@ -56,24 +98,30 @@ function CooldownClient.onChanged(cb: (string, string?) -> ())
 end
 
 function CooldownClient.get(key: string): CooldownRecord?
-	return cooldowns[key]
+	return getBestRecord(key)
 end
 
 function CooldownClient.getRemaining(key: string): number
-	local rec = cooldowns[key]
-	if not rec then return 0 end
-	local rem = rec.endAt - now()
-	if rem <= 0 then
+	local serverRec = cooldowns[key]
+	local localRec = localCooldowns[key]
+	local serverRem = getRemainingFor(serverRec)
+	local localRem = getRemainingFor(localRec)
+	if serverRem <= 0 and serverRec then
 		cooldowns[key] = nil
 		fire("clear", key)
-		return 0
 	end
-	return rem
+	if localRem <= 0 and localRec then
+		localCooldowns[key] = nil
+		fire("local_clear", key)
+	end
+	return math.max(serverRem, localRem)
 end
 
 function CooldownClient.getFraction(key: string): number
-	local rec = cooldowns[key]
-	if not rec then return 0 end
+	local rec = getBestRecord(key)
+	if not rec then
+		return 0
+	end
 	if rec.duration <= 0 then return 1 end
 	local elapsed = now() - rec.startAt
 	return math.clamp(elapsed / rec.duration, 0, 1)
@@ -85,22 +133,47 @@ end
 
 function CooldownClient.iterate(): { { key: string, remaining: number, fraction: number } }
 	local list: { { key: string, remaining: number, fraction: number } } = {}
-	for key, rec in pairs(cooldowns) do
-		local rem = rec.endAt - now()
-		if rem > 0 then
-			local frac = 0
-			if rec.duration > 0 then
-				frac = math.clamp((now() - rec.startAt) / rec.duration, 0, 1)
-			else
-				frac = 1
+	local seen: { [string]: boolean } = {}
+	for key in pairs(cooldowns) do
+		seen[key] = true
+	end
+	for key in pairs(localCooldowns) do
+		seen[key] = true
+	end
+	for key in pairs(seen) do
+		local rec = getBestRecord(key)
+		if rec then
+			local rem = rec.endAt - now()
+			if rem > 0 then
+				local frac = 0
+				if rec.duration > 0 then
+					frac = math.clamp((now() - rec.startAt) / rec.duration, 0, 1)
+				else
+					frac = 1
+				end
+				table.insert(list, { key = key, remaining = rem, fraction = frac })
 			end
-			table.insert(list, { key = key, remaining = rem, fraction = frac })
-		else
-			cooldowns[key] = nil
-			fire("clear", key)
 		end
 	end
 	return list
+end
+
+function CooldownClient.startLocal(key: string, duration: number)
+	local d = math.max(0, duration)
+	local s = now()
+	localCooldowns[key] = {
+		startAt = s,
+		endAt = s + d,
+		duration = d,
+	}
+	fire("local_start", key)
+end
+
+function CooldownClient.clearLocal(key: string)
+	if localCooldowns[key] then
+		localCooldowns[key] = nil
+		fire("local_clear", key)
+	end
 end
 
 function CooldownClient.requestSnapshot()
@@ -144,18 +217,26 @@ end
 
 -- Event wiring (includes charges)
 dispatcherAny:on(EVENT_NAME, function(payload)
+	if not USE_SERVER_COOLDOWNS then
+		return
+	end
 	local t = payload and payload.t
 	if t == "cd_start" then
 		local key = payload.key
+		if key == "_GCD" then
+			return
+		end
 		if key then
+			local startAt = toClientTime(payload.startAt) or now()
+			local endAt = toClientTime(payload.endAt) or startAt
 			cooldowns[key] = {
-				startAt = payload.startAt or now(),
-				endAt = payload.endAt or now(),
-				duration = payload.duration or ((payload.endAt or 0) - (payload.startAt or 0)),
+				startAt = startAt,
+				endAt = endAt,
+				duration = payload.duration or (endAt - startAt),
 				charges = payload.charges and {
 					current = payload.charges.current or 0,
 					max = payload.charges.max or 0,
-					rechargeEnd = payload.charges.rechargeEnd,
+					rechargeEnd = toClientTime(payload.charges.rechargeEnd),
 					rechargeDuration = payload.charges.rechargeDuration or 0,
 				} or nil,
 			}
@@ -163,10 +244,13 @@ dispatcherAny:on(EVENT_NAME, function(payload)
 		end
 	elseif t == "cd_adjust" then
 		local key = payload.key
+		if key == "_GCD" then
+			return
+		end
 		local rec = key and cooldowns[key]
 		if rec then
-			rec.startAt = payload.startAt or rec.startAt
-			rec.endAt = payload.endAt or rec.endAt
+			rec.startAt = toClientTime(payload.startAt) or rec.startAt
+			rec.endAt = toClientTime(payload.endAt) or rec.endAt
 			rec.duration = payload.duration or rec.duration
 			if payload.charges then
 				rec.charges = rec.charges or {
@@ -175,13 +259,16 @@ dispatcherAny:on(EVENT_NAME, function(payload)
 				local ch = rec.charges :: ChargeState
 				ch.current = payload.charges.current or ch.current
 				ch.max = payload.charges.max or ch.max
-				ch.rechargeEnd = payload.charges.rechargeEnd
+				ch.rechargeEnd = toClientTime(payload.charges.rechargeEnd)
 				ch.rechargeDuration = payload.charges.rechargeDuration or ch.rechargeDuration
 			end
 			fire("adjust", key)
 		end
 	elseif t == "cd_update" then
 		local key = payload.key
+		if key == "_GCD" then
+			return
+		end
 		if key and cooldowns[key] then
 			local rec = cooldowns[key]
 			rec.charges = rec.charges or {
@@ -192,13 +279,16 @@ dispatcherAny:on(EVENT_NAME, function(payload)
 				local ch = rec.charges :: ChargeState
 				ch.current = chPayload.current or ch.current
 				ch.max = chPayload.max or ch.max
-				ch.rechargeEnd = chPayload.rechargeEnd
+				ch.rechargeEnd = toClientTime(chPayload.rechargeEnd)
 				ch.rechargeDuration = chPayload.rechargeDuration or ch.rechargeDuration
 			end
 			fire("update", key)
 		end
 	elseif t == "cd_clear" then
 		local key = payload.key
+		if key == "_GCD" then
+			return
+		end
 		if key and cooldowns[key] then
 			cooldowns[key] = nil
 			fire("clear", key)
@@ -210,14 +300,19 @@ dispatcherAny:on(EVENT_NAME, function(payload)
 				cooldowns[k] = nil
 			end
 			for k, v in pairs(active) do
+				if k == "_GCD" then
+					continue
+				end
+				local startAt = toClientTime(v.startAt) or now()
+				local endAt = toClientTime(v.endAt) or startAt
 				cooldowns[k] = {
-					startAt = v.startAt or now(),
-					endAt = v.endAt or now(),
-					duration = v.duration or ((v.endAt or 0) - (v.startAt or 0)),
+					startAt = startAt,
+					endAt = endAt,
+					duration = v.duration or (endAt - startAt),
 					charges = v.charges and {
 						current = v.charges.current or 0,
 						max = v.charges.max or 0,
-						rechargeEnd = v.charges.rechargeEnd,
+						rechargeEnd = toClientTime(v.charges.rechargeEnd),
 						rechargeDuration = v.charges.rechargeDuration or 0,
 					} or nil,
 				}

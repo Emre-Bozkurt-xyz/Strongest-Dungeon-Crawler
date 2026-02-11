@@ -1,8 +1,15 @@
 --!strict
--- Stun effect - Longer disabling effect that blocks all actions
+-- Stun effect - Longer disabling effect that blocks all actions and cancels active skills
+
+local ServerScriptService = game:GetService("ServerScriptService")
+local Server = ServerScriptService.Server
+
+local SessionManager = require(Server.SkillsFramework.SessionManager)
+local Registrar = require(Server.Services.Registrar)
 
 return {
 	id = "stun",
+	isHarmful = true,
 	duration = 3.0, -- 3 second default stun
 	maxStacks = 1,
 	stacking = "aggregate",
@@ -15,8 +22,32 @@ return {
 		interact = true,
 	},
 	onApply = function(_target: string, _source: string?, _params: any?, _stacks: number)
-		-- TODO: Play stun animation/VFX
-		-- TODO: Emit to client
+		local target = _target
+		-- Interrupt any active skill execution (handles both players and NPCs)
+		local activeSession = SessionManager.getActive(target)
+		if activeSession then
+			SessionManager.cancel(activeSession.id, "stunned")
+		end
+
+		-- For NPCs, also stop animations - done via the Humanoid directly to avoid cyclic deps
+		if not Registrar.isPlayerEntity(target) then
+			local entity = Registrar.getEntityById(target)
+			if entity and entity:IsA("Model") then
+				local humanoid = entity:FindFirstChildWhichIsA("Humanoid") :: Humanoid?
+				if humanoid then
+					local animator = humanoid:FindFirstChildWhichIsA("Animator") :: Animator?
+					if animator then
+						for _, track in animator:GetPlayingAnimationTracks() do
+							track:Stop(0.1)
+						end
+					end
+				end
+				-- Reset combat state attribute
+				if entity:GetAttribute("CombatState") == "attacking" then
+					entity:SetAttribute("CombatState", "aggressive")
+				end
+			end
+		end
 	end,
 	onRemove = function(_target: string, _source: string?, _stacks: number)
 		-- No cleanup needed

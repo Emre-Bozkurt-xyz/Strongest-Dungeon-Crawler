@@ -135,6 +135,20 @@ local dispatcher = Networking.server()
 local dispatcherAny = dispatcher :: any
 dispatcher:_ensureChannel(STATS_CHANNEL_NAME)
 
+local deltaListeners: { (string, Delta) -> () } = {}
+
+function StatsManager.onDelta(callback: (string, Delta) -> ())
+	table.insert(deltaListeners, callback)
+	return function()
+		for i, cb in ipairs(deltaListeners) do
+			if cb == callback then
+				table.remove(deltaListeners, i)
+				break
+			end
+		end
+	end
+end
+
 -- Helper: send a delta to a player
 local function sendStatDelta(entityId: string, deltaType: string, target: string, data: any)
 	if not Registrar.isPlayerEntity(entityId) then
@@ -152,6 +166,14 @@ local function sendStatDelta(entityId: string, deltaType: string, target: string
 	dispatcherAny:emit("StatsDelta", delta, {
 		targets = player,
 	})
+	for _, cb in ipairs(deltaListeners) do
+		task.spawn(function()
+			local ok, err = pcall(cb, entityId, delta)
+			if not ok then
+				warn("[StatsManager] delta listener error:", err)
+			end
+		end)
+	end
 end
 
 -- Helper: send full sync
@@ -178,6 +200,14 @@ local function sendFullSync(entityId: string)
 		targets = player,
 	})
 	profileEnd(profileToken)
+	for _, cb in ipairs(deltaListeners) do
+		task.spawn(function()
+			local ok, err = pcall(cb, entityId, delta)
+			if not ok then
+				warn("[StatsManager] delta listener error:", err)
+			end
+		end)
+	end
 end
 
 local function sendResourceMetadata(entityId: string, resourceName: string, resourceStat: any)
@@ -987,6 +1017,10 @@ local _statsRequestDisconnect = dispatcherAny:onRequest("StatsRequest", function
 	end
 
 	local entityId = Registrar.getPlayerId(player)
+	if not entityId then
+		warn(`StatsManager received StatsRequest for player without EntityId: {player.Name}`)
+		return nil
+	end
 
 	if not StatsManager.isRegistered(entityId) then
 		StatsManager.register(entityId)

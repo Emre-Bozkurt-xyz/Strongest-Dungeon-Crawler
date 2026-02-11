@@ -1,4 +1,3 @@
---!strict
 -- SkillSlotUI: Renders skill slots with draining cooldown overlay + desaturation + charges support.
 -- Structure (created dynamically under a ScreenGui you provide or we create lazily):
 -- SkillSlots (Frame)
@@ -31,32 +30,51 @@ local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 
 local SkillSlots = require(script.Parent.SkillSlots)
 local CooldownClient = require(script.Parent.CooldownClient)
+local Networking = require(ReplicatedStorage.Shared.Networking)
+local Registrar = require(script.Parent.Parent.Services.Registrar)
 
 local SkillSlotUI = {}
 
 -- Configuration knobs
-local UPDATE_HZ = 10 -- normal update frequency
-local FAST_THRESHOLD = 0.5 -- seconds; below this we update every frame
-local NORMAL_INTERVAL = 1 / UPDATE_HZ
 
 local OVERLAY_TRANSPARENCY = 0.42
-local GCD_OVERLAY_TRANSPARENCY = 0.7
-local DESAT_COLOR = Color3.fromRGB(180,180,180) -- simple desaturation by tinting
-local READY_COLOR = Color3.fromRGB(255,255,255)
+local GCD_OVERLAY_TRANSPARENCY = 0.45
+local OVERLAY_GRADIENT_ROT_SPEED = 36 -- degrees per second
+local OVERLAY_GRADIENT_ROT_AMPLITUDE = 18 -- degrees total swing
+local STATUS_BLOCK_TRANSPARENCY = 0.4
+local DESAT_COLOR = Color3.fromRGB(180, 180, 180) -- simple desaturation by tinting
+local READY_COLOR = Color3.fromRGB(255, 255, 255)
+local RADIAL_LERP_SPEED = 14 -- higher = snappier radial cooldown
 -- Cooldowns shorter than this (seconds) are treated as negligible for per-skill overlay & desaturation
 -- to avoid constant flicker on combo step pacing.
 local MIN_VISUAL_DURATION = 0.33
+local MIN_OVERLAY_DURATION = 0.4
 
 local iconProvider: ((string) -> string?)? = nil
-local manualOrder: {number}? = nil
+local manualOrder: { number }? = nil
 
 -- Internal state
 local rootFrame: Frame? = nil
 local containerMap: { [number]: TextButton } = {} -- slotIndex -> SkillSlotContainer
 local slotSkillMap: { [number]: string } = {} -- slotIndex -> skillName
 local slotConnections: { [number]: RBXScriptConnection } = {} -- slotIndex -> Activated connection
+local radialRotation: { [number]: number } = {}
 local connCleanup: { () -> () } = {}
 local updating = false
+local blockedCastSources: { [string]: number } = {}
+local warnedMissingStatusOverlay = false
+
+local function setSlotBlockedOverlay(frame: TextButton, blocked: boolean, duration: number?)
+	local overlay = frame:FindFirstChild("StatusBlockOverlay")
+	if overlay and overlay:IsA("Frame") then
+		local show = blocked and (duration == nil or duration > MIN_OVERLAY_DURATION)
+		overlay.BackgroundTransparency = if show then STATUS_BLOCK_TRANSPARENCY else 1
+		overlay.Visible = show
+	elseif not warnedMissingStatusOverlay then
+		warn("SkillSlotUI: StatusBlockOverlay missing; add it to SkillSlotContainer template to show blocked state.")
+		warnedMissingStatusOverlay = true
+	end
+end
 
 local function clearConnections()
 	for _, c in ipairs(connCleanup) do
@@ -73,7 +91,7 @@ function SkillSlotUI.setIconProvider(fn: (string) -> string?)
 	end
 end
 
-function SkillSlotUI.setSlotOrder(indices: {number})
+function SkillSlotUI.setSlotOrder(indices: { number })
 	manualOrder = indices
 	-- force rebuild
 	if rootFrame then
@@ -133,21 +151,23 @@ local cachedTemplate: TextButton? = nil
 
 local function ensureSubLabels(container: TextButton)
 	local content = container:FindFirstChild("Content")
-	if not content or not content:IsA("Frame") then return end
+	if not content or not content:IsA("Frame") then
+		return
+	end
 	local icon = content:FindFirstChild("Icon")
 	if not (icon and icon:IsA("ImageLabel")) then
 		local newIcon = Instance.new("ImageLabel")
 		newIcon.Name = "Icon"
 		newIcon.BackgroundTransparency = 1
-		newIcon.Size = UDim2.fromScale(1,1)
+		newIcon.Size = UDim2.fromScale(1, 1)
 		newIcon.Parent = content
 	end
 	if not content:FindFirstChild("Timer") then
 		local timer = Instance.new("TextLabel")
 		timer.Name = "Timer"
-		timer.Size = UDim2.fromScale(1,1)
+		timer.Size = UDim2.fromScale(1, 1)
 		timer.BackgroundTransparency = 1
-		timer.TextColor3 = Color3.new(1,1,1)
+		timer.TextColor3 = Color3.new(1, 1, 1)
 		timer.TextStrokeTransparency = 0.5
 		timer.TextScaled = true
 		timer.Visible = false
@@ -159,11 +179,11 @@ local function ensureSubLabels(container: TextButton)
 	if not content:FindFirstChild("Charges") then
 		local charges = Instance.new("TextLabel")
 		charges.Name = "Charges"
-		charges.AnchorPoint = Vector2.new(1,1)
-		charges.Position = UDim2.fromScale(1,1)
-		charges.Size = UDim2.fromOffset(24,20)
+		charges.AnchorPoint = Vector2.new(1, 1)
+		charges.Position = UDim2.fromScale(1, 1)
+		charges.Size = UDim2.fromOffset(24, 20)
 		charges.BackgroundTransparency = 1
-		charges.TextColor3 = Color3.fromRGB(255,255,160)
+		charges.TextColor3 = Color3.fromRGB(255, 255, 160)
 		charges.TextStrokeTransparency = 0.5
 		charges.TextScaled = true
 		charges.Visible = false
@@ -175,8 +195,8 @@ local function ensureSubLabels(container: TextButton)
 	if not container:FindFirstChild("Overlay") then
 		local overlay = Instance.new("Frame")
 		overlay.Name = "Overlay"
-		overlay.Size = UDim2.fromScale(1,1)
-		overlay.BackgroundColor3 = Color3.new(0,0,0)
+		overlay.Size = UDim2.fromScale(1, 1)
+		overlay.BackgroundColor3 = Color3.new(0, 0, 0)
 		overlay.BackgroundTransparency = OVERLAY_TRANSPARENCY
 		overlay.BorderSizePixel = 0
 		overlay.ZIndex = 2
@@ -185,13 +205,34 @@ local function ensureSubLabels(container: TextButton)
 	if not container:FindFirstChild("GCDOverlay") then
 		local gcd = Instance.new("Frame")
 		gcd.Name = "GCDOverlay"
-		gcd.Size = UDim2.fromScale(1,1)
-		gcd.BackgroundColor3 = Color3.new(0,0,0)
+		gcd.Size = UDim2.fromScale(1, 1)
+		gcd.BackgroundColor3 = Color3.new(0, 0, 0)
 		gcd.BackgroundTransparency = GCD_OVERLAY_TRANSPARENCY
 		gcd.BorderSizePixel = 0
 		gcd.Visible = false
 		gcd.ZIndex = 3
 		gcd.Parent = container
+	end
+end
+
+local function syncRadialCutout(frame: TextButton)
+	local radial = frame:FindFirstChild("CooldownRadial")
+	if not radial or not radial:IsA("Frame") then
+		return
+	end
+	local cutout = radial:FindFirstChild("CenterCutout")
+	if cutout and cutout:IsA("Frame") then
+		if cutout:GetAttribute("AutoMatchBackground") ~= false then
+			cutout.BackgroundColor3 = frame.BackgroundColor3
+			cutout.BackgroundTransparency = frame.BackgroundTransparency
+		end
+		local fill = cutout:FindFirstChild("Fill")
+		if fill and fill:IsA("Frame") then
+			if fill:GetAttribute("AutoMatchBackground") ~= false then
+				fill.BackgroundColor3 = frame.BackgroundColor3
+				fill.BackgroundTransparency = frame.BackgroundTransparency
+			end
+		end
 	end
 end
 
@@ -205,7 +246,7 @@ local function createSlot(slotIndex: number, skill: string): TextButton
 	else
 		warn("SkillSlotUI: SkillSlotContainer template not found; using fallback")
 		base = Instance.new("TextButton")
-		base.Size = UDim2.fromOffset(64,64)
+		base.Size = UDim2.fromOffset(64, 64)
 	end
 	base.Text = ""
 	base.Name = "SkillSlotContainer" .. slotIndex
@@ -221,6 +262,7 @@ local function createSlot(slotIndex: number, skill: string): TextButton
 	if overlay and overlay:IsA("Frame") then
 		overlay.BackgroundTransparency = OVERLAY_TRANSPARENCY
 	end
+	syncRadialCutout(base)
 	return base
 end
 
@@ -252,7 +294,9 @@ local function enumerateSlots(): { { index: number, skill: string } }
 end
 
 function SkillSlotUI._rebuild()
-	if not rootFrame then return end
+	if not rootFrame then
+		return
+	end
 	destroyChildren(rootFrame)
 	containerMap = {}
 	slotSkillMap = {}
@@ -298,7 +342,9 @@ function SkillSlotUI._rebuild()
 end
 
 local function formatTime(rem: number): string
-	if rem <= 0 then return "" end
+	if rem <= 0 then
+		return ""
+	end
 	if rem >= 60 then
 		local m = math.floor(rem / 60)
 		local s = math.floor(rem % 60)
@@ -310,7 +356,17 @@ local function formatTime(rem: number): string
 	end
 end
 
-local function updateOne(slotIndex: number, frame: TextButton, skill: string, gcdRemaining: number, gcdFraction: number)
+local function updateOne(
+	slotIndex: number,
+	frame: TextButton,
+	skill: string,
+	gcdRemaining: number,
+	gcdFraction: number,
+	blockedCast: boolean,
+	dt: number,
+	blockedRemaining: number?,
+	gcdDuration: number?
+)
 	slotIndex = slotIndex -- suppress unused warning; retained for future per-slot custom logic
 	local content = frame:FindFirstChild("Content")
 	local icon = content and content:FindFirstChild("Icon") :: ImageLabel?
@@ -318,7 +374,10 @@ local function updateOne(slotIndex: number, frame: TextButton, skill: string, gc
 	local chargesLbl = content and content:FindFirstChild("Charges") :: TextLabel?
 	local overlay = frame:FindFirstChild("Overlay") :: Frame?
 	local gcdOverlay = frame:FindFirstChild("GCDOverlay") :: Frame?
-	if not icon or not overlay or not gcdOverlay then return end
+	local radial = frame:FindFirstChild("CooldownRadial") :: Frame?
+	if not icon or not overlay or not gcdOverlay then
+		return
+	end
 
 	local remaining = CooldownClient.getRemaining(skill)
 	local rec = CooldownClient.get(skill)
@@ -329,21 +388,71 @@ local function updateOne(slotIndex: number, frame: TextButton, skill: string, gc
 
 	-- Determine if we visually show the per-skill cooldown (avoid ultra-short spam from combo micro cds)
 	local showSkillOverlay = (remaining > 0 and rec and rec.duration >= MIN_VISUAL_DURATION)
+	local cooldownFraction = 0
 	if showSkillOverlay and rec then
-		overlay.Visible = true
-		overlay.Size = UDim2.fromScale(1, remaining / rec.duration)
-		overlay.Position = UDim2.fromScale(0, 1 - (remaining / rec.duration))
-	else
-		overlay.Visible = false
+		cooldownFraction = math.clamp(remaining / rec.duration, 0, 1)
 	end
 
-	-- GCD overlay (faint) independent of per-skill, show only if gcd active and skill itself not on a longer cd
-	if gcdRemaining > 0 and (remaining <= gcdRemaining) then
+	local usedRadial = false
+	if radial and radial:IsA("Frame") and radial:FindFirstChild("Left") and radial:FindFirstChild("Right") then
+		usedRadial = true
+		radial.Visible = showSkillOverlay
+		if showSkillOverlay then
+			local leftGrad = radial:FindFirstChild("Left")
+				and radial.Left:FindFirstChild("Circle")
+				and radial.Left.Circle:FindFirstChildOfClass("UIGradient")
+			local rightGrad = radial:FindFirstChild("Right")
+				and radial.Right:FindFirstChild("Circle")
+				and radial.Right.Circle:FindFirstChildOfClass("UIGradient")
+			if leftGrad and rightGrad then
+				local target = cooldownFraction * 360
+				local current = radialRotation[slotIndex] or target
+				local alpha = math.clamp(dt * RADIAL_LERP_SPEED, 0, 1)
+				current = current + (target - current) * alpha
+				radialRotation[slotIndex] = current
+				rightGrad.Rotation = math.clamp(current, 0, 180)
+				leftGrad.Rotation = math.clamp(current, 180, 360)
+			end
+		end
+	end
+
+	if usedRadial then
+		overlay.Visible = false
+	else
+		if showSkillOverlay and rec then
+			overlay.Visible = true
+			overlay.Size = UDim2.fromScale(1, cooldownFraction)
+			overlay.Position = UDim2.fromScale(0, 1 - cooldownFraction)
+		else
+			overlay.Visible = false
+		end
+	end
+
+	-- GCD overlay (faint) independent of per-skill, show only if gcd duration is meaningful
+	if (gcdDuration or 0) > MIN_OVERLAY_DURATION and gcdRemaining > 0 and (remaining <= gcdRemaining) then
 		gcdOverlay.Visible = true
-		gcdOverlay.Size = UDim2.fromScale(1, gcdFraction)
-		gcdOverlay.Position = UDim2.fromScale(0, 1 - gcdFraction)
+		gcdOverlay.Size = UDim2.fromScale(1, 1)
+		gcdOverlay.Position = UDim2.fromScale(0, 0)
 	else
 		gcdOverlay.Visible = false
+	end
+
+	local gcdGrad = gcdOverlay:FindFirstChildOfClass("UIGradient")
+	if gcdGrad and gcdOverlay.Visible then
+		local t = os.clock() * math.rad(OVERLAY_GRADIENT_ROT_SPEED)
+		local swing = math.sin(t) * OVERLAY_GRADIENT_ROT_AMPLITUDE
+		gcdGrad.Rotation = swing
+	end
+
+	setSlotBlockedOverlay(frame, blockedCast, blockedRemaining)
+	local blockOverlay = frame:FindFirstChild("StatusBlockOverlay")
+	if blockOverlay and blockOverlay:IsA("Frame") and blockOverlay.Visible then
+		local blockGrad = blockOverlay:FindFirstChildOfClass("UIGradient")
+		if blockGrad then
+			local t = os.clock() * math.rad(OVERLAY_GRADIENT_ROT_SPEED * 0.8)
+			local swing = math.sin(t) * (OVERLAY_GRADIENT_ROT_AMPLITUDE * 0.8)
+			blockGrad.Rotation = swing
+		end
 	end
 
 	-- Timer text only when remaining <= 10 or no charges case waiting
@@ -367,7 +476,11 @@ local function updateOne(slotIndex: number, frame: TextButton, skill: string, gc
 	end
 
 	-- Desaturate if unusable (but ignore ultra-short micro cds below threshold; they rely on GCD overlay only)
-	local shouldDesat = ((remaining > 0 and rec and rec.duration >= MIN_VISUAL_DURATION) or (not hasCharges) or gcdOverlay.Visible)
+	local shouldDesat = (
+		(remaining > 0 and rec and rec.duration >= MIN_VISUAL_DURATION)
+		or not hasCharges
+		or gcdOverlay.Visible
+	)
 	if shouldDesat then
 		icon.ImageColor3 = DESAT_COLOR
 	else
@@ -375,39 +488,67 @@ local function updateOne(slotIndex: number, frame: TextButton, skill: string, gc
 	end
 end
 
-local function getGCD(): (number, number)
+local function getGCD(): (number, number, number)
 	-- Represent GCD via reserved key _GCD in CooldownClient (server uses that).
 	local gcdRec = CooldownClient.get("_GCD")
-	if not gcdRec then return 0, 0 end
+	if not gcdRec then
+		return 0, 0, 0
+	end
 	local nowT = os.clock()
 	local rem = math.max(0, gcdRec.endAt - nowT)
-	if rem <= 0 then return 0, 0 end
-	local frac = if gcdRec.duration > 0 then math.clamp(rem / gcdRec.duration, 0, 1) else 0
-	return rem, frac
+	if rem <= 0 then
+		return 0, 0, 0
+	end
+	local duration = gcdRec.duration or 0
+	local frac = if duration > 0 then math.clamp(rem / duration, 0, 1) else 0
+	return rem, frac, duration
 end
 
 local function updateLoop()
-	if updating then return end
+	if updating then
+		return
+	end
 	updating = true
 	local lastTick = 0
+	local lastTime = os.clock()
 	while rootFrame do
-		local gcdRem, gcdFrac = getGCD()
-		local soonest = NORMAL_INTERVAL
+		local now = os.clock()
+		local dt = now - lastTime
+		lastTime = now
+		local gcdRem, gcdFrac, gcdDuration = getGCD()
+		local blockedCast = next(blockedCastSources) ~= nil
+		local blockedRemaining = nil
+		if blockedCast then
+			local nowClock = os.clock()
+			local longest: number? = nil
+			for _, t in pairs(blockedCastSources) do
+				if type(t) == "number" and t > nowClock then
+					if not longest or t > longest then
+						longest = t
+					end
+				end
+			end
+			if longest then
+				blockedRemaining = math.max(0, longest - nowClock)
+			end
+		end
+		local needsSmooth = gcdRem > 0 or blockedCast
 		for slotIndex, frame in pairs(containerMap) do
 			local skill = slotSkillMap[slotIndex]
 			local remaining = CooldownClient.getRemaining(skill)
-			if remaining > 0 and remaining < FAST_THRESHOLD then
-				soonest = math.min(soonest, 0.016)
+			if remaining > 0 then
+				needsSmooth = true
 			end
-			updateOne(slotIndex, frame, skill, gcdRem, gcdFrac)
+			updateOne(slotIndex, frame, skill, gcdRem, gcdFrac, blockedCast, dt, blockedRemaining, gcdDuration)
 		end
 		RunService.Heartbeat:Wait()
 		lastTick += 1
-		if soonest > 0.02 then
-			-- simple throttle by skipping cycles (approx)
-			local skip = math.floor((soonest / 0.016) - 1)
-			for _ = 1, skip do
-				if not rootFrame then break end
+		if not needsSmooth then
+			-- idle throttle: skip a few frames if nothing is animating
+			for _ = 1, 4 do
+				if not rootFrame then
+					break
+				end
 				RunService.Heartbeat:Wait()
 			end
 		end
@@ -425,11 +566,42 @@ function SkillSlotUI._connectSignals()
 	local off3 = CooldownClient.onChanged(function(_evt, _key)
 		-- passive; updateLoop handles drawing
 	end)
-	connCleanup = { off1, off2, off3 }
+	local dispatcher = Networking.client()
+	dispatcher:_ensureChannel("StatusEffects")
+	local off4 = dispatcher:on("StatusEffectBlocking", function(payload: any, _meta: any?)
+		local localEntityId = Registrar.getLocalEntityId()
+		if not localEntityId or type(payload) ~= "table" then
+			return
+		end
+		if payload.entityId ~= localEntityId then
+			return
+		end
+		local action = payload.action
+		if action ~= "cast" and action ~= "all" then
+			return
+		end
+		local effectId = payload.effectId or "unknown"
+		if payload.blocked == true then
+			local untilTime: number
+			if type(payload.duration) == "number" then
+				untilTime = os.clock() + payload.duration
+			elseif type(payload.expiresAt) == "number" then
+				untilTime = payload.expiresAt
+			else
+				untilTime = os.clock() + 9999
+			end
+			blockedCastSources[effectId] = untilTime
+		else
+			blockedCastSources[effectId] = nil
+		end
+	end)
+	connCleanup = { off1, off2, off3, off4 }
 end
 
 function SkillSlotUI.mount(parent: Frame)
-	if rootFrame then return function() end end
+	if rootFrame then
+		return function() end
+	end
 	rootFrame = parent
 	SkillSlotUI._rebuild()
 	SkillSlotUI._connectSignals()

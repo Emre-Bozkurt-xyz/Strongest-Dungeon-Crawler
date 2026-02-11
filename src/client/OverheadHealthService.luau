@@ -8,7 +8,7 @@ local Workspace = game:GetService("Workspace")
 local EntityRevealStore = require(script.Parent.EntityRevealStore)
 local WorldGUIManager = require(script.Parent.WorldGUIManager)
 local OverheadHealthBarController = require(script.Parent.ui.controllers.OverheadHealthBarController)
-local ClientRegistrar = require(script.Parent.ClientRegistrar)
+local Registrar = require(script.Parent.Services.Registrar)
 
 -- Now driven by EntityRevealStore
 
@@ -85,8 +85,8 @@ local function _spawnBar(id: string, worldPos: Vector3): BarRecord?
 end
 
 local function _findAnchorForEntity(id: string): BasePart?
-	-- Use ClientRegistrar to efficiently find entity, then get HumanoidRootPart
-	local entity = ClientRegistrar.getEntity(id)
+	-- Use Registrar to efficiently find entity, then get HumanoidRootPart
+	local entity = Registrar.getEntity(id)
 	if not entity then
 		return nil
 	end
@@ -176,7 +176,7 @@ local function _onDelta(payload: any)
 			end)
 			-- Update follow anchor to entity HRP if possible
 			if not rec.anchor then
-				-- Use ClientRegistrar for efficient entityId lookup
+				-- Use Registrar for efficient entityId lookup
 				local hrp = _findAnchorForEntity(id)
 				if hrp then
 					rec.anchor = hrp

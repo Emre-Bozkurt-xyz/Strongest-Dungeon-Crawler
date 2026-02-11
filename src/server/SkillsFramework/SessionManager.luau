@@ -9,6 +9,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SessionTypes = require(ReplicatedStorage.Shared.skills.SessionTypes)
 local Networking = require(ReplicatedStorage.Shared.Networking)
+local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
+local Clock = require(ReplicatedStorage.Shared.Time.Clock)
 
 type SkillSession = SessionTypes.SkillSession
 type SessionState = SessionTypes.SessionState
@@ -21,13 +23,11 @@ local dispatcher = Networking.server()
 -- ============================================================================
 -- DEBUG CONFIGURATION
 -- ============================================================================
-local DEBUG = false -- Toggle for detailed logging
-local DEBUG_HEARTBEAT = false -- Toggle for per-frame heartbeat logs (very verbose)
 local TRANSITION_LOG_ENABLED = false
 local TRANSITION_LOG_MAX = 200
 local transitionLog: { [number]: { [string]: any } } = {}
 local perfStats = {
-	intervalStart = os.clock(),
+	intervalStart = Clock.localNow(),
 	heartbeatTicks = 0,
 	lastTickDuration = 0,
 	avgTickDuration = 0,
@@ -49,6 +49,8 @@ local perfStats = {
 -- ============================================================================
 local MAX_SESSION_DURATION = 30 -- Maximum lifetime of any session (seconds)
 local CLEANUP_DELAY = 2 -- How long to keep terminal sessions before removal (seconds)
+local MAX_INPUT_FUTURE_SKEW = 0.5 -- Allow small future skew; past skew is allowed for latency
+local INPUT_TIME_EPSILON = 1e-3 -- Tolerance for monotonic inputTime checks
 
 -- ============================================================================
 -- MODULE STATE
@@ -77,7 +79,7 @@ local LEGAL_TRANSITIONS = SessionTypes.LEGAL_TRANSITIONS
 -- ============================================================================
 
 local function debugLog(operation: string, sessionId: string?, data: { [string]: any }?)
-	if not DEBUG then
+	if not DebugConfig.isEnabled("session") then
 		return
 	end
 
@@ -103,6 +105,10 @@ local function recordTransition(entry: { [string]: any })
 	end
 end
 
+local function isTerminalState(state: SessionState): boolean
+	return state == "COMPLETED" or state == "CANCELLED"
+end
+
 local function formatSession(session: SkillSession): string
 	local parts = {
 		`{session.casterId}`,
@@ -113,6 +119,16 @@ local function formatSession(session: SkillSession): string
 		table.insert(parts, `step {session.combo.currentStep}/{session.combo.totalSteps}`)
 	end
 	return table.concat(parts, " | ")
+end
+
+local function resolveInputTime(inputTime: number?, serverNow: number): (number, boolean)
+	if typeof(inputTime) ~= "number" then
+		return serverNow, false
+	end
+	if inputTime > serverNow + MAX_INPUT_FUTURE_SKEW then
+		return serverNow, false
+	end
+	return inputTime, true
 end
 
 local function emitLocal(eventName: string, session: SkillSession, newState: SessionState, reason: string?)
@@ -173,7 +189,7 @@ end
 
 function SessionManager.resetPerfStats()
 	perfStats = {
-		intervalStart = os.clock(),
+		intervalStart = Clock.localNow(),
 		heartbeatTicks = 0,
 		lastTickDuration = 0,
 		avgTickDuration = 0,
@@ -193,7 +209,7 @@ end
 
 function SessionManager.getPerfStats(): { [string]: any }
 	local snapshot = table.clone(perfStats)
-	snapshot.intervalSeconds = os.clock() - perfStats.intervalStart
+	snapshot.intervalSeconds = Clock.localNow() - perfStats.intervalStart
 	snapshot.totalSessionsCreated = SessionManager.totalSessionsCreated
 	snapshot.totalSessionsCompleted = SessionManager.totalSessionsCompleted
 	snapshot.totalSessionsCancelled = SessionManager.totalSessionsCancelled
@@ -201,7 +217,7 @@ function SessionManager.getPerfStats(): { [string]: any }
 end
 
 function SessionManager.getSnapshot(includeTerminal: boolean?): { [string]: any }
-	local now = os.clock()
+	local now = Clock.localNow()
 	local snapshot = {
 		now = now,
 		total = 0,
@@ -269,7 +285,7 @@ end
 
 -- Create a new session (called when skill use is approved)
 function SessionManager.create(skillId: string, casterId: string, config: SessionConfig): SkillSession
-	local now = os.clock()
+	local now = Clock.localNow()
 
 	-- Generate unique ID
 	local sessionId = HttpService:GenerateGUID(false)
@@ -284,8 +300,10 @@ function SessionManager.create(skillId: string, casterId: string, config: Sessio
 		createdAt = now,
 		lastActivity = now,
 
-		-- Hard timeout - session CANNOT exceed this
-		executionExpiresAt = now + math.min(config.maxDuration or 10, MAX_SESSION_DURATION),
+		-- Hard timeout - session CANNOT exceed this (unless explicitly infinite)
+		executionExpiresAt = if config.maxDuration == math.huge
+			then math.huge
+			else now + math.min(config.maxDuration or 10, MAX_SESSION_DURATION),
 
 		combo = if config.combo
 			then {
@@ -323,7 +341,11 @@ end
 
 -- Get active session for a caster (nil if none)
 function SessionManager.getActive(casterId: string): SkillSession?
-	return SessionManager.sessionsByCaster[casterId]
+	local session = SessionManager.sessionsByCaster[casterId]
+	if session and isTerminalState(session.state) then
+		return nil
+	end
+	return session
 end
 
 -- Get session by ID
@@ -346,7 +368,7 @@ end
 function SessionManager.transition(sessionId: string, newState: SessionState, reason: string?): boolean
 	local session = SessionManager.sessions[sessionId]
 	if not session then
-		if DEBUG then
+		if DebugConfig.isEnabled("session") then
 			warn(`[SESSION] TRANSITION FAILED | ID: {sessionId:sub(1, 8)}... | reason: session not found`)
 		end
 		return false
@@ -362,7 +384,7 @@ function SessionManager.transition(sessionId: string, newState: SessionState, re
 	end
 
 	-- Update state
-	local now = os.clock()
+	local now = Clock.localNow()
 	session.state = newState
 	session.stateEnteredAt = now
 	session.lastActivity = now
@@ -401,35 +423,81 @@ function SessionManager.transition(sessionId: string, newState: SessionState, re
 end
 
 -- Advance combo step (for combo skills)
-function SessionManager.advanceCombo(sessionId: string): boolean
+function SessionManager.advanceCombo(sessionId: string, inputTime: number?): (boolean, string?)
 	local session = SessionManager.sessions[sessionId]
-	if not session or not session.combo then
-		return false
+	if not session then
+		return false, "no_session"
+	end
+	if not session.combo then
+		return false, "no_combo"
 	end
 	if session.state ~= "ACTIVE" then
-		return false
+		return false, "not_active"
 	end
 
-	local now = os.clock()
+	local serverNow = Clock.localNow()
+	local now, usedInputTime = resolveInputTime(inputTime, serverNow)
 	local opensAt = session.combo.windowOpensAt
 	local expiresAt = session.combo.windowExpiresAt
+	local lastInputTime = session.combo.lastInputTime
+
+	if usedInputTime and lastInputTime and now + INPUT_TIME_EPSILON < lastInputTime then
+		debugLog("COMBO_ADVANCE_FAILED", sessionId, {
+			reason = "input_time_rewind",
+			step = session.combo.currentStep,
+			total = session.combo.totalSteps,
+			inputTime = now,
+			lastInputTime = lastInputTime,
+			serverNow = serverNow,
+			opensAt = opensAt,
+			expiresAt = expiresAt,
+		})
+		return false, "input_time_rewind"
+	end
 
 	-- Ensure window has opened
 	if opensAt and now < opensAt then
-		debugLog("COMBO_ADVANCE_FAILED", sessionId, { reason = "window_not_open" })
-		return false
+		debugLog("COMBO_ADVANCE_FAILED", sessionId, {
+			reason = "window_not_open",
+			step = session.combo.currentStep,
+			total = session.combo.totalSteps,
+			inputTime = now,
+			lastInputTime = lastInputTime,
+			serverNow = serverNow,
+			opensAt = opensAt,
+			expiresAt = expiresAt,
+		})
+		return false, "window_not_open"
 	end
 
 	-- Check if within window
 	if expiresAt and now > expiresAt then
-		debugLog("COMBO_ADVANCE_FAILED", sessionId, { reason = "window_expired" })
-		return false -- Window expired
+		debugLog("COMBO_ADVANCE_FAILED", sessionId, {
+			reason = "window_expired",
+			step = session.combo.currentStep,
+			total = session.combo.totalSteps,
+			inputTime = now,
+			lastInputTime = lastInputTime,
+			serverNow = serverNow,
+			opensAt = opensAt,
+			expiresAt = expiresAt,
+		})
+		return false, "window_expired" -- Window expired
 	end
 
 	-- Check if more steps available
 	if session.combo.currentStep >= session.combo.totalSteps then
-		debugLog("COMBO_ADVANCE_FAILED", sessionId, { reason = "already_at_final_step" })
-		return false -- Already at final step
+		debugLog("COMBO_ADVANCE_FAILED", sessionId, {
+			reason = "already_at_final_step",
+			step = session.combo.currentStep,
+			total = session.combo.totalSteps,
+			inputTime = now,
+			lastInputTime = lastInputTime,
+			serverNow = serverNow,
+			opensAt = opensAt,
+			expiresAt = expiresAt,
+		})
+		return false, "already_at_final_step" -- Already at final step
 	end
 
 	-- Advance step
@@ -438,7 +506,11 @@ function SessionManager.advanceCombo(sessionId: string): boolean
 	session.combo.stepToken += 1
 	session.combo.windowOpensAt = nil
 	session.combo.windowExpiresAt = nil -- Clear window until skill sets new one
-	session.lastActivity = now
+	session.combo.windowHardExpiresAt = nil -- Clear hard window from previous step
+	if usedInputTime then
+		session.combo.lastInputTime = now
+	end
+	session.lastActivity = serverNow
 
 	-- Emit step event
 	SessionManager._emitComboStep(session)
@@ -449,25 +521,37 @@ function SessionManager.advanceCombo(sessionId: string): boolean
 		step = `{oldStep} → {session.combo.currentStep}`,
 	})
 
-	return true
+	return true, nil
 end
 
 -- Extend combo window (after successful step)
-function SessionManager.extendComboWindow(sessionId: string, openDelay: number, windowDuration: number): ()
+function SessionManager.extendComboWindow(
+	sessionId: string,
+	openDelay: number,
+	windowDuration: number,
+	inputTime: number?
+): ()
 	local session = SessionManager.sessions[sessionId]
 	if not session or not session.combo then
 		return
 	end
 
-	local now = os.clock()
+	local serverNow = Clock.localNow()
+	local now, usedInputTime = resolveInputTime(inputTime, serverNow)
 	local clampedOpenDelay = math.max(0, openDelay or 0)
 	local clampedWindow = math.max(0, windowDuration or 0)
 	local openAt = now + clampedOpenDelay
 	local closeAt = if clampedWindow > 0 then openAt + clampedWindow else openAt
+	local observedDelay = math.max(0, serverNow - now)
+	local hardCloseAt = closeAt + observedDelay
 
 	session.combo.windowOpensAt = openAt
 	session.combo.windowExpiresAt = closeAt
-	session.lastActivity = now
+	session.combo.windowHardExpiresAt = hardCloseAt
+	if usedInputTime then
+		session.combo.lastInputTime = now
+	end
+	session.lastActivity = serverNow
 
 	debugLog("COMBO_WINDOW_EXTEND", sessionId, {
 		openDelay = clampedOpenDelay,
@@ -482,6 +566,10 @@ end
 
 -- Force cancel (for interrupts, death, etc.)
 function SessionManager.cancel(sessionId: string, reason: string): boolean
+	local session = SessionManager.sessions[sessionId]
+	if not session or isTerminalState(session.state) then
+		return false
+	end
 	return SessionManager.transition(sessionId, "CANCELLED", reason)
 end
 
@@ -492,7 +580,7 @@ function SessionManager.startRecovery(sessionId: string, duration: number): bool
 		return false
 	end
 
-	local now = os.clock()
+	local now = Clock.localNow()
 	session.recoveryEndsAt = now + duration
 
 	debugLog("RECOVERY_START", sessionId, { duration = duration, endsAt = session.recoveryEndsAt })
@@ -529,7 +617,7 @@ function SessionManager._emitStateChange(session: SkillSession, newState: Sessio
 			else nil,
 
 		-- Server timestamp for latency compensation
-		serverTime = os.clock(),
+		serverTime = Clock.serverNow(),
 	}
 
 	-- Note: Cast required until Dispatcher exports public API type
@@ -575,8 +663,8 @@ function SessionManager.startHeartbeat()
 	end
 
 	SessionManager.heartbeatConnection = RunService.Heartbeat:Connect(function()
-		local tickStart = os.clock()
-		local now = os.clock()
+		local tickStart = Clock.localNow()
+		local now = Clock.localNow()
 		local totalCount = 0
 		local activeCount = 0
 		local terminalCount = 0
@@ -584,19 +672,19 @@ function SessionManager.startHeartbeat()
 		for sessionId, session in SessionManager.sessions do
 			totalCount += 1
 			-- Skip terminal states
-			if session.state == "COMPLETED" or session.state == "CANCELLED" then
+			if isTerminalState(session.state) then
 				terminalCount += 1
 				continue
 			end
 			activeCount += 1
 
-			if DEBUG_HEARTBEAT then
+			if DebugConfig.isEnabled("sessionHeartbeat") then
 				print(`[SESSION] HEARTBEAT | {formatSession(session)}`)
 			end
 
 			-- Hard timeout - session exceeded maximum lifetime
 			if now >= session.executionExpiresAt then
-				if DEBUG then
+				if DebugConfig.isEnabled("session") then
 					warn(`[SESSION] TIMEOUT | {formatSession(session)} | exceeded max duration`)
 				end
 				perfStats.totalTimeouts += 1
@@ -612,28 +700,27 @@ function SessionManager.startHeartbeat()
 			end
 
 			-- Combo window expired (for combo skills in ACTIVE state awaiting input)
-			if
-				session.combo
-				and session.combo.windowExpiresAt
-				and now >= session.combo.windowExpiresAt
-				and session.state == "ACTIVE"
-			then
-				-- Window closed - complete at current step
-				if DEBUG then
-					print(
-						`[SESSION] COMBO_WINDOW_EXPIRED | {formatSession(session)} | completing at step {session.combo.currentStep}`
-					)
-				end
-				perfStats.totalComboWindowExpiries += 1
+			if session.combo and session.state == "ACTIVE" then
+				local hardExpiresAt = session.combo.windowHardExpiresAt
+					or session.combo.windowExpiresAt
+				if hardExpiresAt and now >= hardExpiresAt then
+					-- Window closed - complete at current step
+					if DebugConfig.isEnabled("session") then
+						print(
+							`[SESSION] COMBO_WINDOW_EXPIRED | {formatSession(session)} | completing at step {session.combo.currentStep}`
+						)
+					end
+					perfStats.totalComboWindowExpiries += 1
 
-				-- Phase 3: Transition to COMPLETED when combo window expires
-				-- This replaces the task.delay() callbacks in BaseComboSkill
-				SessionManager.transition(sessionId, "COMPLETED", "combo_window_expired")
-				continue
+					-- Phase 3: Transition to COMPLETED when combo window expires
+					-- This replaces the task.delay() callbacks in BaseComboSkill
+					SessionManager.transition(sessionId, "COMPLETED", "combo_window_expired")
+					continue
+				end
 			end
 		end
 
-		local tickDuration = os.clock() - tickStart
+		local tickDuration = Clock.localNow() - tickStart
 		perfStats.heartbeatTicks += 1
 		perfStats.lastTickDuration = tickDuration
 		perfStats.lastSessionCount = totalCount

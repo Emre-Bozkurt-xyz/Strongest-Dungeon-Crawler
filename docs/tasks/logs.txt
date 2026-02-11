@@ -1,0 +1,17 @@
+18:12:49.410  Received:   ▼  {
+                    ["attemptId"] = "$Dash-$59351468-$1",
+                    ["direction"] = 0.215549991, -0, 0.976492822,
+                    ["inputTime"] = 59352.25011487481,
+                    ["skillName"] = "Dash",
+                    ["userId"] = 119418028
+                 }  -  Server - SkillsManager:340
+  18:12:49.410  [SERVER-SKILLS] ========== useSkill ==========  -  Server - SkillsManager:51
+  18:12:49.411  [SERVER-SKILLS] Caster: {95e23ba9-60f5-4ff5-b7c1-2fb9d4d7b05f} Skill: Dash  -  Server - SkillsManager:51
+  18:12:49.411  [SERVER-SKILLS] Has comboCfg: false  -  Server - SkillsManager:51
+  18:12:49.411  [SERVER-SKILLS] SessionLock: locked= nil lockedSkill= nil  -  Server - SkillsManager:51
+  18:12:49.411  [SESSION] | CREATE | ID:d6b18b19... | maxDuration=10 | skill=Dash | caster={95e23ba9-60f5-4ff5-b7c1-2fb9d4d7b05f}  -  Server - SessionManager:95
+  18:12:49.411  [SESSION] | TRANSITION | ID:d6b18b19... | reason=execution_started | transition=CASTING → ACTIVE | skill=Dash | caster={95e23ba9-60f5-4ff5-b7c1-2fb9d4d7b05f}  -  Server - SessionManager:95
+  18:12:49.727  [SERVER-SKILLS] ========== SessionEnded ==========  -  Server - SkillsManager:51
+  18:12:49.727  [SERVER-SKILLS] Caster: {95e23ba9-60f5-4ff5-b7c1-2fb9d4d7b05f} Skill: Dash State: COMPLETED Reason: auto  -  Server - SkillsManager:51
+  18:12:49.727  [SESSION] | TRANSITION | ID:d6b18b19... | reason=auto | transition=ACTIVE → COMPLETED | skill=Dash | caster={95e23ba9-60f5-4ff5-b7c1-2fb9d4d7b05f}  -  Server - SessionManager:95
+  18:12:51.728  [SESSION] | CLEANUP | ID:d6b18b19... | skill=Dash | caster={95e23ba9-60f5-4ff5-b7c1-2fb9d4d7b05f}  -  Server - SessionManager:95

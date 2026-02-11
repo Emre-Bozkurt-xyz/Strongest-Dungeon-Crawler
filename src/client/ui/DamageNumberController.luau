@@ -5,7 +5,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Networking = require(ReplicatedStorage.Shared.Networking)
-local ClientRegistrar = require(script.Parent.Parent.ClientRegistrar)
+local Registrar = require(script.Parent.Parent.Services.Registrar)
 
 local DamageNumberController = {}
 
@@ -132,7 +132,7 @@ end
 
 -- Find character model from entityId
 local function findCharacter(entityId: string): Model?
-	local entity = ClientRegistrar.getEntity(entityId)
+	local entity = Registrar.getEntity(entityId)
 	if not entity then
 		return nil
 	end

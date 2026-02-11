@@ -1,0 +1,3 @@
+display_name: Strongest Dungeon Crawler Dev
+short_description: Default workflow for all development in this repository.
+default_prompt: Use this skill for any task in the Strongest Dungeon Crawler codebase; follow repo docs first, keep docs/tasks updated during long work, validate via IDE diagnostics plus Roblox Studio logs/playtests, and archive completed task notes.

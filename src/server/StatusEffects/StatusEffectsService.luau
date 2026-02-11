@@ -5,8 +5,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local Registrar = require(game.ServerScriptService.Server.Services.Registrar)
+local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
 
-local DEBUG = true -- Enable debug logging for blocking checks
+local function isDebugEnabled(): boolean
+	return DebugConfig.isEnabled("statusEffects")
+end
 
 local StatusEffectsService = {}
 
@@ -23,6 +26,7 @@ export type CapPolicy = "refreshOldest" | "refreshWeakest" | "reject"
 
 export type EffectDef = {
 	id: string,
+	isHarmful: boolean?,
 	duration: number?, -- base duration in seconds if not provided via params
 	maxStacks: number?, -- default 1
 	tickInterval: number?, -- seconds between ticks; nil/<=0 means every Heartbeat
@@ -161,7 +165,7 @@ function StatusEffectsService.hasBlockingEffect(target: string, action: string):
 	end
 
 	-- Debug: List all active effects
-	if DEBUG then
+	if isDebugEnabled() then
 		local effectsList = {}
 		for id, _ in bucket do
 			table.insert(effectsList, id)
@@ -172,7 +176,7 @@ function StatusEffectsService.hasBlockingEffect(target: string, action: string):
 	for id, state in bucket do
 		local blocks = state.def.blocksActions
 		if blocks and blocks[action] then
-			if DEBUG then
+			if isDebugEnabled() then
 				print("[STATUS-EFFECTS] Effect", id, "blocks action", action)
 			end
 			return true, id
@@ -196,6 +200,17 @@ function StatusEffectsService.clearAll(target: string)
 		bucket[id] = nil
 	end
 	active[target] = nil
+end
+
+function StatusEffectsService.isHarmful(id: string): boolean
+	local def = registry[id]
+	if not def then
+		return true
+	end
+	if def.isHarmful == nil then
+		return true
+	end
+	return def.isHarmful == true
 end
 
 local function ensureState(

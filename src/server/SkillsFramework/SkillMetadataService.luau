@@ -11,7 +11,9 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Registrar = require(ServerScriptService.Server.Services.Registrar)
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local StatsManager = require(ServerScriptService.Server.Stats.StatsManager)
+local AttributesManager = require(ServerScriptService.Server.Stats.AttributesManager)
 local SkillMediator = require(ServerScriptService.Server.Stats.SkillMediator)
+local SkillModifierRegistry = require(ServerScriptService.Server.Stats.SkillModifierRegistry)
 local SkillsConfig = require(script.Parent.SkillsConfig)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local SkillQueryTypes = require(ReplicatedStorage.Shared.skills.SkillQueryTypes)
@@ -31,6 +33,48 @@ local SkillMetadataService = {}
 
 -- Track last sent metadata to avoid redundant updates
 local lastSentMetadata: { [string]: { [string]: any } } = {} -- entityId -> skillName -> metadata
+local metadataVersions: { [string]: { [string]: number } } = {} -- entityId -> skillName -> version
+local PERIODIC_REFRESH_INTERVAL = 5
+local pendingRefresh: { [string]: boolean } = {}
+
+local function deepEqual(a: any, b: any): boolean
+	if a == b then
+		return true
+	end
+	if type(a) ~= type(b) then
+		return false
+	end
+	if type(a) ~= "table" then
+		return false
+	end
+	local seen = {}
+	for k, v in pairs(a) do
+		if not deepEqual(v, b[k]) then
+			return false
+		end
+		seen[k] = true
+	end
+	for k, _ in pairs(b) do
+		if not seen[k] then
+			return false
+		end
+	end
+	return true
+end
+
+local function ensureVersion(entityId: string, skillName: string): number
+	if not metadataVersions[entityId] then
+		metadataVersions[entityId] = {}
+	end
+	local current = metadataVersions[entityId][skillName] or 0
+	return current
+end
+
+local function bumpVersion(entityId: string, skillName: string): number
+	local current = ensureVersion(entityId, skillName) + 1
+	metadataVersions[entityId][skillName] = current
+	return current
+end
 
 local function buildCostContext(
 	entityId: string,
@@ -164,6 +208,35 @@ local function calculateMetadata(entityId: string, skillName: string): { [string
 		}
 	end
 
+	metadata.cooldown = skillData.cooldown
+	metadata.gcd = skillData.gcd
+	metadata.baseDuration = skillData.baseDuration
+	metadata.tags = skillData.tags
+	metadata.cooldownOnCancel = skillData.cooldownOnCancel
+	metadata.customData = metadata.customData or {}
+	if skillData.hold and skillData.hold.maxDuration ~= nil then
+		metadata.customData.holdMaxDuration = skillData.hold.maxDuration
+	end
+	if skillData.distance ~= nil then
+		metadata.customData.distance = skillData.distance
+	end
+
+	local executionDuration = skillData.baseDuration
+	if not executionDuration and skillData.hits then
+		local maxT = 0
+		for _, hit in ipairs(skillData.hits) do
+			if hit.t and hit.t > maxT then
+				maxT = hit.t
+			end
+		end
+		if maxT > 0 then
+			executionDuration = maxT
+		end
+	end
+	if executionDuration then
+		metadata.executionDuration = executionDuration
+	end
+
 	-- TODO: Add damage estimates when damage calculation system is ready
 	-- metadata.estimatedDamage = calculateDamage(entityId, skillName, skillData)
 	-- metadata.damageBreakdown = calculateDamageBreakdown(entityId, skillName, skillData)
@@ -189,14 +262,7 @@ function SkillMetadataService.updateSkill(player: Player, skillName: string)
 	-- Check if metadata changed (avoid redundant updates)
 	local lastSent = lastSentMetadata[entityId]
 	if lastSent and lastSent[skillName] then
-		local changed = false
-		for key, value in pairs(metadata) do
-			if lastSent[skillName][key] ~= value then
-				changed = true
-				break
-			end
-		end
-		if not changed then
+		if deepEqual(lastSent[skillName], metadata) then
 			return -- No change, skip update
 		end
 	end
@@ -207,10 +273,12 @@ function SkillMetadataService.updateSkill(player: Player, skillName: string)
 	end
 	lastSentMetadata[entityId][skillName] = table.clone(metadata)
 
+	local version = bumpVersion(entityId, skillName)
 	-- Send to client using dispatcher:emit with targets option
 	dispatcherAny:emit(EVENT_NAME, {
 		skillName = skillName,
 		metadata = metadata,
+		version = version,
 	}, { targets = { player } })
 end
 
@@ -227,6 +295,25 @@ function SkillMetadataService.updateAllSkills(player: Player)
 	for skillName, _ in pairs(SkillsConfig.skills) do
 		SkillMetadataService.updateSkill(player, skillName)
 	end
+end
+
+function SkillMetadataService.updateAllSkillsForEntity(entityId: string)
+	local player = Registrar.getPlayerById(entityId)
+	if not player then
+		return
+	end
+	SkillMetadataService.updateAllSkills(player)
+end
+
+local function scheduleRefresh(entityId: string)
+	if pendingRefresh[entityId] then
+		return
+	end
+	pendingRefresh[entityId] = true
+	task.delay(0.1, function()
+		pendingRefresh[entityId] = nil
+		SkillMetadataService.updateAllSkillsForEntity(entityId)
+	end)
 end
 
 -- Handle snapshot request from client (initial sync)
@@ -247,12 +334,48 @@ dispatcherAny:onRequest(REQUEST_SNAPSHOT, function(_data: any, _meta: any, conte
 	for skillName, _ in pairs(SkillsConfig.skills) do
 		local metadata = calculateMetadata(entityId, skillName)
 		if metadata then
-			snapshot[skillName] = metadata
+			local version = ensureVersion(entityId, skillName)
+			snapshot[skillName] = {
+				metadata = metadata,
+				version = version,
+			}
 		end
 	end
 
 	return snapshot
 end)
+
+local function startPeriodicRefresh()
+	task.spawn(function()
+		while true do
+			task.wait(PERIODIC_REFRESH_INTERVAL)
+			for _, player in ipairs(Players:GetPlayers()) do
+				SkillMetadataService.updateAllSkills(player)
+			end
+		end
+	end)
+end
+
+StatsManager.onDelta(function(entityId)
+	scheduleRefresh(entityId)
+end)
+
+if AttributesManager.onDelta then
+	AttributesManager.onDelta(function(player: Player)
+		if player then
+			local entityId = Registrar.getPlayerId(player)
+			if entityId then
+				scheduleRefresh(entityId)
+			end
+		end
+	end)
+end
+
+SkillModifierRegistry.onChanged(function(entityId)
+	scheduleRefresh(entityId)
+end)
+
+startPeriodicRefresh()
 
 -- Listen to stat changes and update metadata for all players
 -- TODO: Hook into StatsManager or StatusEffectsService change events
@@ -266,6 +389,7 @@ Players.PlayerRemoving:Connect(function(player)
 	local entityId = Registrar.getEntityId(player.Character)
 	if entityId then
 		lastSentMetadata[entityId] = nil
+		metadataVersions[entityId] = nil
 	end
 end)
 

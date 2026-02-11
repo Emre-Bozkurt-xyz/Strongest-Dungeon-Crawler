@@ -3,6 +3,7 @@
 
 return {
 	id = "silence",
+	isHarmful = true,
 	duration = 4.0, -- 4 second default silence
 	maxStacks = 1,
 	stacking = "aggregate",

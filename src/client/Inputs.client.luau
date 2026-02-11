@@ -5,16 +5,33 @@ local InputManager = require(script.Parent.input.InputManager)
 
 InputManager.get() -- ensure initialization
 
--- Toggle system panel
-InputManager.on("ToggleSystemPanel", function(_action, _meta)
-    SystemPanelHandler.toggle()
+local function toggleMenuView(view: string)
+    if SystemPanelHandler.toggleMenuView then
+        SystemPanelHandler.toggleMenuView(view)
+    end
+end
+
+InputManager.on("MenuViewSystem", function()
+    toggleMenuView("system")
+end)
+
+InputManager.on("MenuViewInventory", function()
+    toggleMenuView("inventory")
+end)
+
+InputManager.on("MenuViewEquipment", function()
+    toggleMenuView("equipment")
 end)
 
 -- Skill slot activations (Skill1..Skill5 for now)
 for i = 1, 5 do
     local actionName = "Skill" .. tostring(i)
-    InputManager.on(actionName, function()
-        SkillSlots.activate(i)
+    InputManager.on(actionName, function(_action, meta)
+        if meta and meta.type == "release" then
+            SkillSlots.release(i)
+        else
+            SkillSlots.activate(i)
+        end
     end)
 end
 

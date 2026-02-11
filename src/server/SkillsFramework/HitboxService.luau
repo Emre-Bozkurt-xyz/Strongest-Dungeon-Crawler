@@ -559,19 +559,19 @@ local function makeBuilder(originCf: CFrame?): HitboxQueryBuilder
 				end
 			end
 		end
-		-- fallback to identity
-		return CFrame.new() * localXform
-	end
+	-- fallback to identity
+	return CFrame.new() * localXform
+end
 
 	-- Execute the configured query and collect models.
 	-- For ray queries, returns a list with at most one model.
 	function b:collect(params: any?): { models: { Model }, ids: { string }? }
 		local debug = params and params.debug or false
 		local collectIds = params and params.collectIds or true
-		local cf = ensureOrigin()
 		if not shape then
 			return { models = {} }
 		end
+		local cf = ensureOrigin()
 		local result = {}
 		if shape.kind == "sphere" then
 			if debug then

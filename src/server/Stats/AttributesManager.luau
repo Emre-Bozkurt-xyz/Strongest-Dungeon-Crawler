@@ -43,6 +43,19 @@ local dispatcherAny = dispatcher :: any
 dispatcherAny:_ensureChannel(ATTRIBUTES_CHANNEL_NAME)
 
 local profilingEnabled = false
+local deltaListeners: { (Player, Delta) -> () } = {}
+
+function AttributesManager.onDelta(callback: (Player, Delta) -> ())
+	table.insert(deltaListeners, callback)
+	return function()
+		for i, cb in ipairs(deltaListeners) do
+			if cb == callback then
+				table.remove(deltaListeners, i)
+				break
+			end
+		end
+	end
+end
 
 type ProfileToken = { label: string, start: number }
 
@@ -124,6 +137,14 @@ local function sendAttrDelta(player: Player, deltaType: string, target: string, 
 		options.traceId = trace.id
 	end
 	dispatcherAny:emit("AttributesDelta", delta :: Delta, options)
+	for _, cb in ipairs(deltaListeners) do
+		task.spawn(function()
+			local ok, err = pcall(cb, player, delta)
+			if not ok then
+				warn("[AttributesManager] delta listener error:", err)
+			end
+		end)
+	end
 end
 
 local function sendFullSync(player: Player)
@@ -145,6 +166,14 @@ local function sendFullSync(player: Player)
 		qos = "HIGH",
 	})
 	profileEnd(profileToken)
+	for _, cb in ipairs(deltaListeners) do
+		task.spawn(function()
+			local ok, err = pcall(cb, player, delta)
+			if not ok then
+				warn("[AttributesManager] delta listener error:", err)
+			end
+		end)
+	end
 end
 
 -- Add a modifier to a player's attribute

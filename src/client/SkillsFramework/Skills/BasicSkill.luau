@@ -1,4 +1,7 @@
 local BaseSkill = require(script.Parent.BaseSkill)
+local SkillPacer = require(script.Parent.Parent.SkillPacer)
+local SkillMetadataClient = require(script.Parent.Parent.SkillMetadataClient)
+local ProjectilesClient = require(script.Parent.Parent.Parent.Services.ProjectilesClient)
 
 local BasicSkill = {}
 BasicSkill.__index = BasicSkill
@@ -36,13 +39,24 @@ function BasicSkill:use()
 
 	-- PREDICT duration using BaseSkill helper
 	local predictedDuration = self:predictDuration()
+	local metadata = SkillMetadataClient.get(self.name)
+	local cooldown = metadata and metadata.cooldown or nil
+	local gcd = metadata and metadata.gcd or nil
+
+	SkillPacer.recordSkillUse(self.name, predictedDuration, cooldown, gcd)
 
 	-- Predict session locally to lock input until server confirmation
-	self:_predictSession(nil, predictedDuration)
+	local attemptId = self:_predictSession(nil, predictedDuration)
+
+	local projectileSpec = self.config and self.config.projectile
+	if projectileSpec and attemptId then
+		ProjectilesClient.spawnPredicted(self.name, projectileSpec, attemptId)
+	end
 
 	-- PLAY ANIMATION IMMEDIATELY with predicted timing
 	self:playAnimation(animKey, {
 		duration = predictedDuration, -- may be nil, AnimationPlayer will use default
+		token = attemptId,
 	})
 
 	-- REQUEST server validation with callbacks

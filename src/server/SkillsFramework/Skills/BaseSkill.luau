@@ -329,8 +329,9 @@ end
 
 -- Emit a start phase; children can override before/after
 function BaseSkill:schedule(steps: { { t: number, fn: () -> () } })
+	local guardedSteps = self:guardedSteps(steps)
 	local tl = Timeline.new()
-	tl:sequence(steps)
+	tl:sequence(guardedSteps)
 	return tl
 end
 
@@ -418,6 +419,11 @@ function BaseSkill:completeExecution(reason: string?)
 	self._execState = nil
 	self._sessionId = nil
 	self._autoCompleteToken = nil
+	self._lastTiming = nil
+
+	if reason and reason ~= "execution_completed" and reason ~= "auto" then
+		self:onCancelled(reason)
+	end
 
 	-- Phase 3: Transition session to COMPLETED
 	if sessionId then
@@ -465,6 +471,9 @@ function BaseSkill:onSessionEnded(sessionId: string, newState: string, reason: s
 	self._sessionId = nil
 	self._autoCompleteToken = nil
 	self._lastTiming = nil
+	if newState == "CANCELLED" then
+		self:onCancelled(reason)
+	end
 	debugPhase3(
 		"Cleared local execution for",
 		self.name,
@@ -475,6 +484,10 @@ function BaseSkill:onSessionEnded(sessionId: string, newState: string, reason: s
 		"reason=",
 		reason or "none"
 	)
+end
+
+function BaseSkill:onCancelled(_reason: string?)
+	-- Optional override in child skills for cleanup (VFX, movers, attachments, etc.)
 end
 
 function BaseSkill:getCasterModel(): Model?
@@ -497,6 +510,60 @@ function BaseSkill:getCasterOriginCFrame(yaw: number?): CFrame?
 		return nil
 	end
 	return root.CFrame * CFrame.Angles(0, math.rad(yaw or 0), 0)
+end
+
+function BaseSkill:getExecutionToken(): string?
+	return self._execToken
+end
+
+function BaseSkill:isExecutionActive(token: string?): boolean
+	return token ~= nil and self._execToken == token
+end
+
+function BaseSkill:guardedFn(fn: (...any) -> any, token: string?, fallback: any?)
+	return function(...: any)
+		if not self:isExecutionActive(token) then
+			return fallback
+		end
+		return fn(...)
+	end
+end
+
+function BaseSkill:guardedDelay(delaySec: number, fn: () -> ())
+	local token = self._execToken
+	task.delay(delaySec, self:guardedFn(fn, token))
+end
+
+function BaseSkill:guardedDefer(fn: () -> ())
+	local token = self._execToken
+	task.defer(self:guardedFn(fn, token))
+end
+
+function BaseSkill:guardedSteps(steps: { { t: number, fn: () -> () } })
+	local token = self._execToken
+	local guardedSteps = {}
+	for i, step in ipairs(steps) do
+		guardedSteps[i] = {
+			t = step.t,
+			fn = self:guardedFn(step.fn, token),
+		}
+	end
+	return guardedSteps
+end
+
+function BaseSkill:guardedHeartbeat(fn: (number) -> ())
+	local token = self._execToken
+	local conn
+	conn = game:GetService("RunService").Heartbeat:Connect(function(dt)
+		if not self:isExecutionActive(token) then
+			if conn then
+				conn:Disconnect()
+			end
+			return
+		end
+		fn(dt)
+	end)
+	return conn
 end
 
 return BaseSkill

@@ -1,5 +1,7 @@
 --!strict
-local data = {
+local Types = require(game:GetService("ReplicatedStorage").Shared.skills.SkillSpecTypes)
+
+local data: Types.ServerSkillConfig = {
 	name = "SinglePunch",
 	tags = { "melee", "light" },
 	description = "A quick melee strike.",

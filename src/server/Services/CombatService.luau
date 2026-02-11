@@ -12,6 +12,7 @@ local AttackTypes = require(ReplicatedStorage.Shared.skills.AttackTypes)
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local StaggerSystem = require(script.Parent.StaggerSystem)
 local Registrar = require(script.Parent.Registrar)
+local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
 
 local dispatcher = Networking.server() :: any
 
@@ -402,10 +403,12 @@ local function broadcastHit(
 	attackResult: AttackResult,
 	skillId: string?
 )
-	print(
-		`[CombatService] Broadcasting hit: source={sourceEntityId}, target={targetEntityId}, total={attackResult.totalDamage}, byType=`,
-		attackResult.byType
-	)
+	if DebugConfig.isEnabled("combat") then
+		print(
+			`[CombatService] Broadcasting hit: source={sourceEntityId}, target={targetEntityId}, total={attackResult.totalDamage}, byType=`,
+			attackResult.byType
+		)
+	end
 
 	dispatcher:emit("HitEvent", {
 		sourceId = sourceEntityId,
@@ -422,6 +425,7 @@ function CombatService.applyAttack(
 	attack: AttackTypes.AttackContext,
 	sourceEntityId: string
 ): AttackResult
+	local invuln, _ = StatusEffectsService.hasBlockingEffect(targetEntityId, "damage")
 	-- Initialize attack result
 	local attackResult: AttackResult = {
 		dodged = false,
@@ -441,6 +445,11 @@ function CombatService.applyAttack(
 
 	for _, packet in attack.packets do
 		if packet.type == "damage" then
+			if invuln then
+				attackResult.blocked = true
+				attackResult.dodged = true
+				continue
+			end
 			-- Apply damage packet with type-specific logic
 			local result = applyDamagePacket(targetEntityId, packet, sourceEntityId, attack.metadata)
 
@@ -463,6 +472,11 @@ function CombatService.applyAttack(
 		elseif packet.type == "effect" then
 			-- Roll chance and apply status effect
 			if not packet.effectId then
+				continue
+			end
+
+			if invuln and StatusEffectsService.isHarmful(packet.effectId) then
+				attackResult.blocked = true
 				continue
 			end
 

@@ -55,11 +55,6 @@ local function isValidTarget(model: Model): boolean
 		return false
 	end
 
-	-- Check for EntityId attribute (entities registered in the system)
-	-- For now, we don't filter by reveal status - allow all entities with humanoids
-	-- This could be changed to filter using EntityRevealStore if needed
-	local _entityId = model:GetAttribute("EntityId") :: string?
-
 	return true
 end
 

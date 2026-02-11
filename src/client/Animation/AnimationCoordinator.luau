@@ -7,6 +7,7 @@
 local Players = game:GetService("Players")
 
 local AnimationPlayer = require(script.Parent.Parent.fx.AnimationPlayer)
+local Registrar = require(script.Parent.Parent.Services.Registrar)
 
 local AnimationCoordinator = {}
 
@@ -34,6 +35,10 @@ local function emitSkillMarker(skillName: string, markerName: string, ctx: any)
 			warn("AnimationCoordinator handler for ", skillName, markerName, " failed")
 		end
 	end
+end
+
+local function getLocalEntityId(): string?
+	return Registrar.getLocalEntityId()
 end
 
 local function trackSession(sessionId: string, track: AnimationTrack)
@@ -130,7 +135,7 @@ function AnimationCoordinator.playSkillAnimation(skillName: string, animKey: str
 					local ctx = {
 						skill = skillName,
 						marker = markerName,
-						ownerUserId = Players.LocalPlayer and Players.LocalPlayer.UserId or nil,
+						ownerEntityId = getLocalEntityId(),
 						character = Players.LocalPlayer and Players.LocalPlayer.Character or nil,
 						partName = opts.partName,
 						token = opts.token,

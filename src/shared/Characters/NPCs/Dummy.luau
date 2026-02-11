@@ -32,7 +32,7 @@ local Dummy: Types.CharacterSpec = {
 	stagger = {
 		threshold = 1, -- 1 damage triggers stagger (lower than player)
 		duration = 1.5, -- 1.5 second stagger
-		cooldown = 1.0, -- Can be staggered every 1 second
+		cooldown = 0.3, -- Can be staggered every 0.3 seconds
 		maxStackDamage = 100, -- Guaranteed stagger at 100+ damage
 		canInterruptSkills = true,
 	},

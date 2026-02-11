@@ -1,0 +1,55 @@
+--!strict
+-- Canonical names for networking channels, intents, and events.
+
+export type ChannelName =
+	"DebugEcho"
+	| "Stats"
+	| "Attributes"
+	| "Skills"
+	| "Cooldown"
+	| "EntityInfo"
+	| "Inventory"
+	| "Projectiles"
+	| "FX"
+	| "Combat"
+	| "StatusEffects"
+	| "SkillSession"
+	| "TimeSync"
+
+export type IntentName =
+	"DebugEchoIntent"
+	| "StatsRequest"
+	| "AttributesRequest"
+	| "AttributesSpendPoint"
+	| "SkillRequestUse"
+	| "SkillRequestStart"
+	| "SkillRequestRelease"
+	| "SkillRequestMarker"
+	| "SkillMetadataSnapshot"
+	| "InventoryRequest"
+	| "InventoryAction"
+	| "CooldownSnapshotRequest"
+	| "EntityInfoRequest"
+	| "RequestShoot"
+	| "RequestShootResponse"
+	| "TimeSyncRequest"
+
+export type EventName =
+	"DebugEchoEvent"
+	| "StatsDelta"
+	| "AttributesDelta"
+	| "SkillsUpdate"
+	| "SkillMetadataUpdate"
+	| "CooldownEvents"
+	| "EntityInfoDelta"
+	| "InventoryDelta"
+	| "ProjectileEvent"
+	| "FXEvent"
+	| "SFXEvent"
+	| "HitEvent"
+	| "StatusEffectApplied"
+	| "StatusEffectRemoved"
+	| "StatusEffectBlocking"
+	| "SkillSession"
+
+return {}

@@ -21,7 +21,7 @@ function TripleStrike.new(casterId: string, data: any)
 	return self
 end
 
-function TripleStrike:use(requestData: any?)
+function TripleStrike:use(requestData)
 	local hits = (self.config and self.config.hits) :: { any }?
 	local tail = 0.05
 	local baseTimelineDuration = 0
@@ -101,7 +101,7 @@ function TripleStrike:use(requestData: any?)
 		end
 		self:schedule(steps)
 		if planned and planned > 0 then
-			task.delay(planned, function()
+			self:guardedDelay(planned, function()
 				self:completeExecution()
 			end)
 		end

@@ -4,6 +4,7 @@ local Networking = require(ReplicatedStorage.Shared.Networking)
 local FXPlayer = require(script.Parent.FXPlayer)
 local Players = game:GetService("Players")
 local Debris = game:GetService("Debris")
+local Registrar = require(script.Parent.Parent.Services.Registrar)
 
 local dispatcher = Networking.client()
 dispatcher:_ensureChannel("FX")
@@ -46,7 +47,7 @@ export type SFXEventOptions = {
 }
 
 function Replicator.emitFX(opts: FXEventOptions)
-	opts.entityId = Players.LocalPlayer.Character:GetAttribute("EntityId")
+	opts.entityId = Registrar.getLocalEntityId()
 	if not opts.entityId then
 		warn("FXReplicator: Player character does not have an EntityId attribute.")
 		return
@@ -56,7 +57,7 @@ end
 
 -- Emit a sound event for replication to other players
 function Replicator.emitSFX(opts: SFXEventOptions)
-	opts.entityId = Players.LocalPlayer.Character and Players.LocalPlayer.Character:GetAttribute("EntityId")
+	opts.entityId = Registrar.getLocalEntityId()
 	if not opts.entityId then
 		warn("Replicator.emitSFX: Player character does not have an EntityId attribute.")
 		return
@@ -143,7 +144,7 @@ dispatcher:on("FXEvent", function(payload: FXEventOptions, _meta: any)
 	end
 
 	-- CRITICAL: Skip FX for local player's own entity (already spawned locally in BaseSkill)
-	local localPlayerEntityId = Players.LocalPlayer.Character and Players.LocalPlayer.Character:GetAttribute("EntityId")
+	local localPlayerEntityId = Registrar.getLocalEntityId()
 	if entityId == localPlayerEntityId then
 		return
 	end
@@ -209,7 +210,7 @@ dispatcher:on("SFXEvent", function(payload: SFXEventOptions, _meta: any)
 	local entityId = payload.entityId
 
 	-- Skip for local player (already played locally)
-	local localPlayerEntityId = Players.LocalPlayer.Character and Players.LocalPlayer.Character:GetAttribute("EntityId")
+	local localPlayerEntityId = Registrar.getLocalEntityId()
 	if entityId == localPlayerEntityId then
 		return
 	end

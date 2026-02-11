@@ -41,10 +41,25 @@ export type SkillMetadata = {
 	
 	-- Additional metadata (extensible)
 	customData: { [string]: any }?, -- Arbitrary key-value pairs for future additions
+
+	-- Timing/cooldown hints for local pacing
+	cooldown: number?,
+	gcd: number?,
+	baseDuration: number?,
+	executionDuration: number?,
+	tags: { string }?,
+	cooldownOnCancel: boolean?,
 }
 
 -- Cache of skill metadata by skill name
 local metadataCache: { [string]: SkillMetadata } = {}
+local metadataVersions: { [string]: number } = {}
+local stats = {
+	updatesApplied = 0,
+	updatesIgnored = 0,
+	snapshotsReceived = 0,
+	lastUpdateAt = nil :: number?,
+}
 
 local listeners: { (string, SkillMetadata) -> () } = {}
 
@@ -52,6 +67,22 @@ local function fire(skillName: string, metadata: SkillMetadata)
 	for _, cb in ipairs(listeners) do
 		pcall(cb, skillName, metadata)
 	end
+end
+
+-- Internal: Update cache from server event
+local function updateMetadata(skillName: string, metadata: SkillMetadata, version: number?)
+	if type(version) == "number" then
+		local current = metadataVersions[skillName] or 0
+		if version <= current then
+			stats.updatesIgnored += 1
+			return
+		end
+		metadataVersions[skillName] = version
+	end
+	metadataCache[skillName] = metadata
+	stats.updatesApplied += 1
+	stats.lastUpdateAt = os.clock()
+	fire(skillName, metadata)
 end
 
 -- Get full metadata for a skill
@@ -123,6 +154,26 @@ end
 -- Clear all cached metadata (e.g., on character respawn)
 function SkillMetadataClient.clear()
 	table.clear(metadataCache)
+	table.clear(metadataVersions)
+	stats = {
+		updatesApplied = 0,
+		updatesIgnored = 0,
+		snapshotsReceived = 0,
+		lastUpdateAt = nil,
+	}
+end
+
+function SkillMetadataClient.getStats()
+	return table.clone(stats)
+end
+
+function SkillMetadataClient.resetStats()
+	stats = {
+		updatesApplied = 0,
+		updatesIgnored = 0,
+		snapshotsReceived = 0,
+		lastUpdateAt = nil,
+	}
 end
 
 -- Request full snapshot from server (e.g., on initial load)
@@ -143,15 +194,14 @@ function SkillMetadataClient.requestSnapshot()
 	
 	for skillName, metadata in pairs(snapshot) do
 		if type(skillName) == "string" and type(metadata) == "table" then
-			metadataCache[skillName] = metadata
+			if metadata.metadata and type(metadata.metadata) == "table" then
+				updateMetadata(skillName, metadata.metadata, metadata.version)
+			else
+				updateMetadata(skillName, metadata)
+			end
 		end
 	end
-end
-
--- Internal: Update cache from server event
-local function updateMetadata(skillName: string, metadata: SkillMetadata)
-	metadataCache[skillName] = metadata
-	fire(skillName, metadata)
+	stats.snapshotsReceived += 1
 end
 
 -- Listen to server metadata updates
@@ -162,9 +212,10 @@ dispatcherAny:on(EVENT_NAME, function(payload: any, _meta: any?)
 	
 	local skillName = payload.skillName
 	local metadata = payload.metadata
+	local version = payload.version
 	
 	if type(skillName) == "string" and type(metadata) == "table" then
-		updateMetadata(skillName, metadata)
+		updateMetadata(skillName, metadata, version)
 	end
 end)
 

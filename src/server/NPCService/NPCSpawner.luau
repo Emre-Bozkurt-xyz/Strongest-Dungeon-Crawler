@@ -5,12 +5,10 @@
 -- Visual: ReplicatedStorage/Shared/Characters/NPCs/<Name> (shared CharacterSpec)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local ComponentManager = require(script.Parent.ComponentManager)
 local NPCAnimationController = require(script.Parent.NPCAnimationController)
-local Registrar = require(ServerScriptService.Server.Services.Registrar)
 local CharacterSpecRegistry = require(ReplicatedStorage.Shared.Characters.CharacterSpecRegistry)
 
 local PREFABS_FOLDER_NAME = "NPCPrefabs"

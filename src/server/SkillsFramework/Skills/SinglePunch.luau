@@ -17,7 +17,7 @@ function SinglePunch.new(casterId: string, data: any)
 	return self
 end
 
-function SinglePunch:use(requestData: any?)
+function SinglePunch:use(requestData)
 	local timing = self:resolveTiming()
 
 	if not self:applyResourceCost({ timing = timing }) then
@@ -49,7 +49,7 @@ function SinglePunch:use(requestData: any?)
 	for _, hit in ipairs(self.config.hits) do
 		local range = hit.coneRange
 		local angle = hit.coneAngle
-		task.delay(hit.t, function()
+		self:guardedDelay(hit.t, function()
 			local targets = HitboxService.newQuery(origin)
 				:casterEntityId(self.casterId)
 				:factionRelation("enemy")

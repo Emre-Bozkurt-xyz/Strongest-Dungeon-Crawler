@@ -5,7 +5,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Networking = require(ReplicatedStorage.Shared.Networking)
-local ClientRegistrar = require(script.Parent.Parent.Parent.ClientRegistrar)
+local Registrar = require(script.Parent.Parent.Parent.Services.Registrar)
 local CharacterSpecRegistry = require(ReplicatedStorage.Shared.Characters.CharacterSpecRegistry)
 local ImmediateHitFeedback = require(script.Parent.Parent.Parent.fx.ImmediateHitFeedback)
 
@@ -17,7 +17,7 @@ local localPlayer = Players.LocalPlayer
 -- Resolve the character spec ID for an entity
 local function resolveSpecId(model: Model, entityId: string): string
 	-- Check if it's a player character
-	if ClientRegistrar.isPlayerEntity(entityId) then
+	if Registrar.isPlayerEntity(entityId) then
 		return "PlayerCharacter"
 	end
 
@@ -98,7 +98,7 @@ end
 
 -- Find character model from entityId
 local function findCharacter(entityId: string): Model?
-	local entity = ClientRegistrar.getEntity(entityId)
+	local entity = Registrar.getEntity(entityId)
 	if not entity then
 		return nil
 	end
@@ -120,7 +120,7 @@ local function isLocalPlayer(entityId: string): boolean
 	if not localPlayer or not localPlayer.Character then
 		return false
 	end
-	local localEntityId = localPlayer.Character:GetAttribute("EntityId")
+	local localEntityId = Registrar.getLocalEntityId()
 	return localEntityId == entityId
 end
 

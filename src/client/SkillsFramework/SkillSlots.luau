@@ -147,6 +147,14 @@ function SkillSlots.activate(index: number)
 	SkillsClient.useSkill(skill)
 end
 
+function SkillSlots.release(index: number)
+	local skill = SkillSlots.get(index)
+	if not skill then
+		return
+	end
+	SkillsClient.releaseSkill(skill)
+end
+
 function SkillSlots.profileCount(): number
 	return nextProfileId - 1
 end
@@ -217,10 +225,7 @@ end
 -- Bootstrap: create initial profile 1 and set defaults
 createProfileInternal()
 SkillSlots.setActiveProfile(1)
-SkillSlots.assign(1, "Punch")
-SkillSlots.assign(2, "TripleStrike")
-SkillSlots.assign(3, "Dash")
-SkillSlots.assign(4, "ManaBall")
+-- Skill assignments are now handled in dev/init for easier iteration.
 
 -- Public: explicit API to expand beyond default 5 via assign or setSlotCount.
 

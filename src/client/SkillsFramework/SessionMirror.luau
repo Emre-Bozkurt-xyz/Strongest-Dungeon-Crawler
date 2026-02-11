@@ -9,19 +9,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SessionTypes = require(ReplicatedStorage.Shared.skills.SessionTypes)
 local Networking = require(ReplicatedStorage.Shared.Networking)
+local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
+local Schema = require(ReplicatedStorage.Shared.Debug.Schema)
+local Clock = require(ReplicatedStorage.Shared.Time.Clock)
+local TimeSync = require(script.Parent.Parent.Services.TimeSync)
+local Registrar = require(script.Parent.Parent.Services.Registrar)
 
 type SkillSession = SessionTypes.SkillSession
 type SessionState = SessionTypes.SessionState
 type SessionEventPayload = SessionTypes.SessionEventPayload
 
--- ============================================================================
--- DEBUG CONFIGURATION
--- ============================================================================
-local DEBUG = false -- Toggle for session updates
-local DEBUG_DISCREPANCY = false -- Toggle for shadow mode discrepancy detection
-
-local perfStats = {
-	intervalStart = os.clock(),
+local perfStats: { [string]: any } = {
+	intervalStart = Clock.localNow(),
 	lastEventAt = nil :: number?,
 	lastPredictionAt = nil :: number?,
 	lastPredictionCancelAt = nil :: number?,
@@ -34,7 +33,6 @@ local perfStats = {
 	predictionsStarted = 0,
 	predictionsCancelled = 0,
 	predictionsReplaced = 0,
-	discrepancies = 0,
 }
 
 -- ============================================================================
@@ -48,7 +46,6 @@ local SessionMirror = {
 
 	-- Stats for debugging/perf analysis
 	totalEventsReceived = 0,
-	totalDiscrepancies = 0,
 	totalPredictionsStarted = 0,
 	totalPredictionsCancelled = 0,
 	totalPredictionsReplaced = 0,
@@ -61,7 +58,7 @@ local listeners: { (payload: SessionEventPayload, session: SkillSession) -> () }
 -- ============================================================================
 
 local function debugLog(operation: string, sessionId: string?, data: { [string]: any }?)
-	if not DEBUG then
+	if not DebugConfig.isEnabled("session") then
 		return
 	end
 
@@ -124,6 +121,22 @@ function SessionMirror.getLocalCasterId(): string?
 	return SessionMirror.localPlayerId
 end
 
+function SessionMirror.getServerTimeOffset(): number
+	return TimeSync.getOffset()
+end
+
+function SessionMirror.toClientTime(serverTime: number): number
+	return TimeSync.toClientTime(serverTime)
+end
+
+function SessionMirror.toServerTime(clientTime: number): number
+	return TimeSync.toServerTime(clientTime)
+end
+
+function SessionMirror.getServerNow(): number
+	return TimeSync.getServerNow()
+end
+
 -- Get any entity's active session
 function SessionMirror.getSession(casterId: string): SkillSession?
 	return SessionMirror.sessionsByCaster[casterId]
@@ -165,7 +178,7 @@ function SessionMirror.predictStart(
 		return existing
 	end
 
-	local now = os.clock()
+	local now = Clock.localNow()
 	SessionMirror.totalPredictionsStarted += 1
 	perfStats.predictionsStarted += 1
 	perfStats.lastPredictionAt = now
@@ -232,7 +245,7 @@ function SessionMirror.cancelPrediction(skillId: string?)
 	SessionMirror.predictedByCaster[casterId] = nil
 	SessionMirror.totalPredictionsCancelled += 1
 	perfStats.predictionsCancelled += 1
-	perfStats.lastPredictionCancelAt = os.clock()
+	perfStats.lastPredictionCancelAt = Clock.localNow()
 	debugLog("PREDICTED_CANCEL", predicted.id, { caster = casterId, skill = predicted.skillId })
 end
 
@@ -243,7 +256,11 @@ end
 function SessionMirror._onServerEvent(payload: SessionEventPayload)
 	SessionMirror.totalEventsReceived += 1
 	perfStats.eventsReceived += 1
-	perfStats.lastEventAt = os.clock()
+	perfStats.lastEventAt = Clock.localNow()
+
+	if not Schema.checkSessionEvent(payload) then
+		return
+	end
 
 	local sessionId = payload.sessionId
 	local casterId = payload.casterId
@@ -261,7 +278,7 @@ function SessionMirror._onServerEvent(payload: SessionEventPayload)
 		SessionMirror.predictedByCaster[casterId] = nil
 		SessionMirror.totalPredictionsReplaced += 1
 		perfStats.predictionsReplaced += 1
-		perfStats.lastPredictionReplaceAt = os.clock()
+		perfStats.lastPredictionReplaceAt = Clock.localNow()
 	end
 
 	-- Update or create session
@@ -374,72 +391,20 @@ function SessionMirror.onStateChanged(callback: (payload: SessionEventPayload, s
 	end
 end
 
--- ============================================================================
--- SHADOW MODE VALIDATION (Phase 1)
--- ============================================================================
-
--- Compare mirror state to old system state (for Phase 1 validation)
-function SessionMirror.validateShadow(entityId: string, oldExecutionState: any?, oldComboState: any?)
-	if not DEBUG_DISCREPANCY then
-		return
-	end
-
-	local session = SessionMirror.sessionsByCaster[entityId]
-
-	-- Check execution state
-	if session and session.state ~= "COMPLETED" and session.state ~= "CANCELLED" then
-		-- New system says there's an active session
-		if not oldExecutionState or not oldExecutionState.isLocked then
-			warn(`[SHADOW] MISMATCH | entity: {entityId} | new: {session.state} | old: no execution`)
-			SessionMirror.totalDiscrepancies += 1
-			perfStats.discrepancies += 1
-		end
-	elseif oldExecutionState and oldExecutionState.isLocked then
-		-- Old system says locked but new system has no active session
-		warn(`[SHADOW] MISMATCH | entity: {entityId} | new: no session | old: locked`)
-		SessionMirror.totalDiscrepancies += 1
-		perfStats.discrepancies += 1
-	end
-
-	-- Check combo state
-	if session and session.combo and oldComboState then
-		if session.combo.currentStep ~= oldComboState.currentStep then
-			warn(
-				`[SHADOW] MISMATCH | entity: {entityId} | new step: {session.combo.currentStep} | old step: {oldComboState.currentStep}`
-			)
-			SessionMirror.totalDiscrepancies += 1
-			perfStats.discrepancies += 1
-		end
-	end
-end
-
--- Print validation summary (for Phase 1 testing)
-function SessionMirror.printValidationSummary()
-	print(`[SHADOW] Validation Summary:`)
-	print(`  Events Received: {SessionMirror.totalEventsReceived}`)
-	print(`  Discrepancies: {SessionMirror.totalDiscrepancies}`)
-	if SessionMirror.totalDiscrepancies == 0 then
-		print(`  ✓ SHADOW MODE PASSING - Perfect sync!`)
-	else
-		warn(`  ✗ SHADOW MODE FAILING - {SessionMirror.totalDiscrepancies} discrepancies detected`)
-	end
-end
-
 function SessionMirror.getPerfStats(): { [string]: any }
 	updateActiveSessionStats()
 	local snapshot = table.clone(perfStats)
-	snapshot.intervalSeconds = os.clock() - perfStats.intervalStart
+	snapshot.intervalSeconds = Clock.localNow() - perfStats.intervalStart
 	snapshot.totalEventsReceived = SessionMirror.totalEventsReceived
 	snapshot.totalPredictionsStarted = SessionMirror.totalPredictionsStarted
 	snapshot.totalPredictionsCancelled = SessionMirror.totalPredictionsCancelled
 	snapshot.totalPredictionsReplaced = SessionMirror.totalPredictionsReplaced
-	snapshot.totalDiscrepancies = SessionMirror.totalDiscrepancies
 	return snapshot
 end
 
 function SessionMirror.resetPerfStats()
 	perfStats = {
-		intervalStart = os.clock(),
+		intervalStart = Clock.localNow(),
 		lastEventAt = nil,
 		lastPredictionAt = nil,
 		lastPredictionCancelAt = nil,
@@ -452,7 +417,6 @@ function SessionMirror.resetPerfStats()
 		predictionsStarted = 0,
 		predictionsCancelled = 0,
 		predictionsReplaced = 0,
-		discrepancies = 0,
 	}
 	updateActiveSessionStats()
 end
@@ -467,7 +431,7 @@ local function updateLocalPlayerId()
 		return
 	end
 	local character = localPlayer.Character
-	local entityId = character and character:GetAttribute("EntityId")
+	local entityId = Registrar.getEntityId(character)
 	if type(entityId) == "string" and entityId ~= "" then
 		SessionMirror.localPlayerId = entityId
 		return
@@ -494,7 +458,7 @@ function SessionMirror.initialize()
 		SessionMirror._onServerEvent(payload)
 	end)
 
-	if DEBUG then
+	if DebugConfig.isEnabled("session") then
 		print("[SESSION_CLIENT] SessionMirror initialized")
 	end
 end

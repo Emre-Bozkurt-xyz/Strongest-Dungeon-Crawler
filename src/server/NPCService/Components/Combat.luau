@@ -70,7 +70,7 @@ local function _collectSkillConfigs(model: Model, component: any?): { [string]: 
 end
 
 -- Listen to session completions for NPCs to trigger combo/sequence logic
-local _sessionCompletedConnection = SessionManager.listen("stateChanged", function(session, _newState, _reason)
+SessionManager.listen("stateChanged", function(session, _newState, _reason)
 	if session.state ~= "COMPLETED" and session.state ~= "CANCELLED" then
 		return
 	end

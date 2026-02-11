@@ -45,6 +45,7 @@ end
 
 function ChannelRegistry.register(name: string, def: ChannelDefinition)
 	assert(channels[name] == nil, `Channel '{name}' already registered`)
+	assert(type(def.remote) == "string" and def.remote ~= "", `Channel '{name}' requires a remote name`)
 	local remoteEventName = def.remoteEvent or (def.remote .. "Event")
 	local remoteFunctionName = def.remoteFunction
 	local stored: ChannelDefinition = {
@@ -59,11 +60,19 @@ function ChannelRegistry.register(name: string, def: ChannelDefinition)
 	channels[name] = stored
 	if stored.intents then
 		for _, intentName in ipairs(stored.intents) do
+			assert(
+				intentToChannel[intentName] == nil,
+				`Intent '{intentName}' already registered on channel '{intentToChannel[intentName]}'`
+			)
 			intentToChannel[intentName] = name
 		end
 	end
 	if stored.events then
 		for _, eventName in ipairs(stored.events) do
+			assert(
+				eventToChannel[eventName] == nil,
+				`Event '{eventName}' already registered on channel '{eventToChannel[eventName]}'`
+			)
 			eventToChannel[eventName] = name
 		end
 	end

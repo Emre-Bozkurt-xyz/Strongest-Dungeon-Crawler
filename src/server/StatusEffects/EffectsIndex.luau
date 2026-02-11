@@ -8,6 +8,7 @@ local defs = {}
 
 defs.Burn = {
 	id = "Burn",
+	isHarmful = true,
 	duration = 5,
 	maxStacks = 5,
 	tickInterval = 1,
@@ -49,6 +50,7 @@ defs.Burn = {
 
 defs.Poison = {
 	id = "Poison",
+	isHarmful = true,
 	duration = 6,
 	maxStacks = 10,
 	tickInterval = 1,
@@ -91,6 +93,7 @@ defs.Poison = {
 
 defs.Frenzy = {
 	id = "Frenzy",
+	isHarmful = false,
 	duration = 6,
 	maxStacks = 3,
 	stacking = "charges",
@@ -104,5 +107,6 @@ defs.stagger = require(script.Parent.Blocking.Stagger)
 defs.stun = require(script.Parent.Blocking.Stun)
 defs.root = require(script.Parent.Blocking.Root)
 defs.silence = require(script.Parent.Blocking.Silence)
+defs.invulnerable = require(script.Parent.Blocking.Invulnerable)
 
 return defs

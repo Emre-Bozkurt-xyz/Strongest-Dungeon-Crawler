@@ -1,6 +1,6 @@
 local BaseSkill = require(script.Parent.BaseSkill)
-local ComboStateClient = require(script.Parent.Parent.ComboStateClient)
-local AttemptStore = require(script.Parent.Parent.AttemptStore)
+local SkillPacer = require(script.Parent.Parent.SkillPacer)
+local SkillMetadataClient = require(script.Parent.Parent.SkillMetadataClient)
 
 -- DEBUG FLAG: Set to true to enable combo flow logging
 local DEBUG_COMBO = false
@@ -32,13 +32,19 @@ function BasicComboSkill:use()
 		return
 	end
 
+	local metadata = SkillMetadataClient.get(self.name)
+	local comboConfig = (metadata and metadata.combo) or self.config.combo or {}
+
 	-- Extract combo parameters from server config (should match ClientSpec)
-	local totalSteps = #comboSteps
+	local totalSteps = comboConfig.steps or #comboSteps
+	if totalSteps > #comboSteps then
+		totalSteps = #comboSteps
+	end
 	debugLog("Total steps:", totalSteps)
 
 	-- CHECK COMBO WINDOW TIMING (replicates server ComboService logic)
 	debugLog("Checking canAdvance...")
-	local canAdvance, comboReason = ComboStateClient.canAdvance(self.name)
+	local canAdvance, comboReason, predictedStep, hasActiveCombo = SkillPacer.canAdvanceCombo(self.name, totalSteps)
 	debugLog("canAdvance:", canAdvance, "reason:", comboReason or "none")
 	if not canAdvance then
 		self:showRejectionFeedback(comboReason :: any)
@@ -46,13 +52,11 @@ function BasicComboSkill:use()
 	end
 
 	-- PREDICT next combo step locally (instant, no server wait)
-	local predictedStep = ComboStateClient.predictNextStep(self.name, totalSteps)
 	debugLog("Predicted step:", predictedStep)
 
 	-- PRE-FLIGHT CHECK: Validate local state before starting animation
 	-- Pass predicted step for accurate resource cost check (combo steps may have different costs)
 	-- Pass true for isComboAdvance to allow execution lock chaining if combo is active
-	local hasActiveCombo = ComboStateClient.isActive(self.name)
 	debugLog("hasActiveCombo:", hasActiveCombo)
 	local canUse, rejectionReason = self:canUseLocally(predictedStep, hasActiveCombo)
 	debugLog("canUseLocally:", canUse, "reason:", rejectionReason or "none")
@@ -62,34 +66,23 @@ function BasicComboSkill:use()
 	end
 
 	local _tempo, durationScale = self:predictTiming()
-	local comboConfig = self.config.combo
-	local baseStepDuration = nil
-	local baseHitDelay = comboConfig and comboConfig.hitDelays and comboConfig.hitDelays[predictedStep] or 0
-	local baseRecovery = comboConfig and comboConfig.recovery or 0
-	if comboConfig and comboConfig.stepDurations and comboConfig.stepDurations[predictedStep] then
-		baseStepDuration = comboConfig.stepDurations[predictedStep]
-	else
-		baseStepDuration = baseHitDelay + (predictedStep == totalSteps and baseRecovery or 0)
-	end
+	local timing = SkillPacer.computeComboTiming(predictedStep, totalSteps, comboConfig, durationScale)
+	local predictedStepDuration = timing.stepDuration
+	local windowOpensAt = timing.windowOpensAt
+	local windowExpiresAt = timing.windowExpiresAt
 
-	local predictedStepDuration = baseStepDuration * (durationScale or 1)
-	local baseStepDelay = comboConfig and comboConfig.stepDelays and comboConfig.stepDelays[predictedStep] or 0
-	local stepDelay = baseStepDelay * (durationScale or 1)
-	local baseWindow = comboConfig and comboConfig.window or 0
-	local window = baseWindow * (durationScale or 1)
-
-	local windowOpensAt = nil
-	local windowExpiresAt = nil
-	if predictedStep < totalSteps then
-		local openDelay = predictedStepDuration + stepDelay
-		windowOpensAt = os.clock() + openDelay
-		windowExpiresAt = if window > 0 then windowOpensAt + window else windowOpensAt
-	end
-
-	-- CREATE ATTEMPT: Begin tracking this skill use attempt
-	local attemptRecord =
-		AttemptStore.beginLocal(self.name, self.entityId, predictedStep, totalSteps, { comboActive = hasActiveCombo })
-	self.currentAttemptId = attemptRecord.id
+	local cooldown = comboConfig.comboCooldown or (metadata and metadata.cooldown) or nil
+	local gcd = metadata and metadata.gcd or nil
+	SkillPacer.recordComboStep(
+		self.name,
+		predictedStep,
+		totalSteps,
+		windowOpensAt,
+		windowExpiresAt,
+		predictedStepDuration,
+		cooldown,
+		gcd
+	)
 
 	-- IMMEDIATE CAST SOUND: Play before animation starts (no network wait)
 	self:playCastSoundLocal()
@@ -109,7 +102,7 @@ function BasicComboSkill:use()
 		totalSteps = totalSteps,
 		windowOpensAt = windowOpensAt,
 		windowExpiresAt = windowExpiresAt,
-	}, predictedDuration)
+	}, predictedDuration, { comboActive = hasActiveCombo })
 
 	-- PLAY ANIMATION IMMEDIATELY with predicted timing (instant feedback, no server wait)
 	self:playAnimation(animKey, {
@@ -118,17 +111,27 @@ function BasicComboSkill:use()
 	})
 
 	-- REQUEST server validation with callbacks (non-blocking, happens in parallel)
+	SkillPacer.markServerPending(self.name, predictedStep)
 	self:requestUseAsync(function(data)
+		SkillPacer.clearServerPending(self.name, predictedStep)
 		-- Server confirmed - reconcile combo state
 		local serverStep = data.step or 1
 		if serverStep ~= predictedStep then
-			warn(`⚠️ [CLIENT-COMBO] {self.name} - Step mismatch: predicted={predictedStep} server={serverStep}`)
+			warn(
+				("[CLIENT-COMBO] %s - Step mismatch: predicted=%s server=%s"):format(
+					self.name,
+					tostring(predictedStep),
+					tostring(serverStep)
+				)
+			)
 		end
+		SkillPacer.confirmComboStep(self.name, serverStep, totalSteps, predictedStepDuration)
 
 	end, function(reason)
 		-- Server rejected (rare - only on desync or edge cases)
 		debugLog("Server rejected skill use, reason:", reason)
 
+		SkillPacer.clearServerPending(self.name, predictedStep)
 		-- CRITICAL: Cancel local prediction to stop animation/FX/sound immediately
 		self:cancelLocalPrediction(reason)
 		-- Note: cancelLocalPrediction already clears combo state and marks attempt rejected

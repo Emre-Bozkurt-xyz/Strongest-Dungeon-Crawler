@@ -3,6 +3,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SkillsConfig = require(script.Parent.SkillsConfig)
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local ActionPermissions = require(ReplicatedStorage.Shared.ActionPermissions)
+local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
+local Schema = require(ReplicatedStorage.Shared.Debug.Schema)
 local CooldownService = require(script.Parent.CooldownService)
 local SessionManager = require(script.Parent.SessionManager) -- Phase 3.6: Unified system (legacy removed)
 local Registrar = require(game.ServerScriptService.Server.Services.Registrar)
@@ -14,8 +16,6 @@ type Caster = string
 local casterSkills: { [Caster]: { [string]: any } } = {} -- Table to hold skills per caster
 local permissions = ActionPermissions.server()
 
--- Forward declare type for function without defining it
-local useSkill: (caster: Caster, skillName: string, requestData: any?) -> ()
 
 local SKILLS_CHANNEL_NAME = "Skills"
 local dispatcher = Networking.server()
@@ -46,18 +46,14 @@ function SkillsManager.addSkill(caster: Caster, name: string, override: SkillsCo
 	return skill
 end
 
--- DEBUG FLAG: Set to true to enable skill use logging
-local DEBUG_SKILLS = false
-local DEBUG_PHASE3 = false
-
 local function debugLog(...: any)
-	if DEBUG_SKILLS then
+	if DebugConfig.isEnabled("skills") then
 		print("[SERVER-SKILLS]", ...)
 	end
 end
 
 local function debugPhase3(...: any)
-	if DEBUG_PHASE3 then
+	if DebugConfig.isEnabled("skillsPhase3") then
 		print("[PHASE3-SKILLS]", ...)
 	end
 end
@@ -76,7 +72,9 @@ end
 
 local function startCooldowns(casterId: string, skillName: string, skill: any)
 	if skill.gcd and skill.gcd > 0 then
-		CooldownService.startGCD(casterId, skill.gcd)
+		if not Registrar.isPlayerEntity(casterId) then
+			CooldownService.startGCD(casterId, skill.gcd)
+		end
 	end
 	if skill.cooldown and skill.cooldown > 0 then
 		CooldownService.start(casterId, skillName, skill.cooldown)
@@ -127,49 +125,7 @@ local _sessionStateDisconnect = SessionManager.listen("stateChanged", function(s
 	end
 end)
 
-function SkillsManager.canUse(caster: Caster, skillName: string): (boolean, string?)
-	debugLog("========== canUse ==========")
-	debugLog("Caster:", caster, "Skill:", skillName)
-
-	local skills = casterSkills[caster]
-	if not skills then
-		debugLog("REJECTED: no_skills")
-		return false, "no_skills"
-	end
-
-	local skill = skills[skillName]
-	if not skill then
-		debugLog("REJECTED: no_skill")
-		return false, "no_skill"
-	end
-
-	local skillCfg = skill.config or SkillsConfig.skills[skillName]
-	local comboCfg = skillCfg and skillCfg.combo
-	debugLog("Has comboCfg:", comboCfg ~= nil)
-
-	-- Block if main skill cooldown active (cooldown gating between full uses)
-	local onCD = CooldownService.isOnCooldown(caster, skillName)
-	if onCD then
-		debugLog("REJECTED: on_cooldown")
-		return false, "on_cooldown"
-	end
-
-	-- Check if entity can cast (status effects, death, execution lock)
-	-- Pass combo info so ActionPermissions can allow combo chaining
-	local canCast, reason = permissions:canCast(caster, {
-		skillName = skillName,
-		isCombo = comboCfg ~= nil,
-	})
-	if not canCast then
-		debugLog("REJECTED: canCast failed, reason:", reason)
-		return false, reason
-	end
-
-	debugLog("PASSED: can use")
-	return true
-end
-
-function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: any?): any
+function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: any?): (any?, string?)
 	debugLog("========== useSkill ==========")
 	debugLog("Caster:", caster, "Skill:", skillName)
 
@@ -177,13 +133,13 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 	if not skills then
 		debugLog("REJECTED: No skills found for caster")
 		warn(`No skills found for caster {caster}`)
-		return
+		return nil, "no_skills"
 	end
 
 	local skill = skills[skillName]
 	if not skill then
 		debugLog("REJECTED: Skill not found:", skillName)
-		return
+		return nil, "no_skill"
 	end
 
 	local skillCfg = skill.config or SkillsConfig.skills[skillName]
@@ -197,14 +153,14 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 	})
 	if not canCast then
 		debugLog("REJECTED: canCast failed, reason:", reason)
-		return
+		return nil, reason or "blocked"
 	end
 
 	-- Block if main skill cooldown active (cooldown gating between full uses)
 	local onCD = CooldownService.isOnCooldown(caster, skillName)
 	if onCD then
 		debugLog("REJECTED: on_cooldown")
-		return
+		return nil, "on_cooldown"
 	end
 
 	-- Block based on execution lock via SessionManager
@@ -219,12 +175,12 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 	if isLocked then
 		if lockedSkill ~= skillName then
 			debugLog("REJECTED: locked by different skill")
-			return -- different skill executing
+			return nil, "locked" -- different skill executing
 		end
 		-- Same skill locked
 		if not comboCfg then
 			debugLog("REJECTED: same skill locked but not a combo")
-			return -- non-combo skill cannot be re-used during its own execution
+			return nil, "locked" -- non-combo skill cannot be re-used during its own execution
 		end
 		debugLog("Same skill locked, but is combo - allowing through")
 	end
@@ -264,15 +220,15 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 		-- Prevent overflow beyond total steps
 		if currentStep >= totalSteps and not isNewChain then
 			debugLog("REJECTED: combo already at final step")
-			return
+			return nil, "combo_complete"
 		end
 
 		if shouldAdvance then
-			local advanced = SessionManager.advanceCombo(session.id)
+			local inputTime = requestData and requestData.inputTime
+			local advanced, advanceReason = SessionManager.advanceCombo(session.id, inputTime)
 			if not advanced then
-				debugLog("REJECTED: combo advance blocked")
-				SessionManager.cancel(session.id, "combo_advance_failed")
-				return
+				debugLog("REJECTED: combo advance blocked, reason:", advanceReason or "unknown")
+				return nil, advanceReason or "blocked"
 			end
 			stepToPlay = session.combo and session.combo.currentStep or (currentStep + 1)
 		else
@@ -298,7 +254,7 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 		end
 		local skillData = skill:use(req)
 		if not skillData then
-			return
+			return nil, "blocked"
 		end
 		local response = {
 			duration = skillData and skillData.duration,
@@ -308,7 +264,7 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 			attemptId = requestData and requestData.attemptId or nil,
 			sessionId = session and session.id or nil, -- Phase 3: Include session ID in response
 		}
-		return response
+		return response, nil
 	else
 		-- Phase 3: Create session for non-combo skills
 		local sessionConfig = {
@@ -336,12 +292,60 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 		if requestData and requestData.attemptId then
 			result.attemptId = requestData.attemptId
 		end
-		return result
+		return result, nil
 	end
 end
 
--- Assign to local alias after definition
-useSkill = SkillsManager.useSkill
+function SkillsManager.startSkill(caster: Caster, skillName: string, requestData: any?): (any?, string?)
+	local skill = SkillsManager.getSkill(caster, skillName)
+	if not skill then
+		return nil, "unknown_skill"
+	end
+	if type(skill.startHold) ~= "function" then
+		return nil, "not_holdable"
+	end
+	local holdConfig = skill.config and skill.config.hold
+	local maxHoldDuration = holdConfig and holdConfig.maxDuration
+	local sessionConfig = {
+		maxDuration = if type(maxHoldDuration) == "number" and maxHoldDuration > 0 then maxHoldDuration else math.huge,
+		combo = nil,
+	}
+	local session = SessionManager.create(skillName, caster, sessionConfig)
+	local req = requestData or {}
+	req.sessionId = session and session.id or nil
+	local result, reason = skill:startHold(req)
+	if not result then
+		return nil, reason or "blocked"
+	end
+	result.sessionId = session and session.id or nil
+	return result, nil
+end
+
+function SkillsManager.releaseSkill(caster: Caster, skillName: string, requestData: any?): (any?, string?)
+	local skill = SkillsManager.getSkill(caster, skillName)
+	if not skill then
+		return nil, "unknown_skill"
+	end
+	if type(skill.releaseHold) ~= "function" then
+		return nil, "not_holdable"
+	end
+
+	local session = SessionManager.getActive(caster)
+	if not session or session.skillId ~= skillName then
+		return nil, "not_holding"
+	end
+	local req = requestData or {}
+	req.sessionId = session and session.id or nil
+	local result, reason = skill:releaseHold(req)
+	if not result then
+		return nil, reason or "blocked"
+	end
+	result.sessionId = session and session.id or nil
+	if requestData and requestData.attemptId then
+		result.attemptId = requestData.attemptId
+	end
+	return result, nil
+end
 
 function SkillsManager.removeAll(caster: Caster)
 	local skills = casterSkills[caster]
@@ -382,44 +386,136 @@ function SkillsManager.getSkillConfig(caster: Caster, skillName: string)
 	return nil
 end
 
-dispatcherAny:onRequest("SkillsRequest", function(requestData, _meta, context)
-	local player = context.player
-	if not player then
-		return { success = false, error = "no_player" }
-	end
-	if not requestData or requestData.action ~= "use" then
-		return { success = false, error = "invalid_action" }
-	end
-
-	local skillName = requestData.skillName
-	if type(skillName) ~= "string" then
-		return { success = false, error = "invalid_skill" }
-	end
-
-	local playerId = Registrar.getPlayerId(player)
-
-	useSkill(playerId, skillName, requestData)
-	return { success = true }
-end)
-
 dispatcher:onRequest("SkillRequestUse", function(requestData, _meta, context)
 	print("Received: ", requestData)
 	local player = context.player
 	if not player then
 		return { success = false, error = "no_player" }
 	end
+	if not Schema.checkSkillRequest(requestData) then
+		return { success = false, error = "invalid_request" }
+	end
 	local skillName = requestData.skillName
 	local playerId = Registrar.getPlayerId(player)
-	local result, reason = SkillsManager.canUse(playerId, skillName)
-	if not result then
-		return { success = false, error = reason }
-	end
-	local data = SkillsManager.useSkill(playerId, skillName, requestData)
-	if data then
+	local data, reason = SkillsManager.useSkill(playerId, skillName, requestData)
+	if data ~= nil then
 		return { success = true, data = data }
 	end
 	-- useSkill returned nil - blocked by cooldown/execution/combo window
-	return { success = false, error = "blocked" }
+	if DebugConfig.isEnabled("skills") then
+		debugLog(
+			"REQUEST_REJECTED",
+			"skill=",
+			skillName,
+			"reason=",
+			reason or "blocked",
+			"attemptId=",
+			requestData and requestData.attemptId or "nil",
+			"inputTime=",
+			requestData and requestData.inputTime or "nil"
+		)
+	end
+	return { success = false, error = reason or "blocked" }
+end)
+
+dispatcher:onRequest("SkillRequestStart", function(requestData, _meta, context)
+	print("Received: ", requestData)
+	local player = context.player
+	if not player then
+		return { success = false, error = "no_player" }
+	end
+	if not Schema.checkSkillRequest(requestData) then
+		return { success = false, error = "invalid_request" }
+	end
+	local skillName = requestData.skillName
+	local playerId = Registrar.getPlayerId(player)
+	local data, reason = SkillsManager.startSkill(playerId, skillName, requestData)
+	if data ~= nil then
+		return { success = true, data = data }
+	end
+	if DebugConfig.isEnabled("skills") then
+		debugLog(
+			"REQUEST_REJECTED",
+			"skill=",
+			skillName,
+			"reason=",
+			reason or "blocked",
+			"attemptId=",
+			requestData and requestData.attemptId or "nil",
+			"inputTime=",
+			requestData and requestData.inputTime or "nil"
+		)
+	end
+	return { success = false, error = reason or "blocked" }
+end)
+
+dispatcher:onRequest("SkillRequestRelease", function(requestData, _meta, context)
+	print("Received: ", requestData)
+	local player = context.player
+	if not player then
+		return { success = false, error = "no_player" }
+	end
+	if not Schema.checkSkillRequest(requestData) then
+		return { success = false, error = "invalid_request" }
+	end
+	local skillName = requestData.skillName
+	local playerId = Registrar.getPlayerId(player)
+	local data, reason = SkillsManager.releaseSkill(playerId, skillName, requestData)
+	if data ~= nil then
+		return { success = true, data = data }
+	end
+	if DebugConfig.isEnabled("skills") then
+		debugLog(
+			"REQUEST_REJECTED",
+			"skill=",
+			skillName,
+			"reason=",
+			reason or "blocked",
+			"attemptId=",
+			requestData and requestData.attemptId or "nil",
+			"inputTime=",
+			requestData and requestData.inputTime or "nil"
+		)
+	end
+	return { success = false, error = reason or "blocked" }
+end)
+
+dispatcher:onRequest("SkillRequestMarker", function(requestData, _meta, context)
+	print("Received: ", requestData)
+	local player = context.player
+	if not player then
+		return { success = false, error = "no_player" }
+	end
+	if not Schema.checkSkillRequest(requestData) then
+		return { success = false, error = "invalid_request" }
+	end
+	local skillName = requestData.skillName
+	local playerId = Registrar.getPlayerId(player)
+	local skill = SkillsManager.getSkill(playerId, skillName)
+	if not skill then
+		return { success = false, error = "unknown_skill" }
+	end
+	if type(skill.onReleaseMarker) ~= "function" then
+		return { success = false, error = "no_marker_handler" }
+	end
+	local result, reason = skill:onReleaseMarker(requestData)
+	if result ~= nil then
+		return { success = true, data = result }
+	end
+	if DebugConfig.isEnabled("skills") then
+		debugLog(
+			"REQUEST_REJECTED",
+			"skill=",
+			skillName,
+			"reason=",
+			reason or "blocked",
+			"attemptId=",
+			requestData and requestData.attemptId or "nil",
+			"inputTime=",
+			requestData and requestData.inputTime or "nil"
+		)
+	end
+	return { success = false, error = reason or "blocked" }
 end)
 
 return SkillsManager

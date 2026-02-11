@@ -8,6 +8,7 @@ local Server = ServerScriptService.Server
 
 local StatusEffectsService = require(Server.StatusEffects.StatusEffectsService)
 local StaggerCalculator = require(script.Parent.StaggerCalculator)
+local DebugConfig = require(game:GetService("ReplicatedStorage").Shared.Debug.DebugConfig)
 
 local StaggerSystem = {}
 
@@ -57,15 +58,19 @@ function StaggerSystem.tryStagger(targetId: string, damage: number, sourceId: st
 	-- Update last stagger time
 	lastStaggerTime[targetId] = os.clock()
 
-	print(
-		`[StaggerSystem] Staggered {targetId} for {staggerValues.duration}s (damage: {damage}, threshold: {staggerValues.threshold})`
-	)
+	if DebugConfig.isEnabled("stagger") then
+		print(
+			`[StaggerSystem] Staggered {targetId} for {staggerValues.duration}s (damage: {damage}, threshold: {staggerValues.threshold})`
+		)
+	end
 	return true
 end
 
 -- Initialize stagger system (no longer listens to HitEvent - called directly from CombatService)
 function StaggerSystem.init()
-	print("[StaggerSystem] Initialized")
+	if DebugConfig.isEnabled("stagger") then
+		print("[StaggerSystem] Initialized")
+	end
 end
 
 return StaggerSystem

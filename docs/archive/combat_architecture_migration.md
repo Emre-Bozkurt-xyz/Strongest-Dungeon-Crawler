@@ -413,6 +413,17 @@ end
    - Start animations slightly before server confirmation is expected
    - Adjust animation speed based on server's authoritative timing
 
+4.6. **Client-paced windows + server time validation (high-ping UX)**
+- Add a client `SkillPacer` that owns local pacing (combo windows, step delays, busy time) based on metadata + tempo.
+- Client gating uses `SkillPacer` (not server windows) so UX stays consistent at high RTT.
+   - Each skill request includes `inputTime` in server time domain (client-mapped timestamp).
+   - Server schedules combo windows using `inputTime` (not arrival time) so it stays aligned with client pacing.
+   - Server validates steps against the client timeline (`inputTime` vs window bounds); rejects without cancelling the session.
+   - Server keeps the session alive until a hard expiry based on the observed input delay (prevents early expiry under latency).
+   - Cooldowns/GCD are client-paced; server cooldowns act as validation only (client ignores server cooldown events to avoid double gating).
+   - Client never rewinds pacing; on reject, cancel local prediction but keep pacer busy so spam is blocked.
+   - Optional: allow a small buffered input before the window opens; cap unconfirmed steps (prediction budget).
+
 **Validation:** Skills feel responsive. Predictions are usually correct. Reconciliation is smooth.
 
 ---

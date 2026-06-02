@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
+local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
 
 local EquipmentService = {}
 
@@ -53,10 +54,11 @@ function EquipmentService.canEquip(itemId: string, slot: string): boolean
 	if def.category ~= "equipment" then
 		return false
 	end
-	if not def.equipSlots then
+	local equipSlots = EquipmentDefUtils.getEquipSlots(def)
+	if not equipSlots then
 		return false
 	end
-	for _, s in ipairs(def.equipSlots) do
+	for _, s in ipairs(equipSlots) do
 		if s == slot then
 			return true
 		end

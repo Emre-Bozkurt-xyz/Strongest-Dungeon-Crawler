@@ -29,12 +29,14 @@ local InventoryClient = {}
 local items: { [string]: ItemTypes.ItemInstance } = {}
 local inventory: ItemTypes.InventoryState? = nil
 local equipment: ItemTypes.EquipmentState? = nil
+local projection: ItemTypes.EquipmentProjectionSnapshot? = nil
 
 local changeSignal = Instance.new("BindableEvent")
 
 type ChangeContext = {
-	kind: "snapshot" | "delta",
+	kind: "snapshot" | "delta" | "projection",
 	delta: ItemTypes.InventoryDelta?,
+	projection: ItemTypes.EquipmentProjectionSnapshot?,
 }
 
 local function notifyChange(context: ChangeContext)
@@ -90,32 +92,44 @@ local function applyDelta(delta: ItemTypes.InventoryDelta)
 	end
 end
 
-local function onInventoryDelta(delta: ItemTypes.InventoryDelta)
-	if not inventory and delta.kind ~= "inventory_capacity" then
-		InventoryClient.requestSnapshot()
+dispatcherAny:on("InventoryEvent", function(event: ItemTypes.InventoryEvent)
+	if type(event) ~= "table" then
+		return
 	end
-	applyDelta(delta)
-	notifyChange({ kind = "delta", delta = delta })
-end
-
-dispatcherAny:on("InventoryDelta", onInventoryDelta)
+	if event.kind == "snapshot" and event.snapshot ~= nil then
+		items = event.snapshot.items or {}
+		inventory = event.snapshot.inventory
+		equipment = event.snapshot.equipment
+		notifyChange({ kind = "snapshot", delta = nil, projection = nil })
+	elseif event.kind == "delta" and event.delta ~= nil then
+		applyDelta(event.delta)
+		notifyChange({ kind = "delta", delta = event.delta, projection = nil })
+	elseif event.kind == "projection" and event.projection ~= nil then
+		projection = event.projection
+		notifyChange({ kind = "projection", delta = nil, projection = projection })
+	end
+end)
 
 function InventoryClient.requestSnapshot()
 	local ok, payload = pcall(function()
-		return dispatcherAny:request("InventoryRequest", {})
+		return dispatcherAny:request("InventoryRequest", {
+			version = 1,
+			kind = "snapshot",
+		} :: ItemTypes.InventoryRequest)
 	end)
 	if not ok then
 		warn("InventoryClient: snapshot request failed:", payload)
 		return
 	end
-	if payload == nil then
+	if type(payload) ~= "table" or payload.snapshot == nil then
 		warn("InventoryClient: received nil snapshot")
 		return
 	end
-	items = payload.items or {}
-	inventory = payload.inventory
-	equipment = payload.equipment
-	notifyChange({ kind = "snapshot" })
+	local snapshot = payload.snapshot :: ItemTypes.InventorySnapshot
+	items = snapshot.items or {}
+	inventory = snapshot.inventory
+	equipment = snapshot.equipment
+	notifyChange({ kind = "snapshot", delta = nil, projection = nil })
 end
 
 function InventoryClient.getInventory(): ItemTypes.InventoryState?
@@ -145,12 +159,33 @@ function InventoryClient.onChanged(callback: (ChangeContext) -> ()): () -> ()
 	end
 end
 
+function InventoryClient.getProjection(): ItemTypes.EquipmentProjectionSnapshot?
+	return projection
+end
+
 function InventoryClient.requestAction(payload: any): { ok: boolean, error: string? }?
 	local ok, response = pcall(function()
-		return dispatcherAny:request("InventoryAction", payload)
+		local command: ItemTypes.InventoryCommand = {
+			version = 1,
+			action = payload.action,
+			from = payload.from,
+			to = payload.to,
+			uid = payload.uid,
+			count = payload.count,
+			position = payload.position,
+		}
+		if payload.fromSlot ~= nil then
+			local container = if payload.action == "unequip" then "equipment" else "inventory"
+			command.from = { container = container, slot = payload.fromSlot }
+		end
+		if payload.toSlot ~= nil then
+			local container = if payload.action == "equip" then "equipment" else "inventory"
+			command.to = { container = container, slot = payload.toSlot }
+		end
+		return dispatcherAny:request("InventoryCommand", command)
 	end)
 	if not ok then
-		warn("InventoryClient: InventoryAction failed:", response)
+		warn("InventoryClient: InventoryCommand failed:", response)
 		return nil
 	end
 	return response

@@ -84,11 +84,25 @@ function Bootstrap.startAll(): BootstrapContext
 		Diagnostics.assert(context.InventoryService ~= nil, "InventoryService failed to load")
 	end, { "Registrar" })
 
+	startEntry(ctx, started, "EquipmentAuthoringValidation", function(_context)
+		local validator = require(script.Parent.Inventory.Validation.EquipmentAuthoringValidator)
+		local report = validator.validateAll()
+		for _, message in ipairs(report.warnings) do
+			Diagnostics.warn(message)
+		end
+		for _, message in ipairs(report.errors) do
+			Diagnostics.error(message)
+		end
+		if #report.errors > 0 then
+			error(`Equipment authoring validation failed with {#report.errors} error(s)`)
+		end
+	end, { "InventoryService" })
+
 	startEntry(ctx, started, "EquipmentVisuals", function(_context)
 		local visuals = require(script.Parent.Inventory.EquipmentVisualService)
 		Diagnostics.assert(visuals ~= nil, "EquipmentVisualService failed to load")
 		visuals.start()
-	end, { "InventoryService" })
+	end, { "InventoryService", "EquipmentAuthoringValidation" })
 
 	startEntry(ctx, started, "SkillsFramework", function(context)
 		context.SessionManager = require(script.Parent.SkillsFramework.SessionManager)

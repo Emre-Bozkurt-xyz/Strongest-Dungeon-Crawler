@@ -4,69 +4,97 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
-local CollectionService = game:GetService("CollectionService")
 
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
 local ItemUtils = require(ReplicatedStorage.Shared.items.ItemUtils)
+local SharedConfig = require(ReplicatedStorage.Shared.Config)
 
 local Registrar = require(ServerScriptService.Server.Services.Registrar)
 local DataManager = require(ServerScriptService.Server.Services.DataManager)
-local ItemInstances = require(script.Parent.ItemInstances)
-local EquipmentService = require(script.Parent.EquipmentService)
+local ItemInstances = require(script.Parent.Domain.ItemInstanceRepository)
+local InventoryRepository = require(script.Parent.Domain.InventoryRepository)
+local EquipmentRepository = require(script.Parent.Domain.EquipmentRepository)
+local InventoryReplicationService = require(script.Parent.Domain.InventoryReplicationService)
+local InventoryQueryService = require(script.Parent.Domain.InventoryQueryService)
+local LootDropService = require(script.Parent.Domain.LootDropService)
+local InventoryCommandService = require(script.Parent.Domain.InventoryCommandService)
+local EquipmentProjectionService = require(script.Parent.Projection.EquipmentProjectionService)
 local UseHandlers = require(script.Parent.UseHandlers)
 
 local dispatcher = Networking.server()
 local dispatcherAny = dispatcher :: any
 
 local InventoryService = {}
+local WorldLootInspectConfig = SharedConfig.WorldLootInspect
+local LOOT_SERVER_CONFIG = WorldLootInspectConfig.server
 
 local DEFAULT_CAPACITY = 30
 
-local inventories: { [string]: ItemTypes.InventoryState? } = {}
-local dropsByUid: { [string]: BasePart } = {}
+EquipmentProjectionService.setItemGetter(function(uid: string): ItemTypes.ItemInstance?
+	return ItemInstances.get(uid)
+end)
+EquipmentProjectionService.setEmitter(function(entityId: string, projection: ItemTypes.EquipmentProjectionSnapshot)
+	InventoryReplicationService.emitProjection(entityId, projection)
+end)
 
-local function getDropFolder(): Folder
-	local folder = Workspace:FindFirstChild("ItemDrops")
-	if not folder then
-		folder = Instance.new("Folder")
-		folder.Name = "ItemDrops"
-		folder.Parent = Workspace
-	end
-	return folder :: Folder
+local function buildDropDisplay(inst: ItemTypes.ItemInstance): { displayName: string?, rarity: string?, stackSize: number? }
+	local meta = inst.meta
+	return {
+		displayName = if meta and type(meta.displayName) == "string" then meta.displayName else nil,
+		rarity = if meta and type(meta.rarity) == "string" then meta.rarity else nil,
+		stackSize = inst.stackSize,
+	}
 end
 
-local function cleanupDrop(uid: string)
-	local part = dropsByUid[uid]
-	if part then
-		part:Destroy()
+local function resolveDropSpawnPosition(entityId: string): Vector3
+	local entity = Registrar.getEntityById(entityId)
+	if not entity then
+		return Vector3.new(0, 3, 0)
 	end
-	dropsByUid[uid] = nil
+
+	local root = entity:FindFirstChild("HumanoidRootPart")
+	if not root or not root:IsA("BasePart") then
+		return entity:GetPivot().Position + Vector3.new(0, LOOT_SERVER_CONFIG.dropHeightOffset, 0)
+	end
+
+	local flatForward = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+	if flatForward.Magnitude <= 1e-4 then
+		flatForward = Vector3.new(0, 0, -1)
+	else
+		flatForward = flatForward.Unit
+	end
+
+	local horizontalTarget = root.Position + flatForward * LOOT_SERVER_CONFIG.dropForwardDistance
+	local probeOrigin = horizontalTarget + Vector3.new(0, LOOT_SERVER_CONFIG.dropGroundProbeHeight, 0)
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { entity }
+
+	local hit = Workspace:Raycast(
+		probeOrigin,
+		Vector3.new(0, -LOOT_SERVER_CONFIG.dropGroundProbeLength, 0),
+		params
+	)
+	if hit then
+		return hit.Position + Vector3.new(0, 0.75, 0)
+	end
+
+	return horizontalTarget + Vector3.new(0, LOOT_SERVER_CONFIG.dropHeightOffset, 0)
 end
 
-local function attachPrompt(drop: BasePart, ownerEntityId: string?)
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Pick Up"
-	prompt.ObjectText = "Item"
-	prompt.RequiresLineOfSight = false
-	prompt.MaxActivationDistance = 8
-	prompt.Parent = drop
-
-	prompt.Triggered:Connect(function(player)
-		local entityId = Registrar.getPlayerId(player)
-		if not entityId then
-			return
-		end
-		if ownerEntityId and ownerEntityId ~= entityId then
-			return
-		end
-		local uid = drop:GetAttribute("ItemUid")
-		if type(uid) ~= "string" then
-			return
-		end
-		InventoryService.pickupDrop(uid, entityId)
-	end)
+local function canPickupDrop(entityId: string, drop: BasePart): boolean
+	local entity = Registrar.getEntityById(entityId)
+	if not entity then
+		return false
+	end
+	local root = entity:FindFirstChild("HumanoidRootPart")
+	if not root or not root:IsA("BasePart") then
+		return false
+	end
+	return (root.Position - drop.Position).Magnitude <= LOOT_SERVER_CONFIG.pickupDistance
 end
 
 local function spawnDrop(uid: string, position: Vector3, ownerEntityId: string?)
@@ -74,151 +102,83 @@ local function spawnDrop(uid: string, position: Vector3, ownerEntityId: string?)
 	if not inst then
 		return
 	end
-	local def = Registry.get(inst.itemId)
-	local dropFolder = getDropFolder()
-
-	if dropsByUid[uid] then
-		cleanupDrop(uid)
-	end
-
-	local part = Instance.new("Part")
-	part.Name = "ItemDrop"
-	part.Size = Vector3.new(1, 1, 1)
-	part.Anchored = true
-	part.CanCollide = false
-	part.Position = position
-	part:SetAttribute("ItemUid", uid)
-	part:SetAttribute("ItemId", inst.itemId)
-	if ownerEntityId then
-		part:SetAttribute("OwnerEntityId", ownerEntityId)
-	end
-	if def and def.name then
-		part:SetAttribute("ItemName", def.name)
-	end
-	part.Parent = dropFolder
-	CollectionService:AddTag(part, "LootDrop")
-	dropsByUid[uid] = part
-
-	attachPrompt(part, ownerEntityId)
+	LootDropService.spawnDrop(
+		uid,
+		inst.itemId,
+		position,
+		ownerEntityId,
+		buildDropDisplay(inst),
+		function(dropUid: string, dropEntityId: string): boolean
+			return InventoryService.pickupDrop(dropUid, dropEntityId)
+		end
+	)
 end
 
 function InventoryService.pickupDrop(uid: string, entityId: string): boolean
-	local drop = dropsByUid[uid]
+	local drop = LootDropService.get(uid)
 	if not drop then
 		return false
 	end
 	local inst = ItemInstances.get(uid)
 	if not inst then
-		cleanupDrop(uid)
+		LootDropService.cleanup(uid)
 		return false
 	end
 	local ownerEntityId = drop:GetAttribute("OwnerEntityId")
+	local claimExpiresAt = drop:GetAttribute("ClaimExpiresAt")
 	if type(ownerEntityId) == "string" and ownerEntityId ~= entityId then
+		if type(claimExpiresAt) == "number" and os.clock() < claimExpiresAt then
+			return false
+		end
+	end
+	if not canPickupDrop(entityId, drop) then
 		return false
 	end
 	local ok = InventoryService.addExistingItem(entityId, uid)
 	if ok then
-		cleanupDrop(uid)
+		LootDropService.cleanup(uid)
 	end
 	return ok
 end
 
 local function findEmptySlot(inv: ItemTypes.InventoryState): number?
-	for i = 1, inv.capacity do
-		if inv.slots[i] == nil then
-			return i
-		end
-	end
-	return nil
+	return InventoryRepository.findEmptySlot(inv)
 end
 
 local function rebuildStacks(inv: ItemTypes.InventoryState)
-	inv.stacks = {}
-	for _, uid in pairs(inv.slots) do
-		if uid then
-			local inst = ItemInstances.get(uid)
-			if inst then
-				local def = Registry.get(inst.itemId)
-				if def then
-					local key = ItemUtils.makeStackKey(inst.itemId, inst.meta, def.stackSensitiveMeta)
-					inv.stacks[key] = inv.stacks[key] or {}
-					table.insert(inv.stacks[key], uid)
-				end
-			end
-		end
-	end
-end
-
-local function emitDelta(entityId: string, delta: ItemTypes.InventoryDelta)
-	if not Registrar.isPlayerEntity(entityId) then
-		return
-	end
-	local player = Registrar.getPlayerById(entityId)
-	if not player then
-		return
-	end
-	dispatcherAny:emit("InventoryDelta", delta, { targets = player })
+	InventoryRepository.rebuildStacks(inv)
 end
 
 local function emitDeltas(entityId: string, deltas: { ItemTypes.InventoryDelta })
 	for _, delta in ipairs(deltas) do
-		emitDelta(entityId, delta)
+		InventoryReplicationService.emitDelta(entityId, delta)
 	end
 end
 
 function InventoryService.ensureInventory(entityId: string): ItemTypes.InventoryState
-	local inv = inventories[entityId]
-	if inv then
-		return inv
-	end
-	local slots: { [number]: string? } = {}
-	local stacks: { [string]: { string } } = {}
-	inv = {
-		ownerId = entityId,
-		capacity = DEFAULT_CAPACITY,
-		slots = slots,
-		stacks = stacks,
-	}
-	for i = 1, DEFAULT_CAPACITY do
-		inv.slots[i] = nil
-	end
-	inventories[entityId] = inv
-	return inv
+	return InventoryRepository.ensure(entityId, DEFAULT_CAPACITY)
 end
 
 function InventoryService.getInventory(entityId: string): ItemTypes.InventoryState?
-	return inventories[entityId]
+	return InventoryRepository.get(entityId)
 end
 
 function InventoryService.getEquipment(entityId: string): ItemTypes.EquipmentState
-	return EquipmentService.ensure(entityId)
+	return EquipmentRepository.ensure(entityId)
 end
 
 function InventoryService.getSnapshot(entityId: string): ItemTypes.InventorySnapshot
-	local inv = InventoryService.ensureInventory(entityId)
-	local equip = EquipmentService.ensure(entityId)
-	local items: { [string]: ItemTypes.ItemInstance } = {}
-	for _, uid in pairs(inv.slots) do
-		if uid then
-			local inst = ItemInstances.get(uid)
-			if inst then
-				items[uid] = inst
-			end
-		end
-	end
-	for _, uid in pairs(equip.slots) do
-		if uid then
-			local inst = ItemInstances.get(uid)
-			if inst then
-				items[uid] = inst
-			end
-		end
-	end
-	return {
-		items = items,
-		inventory = inv,
-		equipment = equip,
-	}
+	return InventoryQueryService.snapshot(entityId, {
+		inventoryEnsure = function(ownerId: string): ItemTypes.InventoryState
+			return InventoryService.ensureInventory(ownerId)
+		end,
+		equipmentEnsure = function(ownerId: string): ItemTypes.EquipmentState
+			return InventoryService.getEquipment(ownerId)
+		end,
+		itemGet = function(uid: string): ItemTypes.ItemInstance?
+			return ItemInstances.get(uid)
+		end,
+	})
 end
 
 function InventoryService.initializePlayer(player: Player)
@@ -240,21 +200,21 @@ function InventoryService.initializePlayer(player: Player)
 	else
 		InventoryService.ensureInventory(entityId)
 	end
-	EquipmentService.ensure(entityId)
+	EquipmentRepository.ensure(entityId)
 
 	local snapshot = InventoryService.getSnapshot(entityId)
-	dispatcherAny:emit("InventoryDelta", { kind = "inventory_capacity", capacity = snapshot.inventory.capacity }, {
-		targets = player,
-	})
+	InventoryReplicationService.emitDelta(entityId, { kind = "inventory_capacity", capacity = snapshot.inventory.capacity })
 	for slot, uid in pairs(snapshot.inventory.slots) do
-		dispatcherAny:emit("InventoryDelta", { kind = "inventory_slot", slot = slot, uid = uid }, { targets = player })
+		InventoryReplicationService.emitDelta(entityId, { kind = "inventory_slot", slot = slot, uid = uid })
 	end
 	for slot, uid in pairs(snapshot.equipment.slots) do
-		dispatcherAny:emit("InventoryDelta", { kind = "equipment_slot", slot = slot, uid = uid }, { targets = player })
+		InventoryReplicationService.emitDelta(entityId, { kind = "equipment_slot", slot = slot, uid = uid })
 	end
 	for _, item in pairs(snapshot.items) do
-		dispatcherAny:emit("InventoryDelta", { kind = "item_added", item = item }, { targets = player })
+		InventoryReplicationService.emitDelta(entityId, { kind = "item_added", item = item })
 	end
+	InventoryReplicationService.emitSnapshot(entityId, snapshot)
+	EquipmentProjectionService.recompute(entityId)
 end
 
 function InventoryService.addItem(entityId: string, itemId: string, count: number, meta: ItemTypes.ItemMeta?): boolean
@@ -341,7 +301,7 @@ local function moveInventoryToEquipment(
 	equipSlot: string
 ): (boolean, string?)
 	local inv = InventoryService.ensureInventory(entityId)
-	local equip = EquipmentService.ensure(entityId)
+	local equip = EquipmentRepository.ensure(entityId)
 	local uid = inv.slots[fromSlot]
 	if not uid then
 		return false, "empty_source"
@@ -350,17 +310,18 @@ local function moveInventoryToEquipment(
 	if not inst then
 		return false, "missing_item"
 	end
-	if not EquipmentService.canEquip(inst.itemId, equipSlot) then
+	if not EquipmentRepository.canEquip(inst.itemId, equipSlot) then
 		return false, "invalid_slot"
 	end
 	local prev = equip.slots[equipSlot]
-	equip.slots[equipSlot] = uid
+	EquipmentRepository.setSlot(entityId, equipSlot, uid)
 	inv.slots[fromSlot] = prev
 	rebuildStacks(inv)
 	emitDeltas(entityId, {
 		{ kind = "equipment_slot", slot = equipSlot, uid = equip.slots[equipSlot] },
 		{ kind = "inventory_slot", slot = fromSlot, uid = inv.slots[fromSlot] },
 	})
+	EquipmentProjectionService.recompute(entityId)
 	return true, nil
 end
 
@@ -370,7 +331,7 @@ local function moveEquipmentToInventory(
 	toSlot: number?
 ): (boolean, string?)
 	local inv = InventoryService.ensureInventory(entityId)
-	local equip = EquipmentService.ensure(entityId)
+	local equip = EquipmentRepository.ensure(entityId)
 	local uid = equip.slots[equipSlot]
 	if not uid then
 		return false, "empty_source"
@@ -380,13 +341,20 @@ local function moveEquipmentToInventory(
 		return false, "inventory_full"
 	end
 	local destUid = inv.slots[destSlot]
-	equip.slots[equipSlot] = destUid
+	if destUid then
+		local destInst = ItemInstances.get(destUid)
+		if not destInst or not EquipmentRepository.canEquip(destInst.itemId, equipSlot) then
+			return false, "invalid_swap"
+		end
+	end
+	EquipmentRepository.setSlot(entityId, equipSlot, destUid)
 	inv.slots[destSlot] = uid
 	rebuildStacks(inv)
 	emitDeltas(entityId, {
 		{ kind = "equipment_slot", slot = equipSlot, uid = equip.slots[equipSlot] },
 		{ kind = "inventory_slot", slot = destSlot, uid = inv.slots[destSlot] },
 	})
+	EquipmentProjectionService.recompute(entityId)
 	return true, nil
 end
 
@@ -472,7 +440,7 @@ local function findOwnedLocation(entityId: string, uid: string): (("inventory" |
 			return "inventory", slot, nil
 		end
 	end
-	local equip = EquipmentService.ensure(entityId)
+	local equip = EquipmentRepository.ensure(entityId)
 	for slot, slotUid in pairs(equip.slots) do
 		if slotUid == uid then
 			return "equipment", nil, slot
@@ -541,9 +509,9 @@ local function useItem(entityId: string, uid: string): (boolean, string?)
 				inv.slots[slot] = nil
 				table.insert(deltas, { kind = "inventory_slot", slot = slot, uid = nil })
 			else
-				local equip = EquipmentService.ensure(entityId)
+				local equip = EquipmentRepository.ensure(entityId)
 				local slot = equipSlot :: string
-				equip.slots[slot] = nil
+				EquipmentRepository.setSlot(entityId, slot, nil)
 				table.insert(deltas, { kind = "equipment_slot", slot = slot, uid = nil })
 			end
 			table.insert(deltas, { kind = "item_removed", uid = uid })
@@ -557,6 +525,9 @@ local function useItem(entityId: string, uid: string): (boolean, string?)
 		return false, err
 	end
 	emitDeltas(entityId, deltas)
+	if location == "equipment" then
+		EquipmentProjectionService.recompute(entityId)
+	end
 	return true, nil
 end
 
@@ -665,10 +636,16 @@ dispatcherAny:onRequest("InventoryRequest", function(_payload, _meta, context)
 	if not entityId then
 		return nil
 	end
-	return InventoryService.getSnapshot(entityId)
+	local snapshot = InventoryService.getSnapshot(entityId)
+	return {
+		version = 1,
+		kind = "snapshot",
+		snapshot = snapshot,
+		sequence = 0,
+	}
 end)
 
-dispatcherAny:onRequest("InventoryAction", function(payload, _meta, context)
+dispatcherAny:onRequest("InventoryCommand", function(payload: ItemTypes.InventoryCommand, _meta, context)
 	local player = context.player
 	if not player then
 		return { ok = false, error = "no_player" }
@@ -677,12 +654,18 @@ dispatcherAny:onRequest("InventoryAction", function(payload, _meta, context)
 	if not entityId then
 		return { ok = false, error = "no_entity" }
 	end
-	local ok, err = handleAction(entityId, payload)
-	return { ok = ok, error = err }
+	local ok, err = InventoryCommandService.execute(entityId, payload, function(commandPayload: any): (boolean, string?)
+		return handleAction(entityId, commandPayload)
+	end)
+	return {
+		ok = ok,
+		error = err,
+		projection = EquipmentProjectionService.get(entityId),
+	}
 end)
 
 -- Drop helper (stubbed world object representation)
-function InventoryService.dropItem(entityId: string, uid: string, position: Vector3?): boolean
+function InventoryService.dropItem(entityId: string, uid: string, _position: Vector3?): boolean
 	local inv = InventoryService.ensureInventory(entityId)
 	local slotToClear: number? = nil
 	for slot, slotUid in pairs(inv.slots) do
@@ -699,7 +682,7 @@ function InventoryService.dropItem(entityId: string, uid: string, position: Vect
 	emitDeltas(entityId, {
 		{ kind = "inventory_slot", slot = slotToClear, uid = nil },
 	})
-	spawnDrop(uid, position or Vector3.new(0, 3, 0), entityId)
+	spawnDrop(uid, resolveDropSpawnPosition(entityId), entityId)
 	return true
 end
 

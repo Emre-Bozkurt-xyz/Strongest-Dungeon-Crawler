@@ -3,6 +3,8 @@
 -- Shape is intentionally similar to Roblox's new InputContext/InputAction/InputBinding model so we can
 -- later bridge or replace the manual dispatcher with the official system.
 
+local RunService = game:GetService("RunService")
+
 export type Binding = {
 	key: Enum.KeyCode?, -- keyboard key
 	mouse: Enum.UserInputType?, -- mouse button
@@ -71,13 +73,23 @@ end
 
 -- Core gameplay context (always on)
 addContext("Core", 100)
+addContext("Interaction", 120)
+
+local inventoryBindings: { Binding } = {
+	{ key = Enum.KeyCode.I, type = "press" },
+}
+
+-- Roblox Studio currently has a bug where I/O camera keys can lose InputBegan entirely.
+-- Keep I as the authored runtime binding, but provide a Studio-only fallback for iteration.
+if RunService:IsStudio() then
+	table.insert(inventoryBindings, { key = Enum.KeyCode.B, type = "press", meta = { studioFallback = true } })
+end
 
 -- Menu view toggles (diegetic menu mode)
 addAction("Core", {
 	name = "MenuViewInventory",
-	bindings = {
-		{ key = Enum.KeyCode.I, type = "press" },
-	},
+	bindings = inventoryBindings,
+	consume = true,
 })
 
 addAction("Core", {
@@ -85,6 +97,7 @@ addAction("Core", {
 	bindings = {
 		{ key = Enum.KeyCode.J, type = "press" },
 	},
+	consume = true,
 })
 
 addAction("Core", {
@@ -92,22 +105,31 @@ addAction("Core", {
 	bindings = {
 		{ key = Enum.KeyCode.K, type = "press" },
 	},
+	consume = true,
 })
 
--- Cycle active skill profile (LeftAlt)
-addAction("Core", {
-	name = "CycleSkillProfile",
+-- Precision Focus: temporary cursor-driven interaction with world panels.
+addAction("Interaction", {
+	name = "PrecisionFocus",
 	bindings = {
 		{ key = Enum.KeyCode.LeftAlt, type = "press" },
-		{ key = Enum.KeyCode.Q, type = "press", modifiers = { shift = true } },
+		{ key = Enum.KeyCode.LeftAlt, type = "release" },
 	},
 })
 
--- Cycle active skill profile backward (RightAlt)
+-- Cycle active skill profile forward (moved off Alt to reserve LeftAlt for Precision Focus)
+addAction("Core", {
+	name = "CycleSkillProfile",
+	bindings = {
+		{ key = Enum.KeyCode.E, type = "press", modifiers = { ctrl = true } },
+	},
+})
+
+-- Cycle active skill profile backward
 addAction("Core", {
 	name = "CycleSkillProfilePrev",
 	bindings = {
-		{ key = Enum.KeyCode.RightAlt, type = "press" },
+		{ key = Enum.KeyCode.Q, type = "press", modifiers = { ctrl = true } },
 	},
 })
 

@@ -4,6 +4,7 @@
 -- swap internals with minimal external changes.
 
 local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
 
 local ActionConfig = require(script.Parent.ActionConfig)
 
@@ -15,12 +16,14 @@ local InputManager = {}
 InputManager.__index = InputManager
 
 local _instance: any = nil
+local CAS_PRIORITY_BASE = 3000
 
 -- Map: actionName -> InternalAction
 local actions: { [string]: InternalAction } = {}
 
 -- Context filter (optional runtime enable/disable)
 local contextEnabled: { [string]: boolean } = {}
+local actionPriorities: { [string]: number } = {}
 
 local function normalize()
     for ctxName, ctx in pairs(ActionConfig.contexts) do
@@ -33,6 +36,7 @@ local function normalize()
                 consume = spec.consume,
                 callbackList = {},
             }
+			actionPriorities[actionName] = ctx.priority
         end
     end
 end
@@ -49,28 +53,44 @@ local function getAltDown(): boolean
 	return UserInputService:IsKeyDown(Enum.KeyCode.LeftAlt) or UserInputService:IsKeyDown(Enum.KeyCode.RightAlt)
 end
 
-local function anyModifierDown(): boolean
-	return getShiftDown() or getCtrlDown() or getAltDown()
+local function getModifierStateForInput(input: InputObject): (boolean, boolean, boolean)
+	local shift = getShiftDown()
+	local ctrl = getCtrlDown()
+	local alt = getAltDown()
+	local keyCode = input.KeyCode
+
+	if keyCode == Enum.KeyCode.LeftShift or keyCode == Enum.KeyCode.RightShift then
+		shift = false
+	end
+	if keyCode == Enum.KeyCode.LeftControl or keyCode == Enum.KeyCode.RightControl then
+		ctrl = false
+	end
+	if keyCode == Enum.KeyCode.LeftAlt or keyCode == Enum.KeyCode.RightAlt then
+		alt = false
+	end
+
+	return shift, ctrl, alt
 end
 
-local function modifiersMatch(modifiers: { shift: boolean?, ctrl: boolean?, alt: boolean? }?): boolean
+local function modifiersMatch(modifiers: { shift: boolean?, ctrl: boolean?, alt: boolean? }?, input: InputObject): boolean
+	local shiftDown, ctrlDown, altDown = getModifierStateForInput(input)
 	if modifiers == nil then
-		return not anyModifierDown()
+		return not (shiftDown or ctrlDown or altDown)
 	end
-	if modifiers.shift and not getShiftDown() then
+	if modifiers.shift and not shiftDown then
 		return false
 	end
-	if modifiers.ctrl and not getCtrlDown() then
+	if modifiers.ctrl and not ctrlDown then
 		return false
 	end
-	if modifiers.alt and not getAltDown() then
+	if modifiers.alt and not altDown then
 		return false
 	end
 	return true
 end
 
 local function bindingMatches(b, input: InputObject, began: boolean)
-	if not modifiersMatch(b.modifiers) then
+	if not modifiersMatch(b.modifiers, input) then
 		return false
 	end
     if b.key and input.KeyCode == b.key then
@@ -84,46 +104,91 @@ local function bindingMatches(b, input: InputObject, began: boolean)
     return false
 end
 
+local function shouldSuppressInput(): boolean
+	return UserInputService:GetFocusedTextBox() ~= nil
+end
+
+local function buildMeta(b, input: InputObject, gameProcessedEvent: boolean): { [string]: any }
+	local meta = b.meta and table.clone(b.meta) or {}
+	meta.type = b.type
+	meta.gameProcessedEvent = gameProcessedEvent
+	meta.keyCode = input.KeyCode
+	meta.userInputType = input.UserInputType
+	return meta
+end
+
+local function dispatchActionInput(
+	act: InternalAction,
+	input: InputObject,
+	began: boolean,
+	gameProcessedEvent: boolean
+): boolean
+	if shouldSuppressInput() then
+		return false
+	end
+
+	local matched = false
+	if contextEnabled[act.context] then
+		for _, b in ipairs(act.bindings) do
+			if bindingMatches(b, input, began) then
+				matched = true
+				local meta = buildMeta(b, input, gameProcessedEvent)
+				for _, cb in ipairs(act.callbackList) do
+					task.spawn(cb, act.name, meta)
+				end
+				break
+			end
+		end
+	end
+
+	return matched
+end
+
+local function getBindingInputs(action: InternalAction): { any }
+	local inputs = {}
+	local seen = {}
+
+	for _, binding in ipairs(action.bindings) do
+		local input = binding.key or binding.mouse or binding.gamepadButton
+		if input and not seen[input] then
+			seen[input] = true
+			table.insert(inputs, input)
+		end
+	end
+
+	return inputs
+end
+
+local function bindContextActions()
+	for actionName, action in pairs(actions) do
+		local inputs = getBindingInputs(action)
+		if #inputs > 0 then
+			ContextActionService:BindActionAtPriority(
+				"SDC_" .. actionName,
+				function(_boundName: string, inputState: Enum.UserInputState, input: InputObject)
+					if inputState == Enum.UserInputState.Begin then
+						local matched = dispatchActionInput(action, input, true, false)
+						return if matched and action.consume then Enum.ContextActionResult.Sink else Enum.ContextActionResult.Pass
+					end
+					if inputState == Enum.UserInputState.End then
+						local matched = dispatchActionInput(action, input, false, false)
+						return if matched and action.consume then Enum.ContextActionResult.Sink else Enum.ContextActionResult.Pass
+					end
+					return Enum.ContextActionResult.Pass
+				end,
+				false,
+				CAS_PRIORITY_BASE + (actionPriorities[actionName] or 100),
+				table.unpack(inputs)
+			)
+		end
+	end
+end
+
 function InputManager.new()
     if _instance then return _instance end
     local self = setmetatable({}, InputManager)
     normalize()
-
-    UserInputService.InputBegan:Connect(function(input, gpe)
-        if gpe then return end
-        for _, act in pairs(actions) do
-            if contextEnabled[act.context] then
-                for _, b in ipairs(act.bindings) do
-                    if bindingMatches(b, input, true) then
-                        local meta = b.meta and table.clone(b.meta) or {}
-                        meta.type = b.type
-                        for _, cb in ipairs(act.callbackList) do
-                            task.spawn(cb, act.name, meta)
-                        end
-                        break
-                    end
-                end
-            end
-        end
-    end)
-
-    UserInputService.InputEnded:Connect(function(input, gpe)
-        if gpe then return end
-        for _, act in pairs(actions) do
-            if contextEnabled[act.context] then
-                for _, b in ipairs(act.bindings) do
-                    if bindingMatches(b, input, false) then
-                        local meta = b.meta and table.clone(b.meta) or {}
-                        meta.type = b.type
-                        for _, cb in ipairs(act.callbackList) do
-                            task.spawn(cb, act.name, meta)
-                        end
-                        break
-                    end
-                end
-            end
-        end
-    end)
+	bindContextActions()
 
     _instance = self
     return self

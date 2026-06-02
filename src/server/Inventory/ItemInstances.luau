@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
+local EquipmentRollService = require(script.Parent.Generation.EquipmentRollService)
 
 local ItemInstances = {}
 
@@ -36,6 +37,7 @@ function ItemInstances.create(itemId: string, stackSize: number, meta: ItemTypes
 			metaCopy.chargesCurrent = def.metadata.chargesMax
 		end
 	end
+	metaCopy = EquipmentRollService.prepareMeta(def, metaCopy) or metaCopy
 	local instance: ItemTypes.ItemInstance = {
 		uid = newUid(),
 		itemId = itemId,

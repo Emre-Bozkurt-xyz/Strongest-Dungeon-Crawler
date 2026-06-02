@@ -75,23 +75,27 @@ function Bootstrap.startAll(): BootstrapContext
 		local StatsClient = require(script.Parent.StatsClient)
 		local AttributesClient = require(script.Parent.AttributesClient)
 		local CameraController = require(script.Parent.CameraController)
+		local InteractionStateController = require(script.Parent.input.InteractionStateController)
+		local Inputs = require(script.Parent.Inputs)
 		local StatusPreviewController = require(script.Parent.ui.controllers.StatusPreviewController)
-		local SystemPanelHandler = require(script.Parent.ui.controllers.SystemPanelHandler)
+		local SystemPanelRuntime = require(script.Parent.ui.runtime.SystemPanelRuntime)
+		local MenuOrchestrator = require(script.Parent.ui.menu.MenuOrchestrator)
 		local SkillSlotUI = require(script.Parent.SkillsFramework.SkillSlotUI)
 		local InventoryClient = require(script.Parent.Inventory.InventoryClient)
 		local OverheadHealthService = require(script.Parent.OverheadHealthService)
 		local DamageNumberController = require(script.Parent.ui.DamageNumberController)
 		local StaggerController = require(script.Parent.ui.controllers.StaggerController)
-		local InventoryUIController = require(script.Parent.ui.controllers.InventoryUIController)
+		local InventoryMenuRuntime = require(script.Parent.ui.runtime.InventoryMenuRuntime)
 		local LootClient = require(script.Parent.ui.controllers.LootClient)
 		Diagnostics.assert(StatsClient ~= nil, "StatsClient failed to load")
 		Diagnostics.assert(AttributesClient ~= nil, "AttributesClient failed to load")
 		Diagnostics.assert(CameraController ~= nil, "CameraController failed to load")
 		Diagnostics.assert(SkillSlotUI ~= nil, "SkillSlotUI failed to load")
+		InteractionStateController.init()
+		Inputs.init()
 
 		DamageNumberController.init()
 		StaggerController.init()
-		LootClient.init()
 
 		local player = Players.LocalPlayer
 
@@ -104,13 +108,16 @@ function Bootstrap.startAll(): BootstrapContext
 			local SkillMetadataClient = require(script.Parent.SkillsFramework.SkillMetadataClient)
 			SkillMetadataClient.requestSnapshot()
 
-			SystemPanelHandler.get()
+			MenuOrchestrator.init()
+			SystemPanelRuntime.get()
 
 			local cam = CameraController.getInstance()
 			cam:setZoomLimits(2.5, 16)
 			cam:enable()
+			InteractionStateController.setCameraMode(cam.mode)
 
 			StatusPreviewController.get()
+			LootClient.init()
 
 			local playerGui = player:WaitForChild("PlayerGui")
 			local hud = playerGui:WaitForChild("HUD")
@@ -118,7 +125,7 @@ function Bootstrap.startAll(): BootstrapContext
 			SkillSlotUI.mount(anchor)
 
 			-- Only initialize inventory UI if templates exist (world-space panels).
-			InventoryUIController.tryInit()
+			InventoryMenuRuntime.tryInit()
 		end
 
 		if player.Character then

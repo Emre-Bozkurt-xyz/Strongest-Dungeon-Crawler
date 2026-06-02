@@ -3,107 +3,135 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
--- no run loop needed; WorldGUIManager handles movement
 
 local WorldGUIManager = require(script.Parent.Parent.Parent.WorldGUIManager)
 local HealthBarController = require(script.Parent.HealthBarController)
 local ManaBarController = require(script.Parent.ManaBarController)
 local StaminaBarController = require(script.Parent.StaminaBarController)
-
+local PanelTemplateResolver = require(script.Parent.Parent.runtime.PanelTemplateResolver)
+local PanelBinder = require(script.Parent.Parent.runtime.PanelBinder)
+local SharedConfig = require(ReplicatedStorage.Shared.Config)
+local DevTuningService = require(script.Parent.Parent.Parent.dev.DevTuningService)
 local StatsClient = require(script.Parent.Parent.Parent.StatsClient)
 
 local StatusPreviewController = {}
 StatusPreviewController.__index = StatusPreviewController
 
--- Tunables
-local PLAYER_SPACE_OFFSET = Vector3.new(4, 0.7, 0.1) -- right, up, forward relative to HRP
+local WorldGUIConfig = SharedConfig.WorldGUI
+local STATUS_PREVIEW_CONFIG = WorldGUIConfig.panels.StatusPreview
+
+local function tunedVector3(path: string, fallback: Vector3): Vector3
+	local value = DevTuningService.get(path)
+	return if typeof(value) == "Vector3" then value else fallback
+end
+
+local function resolveTemplate(name: string): BasePart
+	local template = PanelTemplateResolver.resolveWorldPart(name)
+	assert(template, `StatusPreviewController: missing template {name}`)
+	return template
+end
 
 function StatusPreviewController.new()
-    local self = setmetatable({}, StatusPreviewController) :: any
-    self.player = Players.LocalPlayer
+	local self = setmetatable({}, StatusPreviewController) :: any
+	self.player = Players.LocalPlayer
+	self._statsDisconnect = function() end
+	self._tuneDisconnect = nil
+	self._config = {
+		offset = tunedVector3("WorldGUI.panels.StatusPreview.offset", STATUS_PREVIEW_CONFIG.offset),
+		playerSpaceOffset = tunedVector3(
+			"WorldGUI.panels.StatusPreview.playerSpaceOffset",
+			STATUS_PREVIEW_CONFIG.playerSpaceOffset
+		),
+	}
 
-    -- Require a prebuilt BasePart similar to SystemPanel, e.g., ReplicatedStorage.Assets.StatusPreviewPanel
-    local template = ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("WorldUI") and ReplicatedStorage.Assets.WorldUI:FindFirstChild("StatusPreviewPanel")
-    assert(template and template:IsA("BasePart"), "StatusPreviewController: ReplicatedStorage.Assets.StatusPreviewPanel BasePart is required")
-    self.panelPart = (template :: BasePart):Clone()
-    self.panelPart.Parent = workspace
-    local statusPanel = self.panelPart:FindFirstChild("StatusPanel", true)
-    assert(statusPanel ~= nil, "StatusPreviewController: 'StatusPanel' Frame not found under StatusPreviewPanel")
+	self.panelPart = resolveTemplate("StatusPreviewPanel"):Clone()
+	self.panelPart.Parent = workspace
+	local binder = PanelBinder.new(self.panelPart)
+	local statusPanel = binder:require({ "StatusPanel" }, "Frame", "StatusPreviewPanel.StatusPanel")
 
-    -- Wire existing bar controllers into the billboard content
-    self.healthBarController = HealthBarController.new(statusPanel)
-    self.manaBarController = ManaBarController.new(statusPanel)
-    self.staminaBarController = StaminaBarController.new(statusPanel)
-    self._statsDisconnect = function() end
+	self.healthBarController = HealthBarController.new(statusPanel)
+	self.manaBarController = ManaBarController.new(statusPanel)
+	self.staminaBarController = StaminaBarController.new(statusPanel)
 
-    -- Register with WorldGUIManager in player follow mode with a player-space offset
-    local wgm = WorldGUIManager.getInstance()
-    wgm:registerPanel({
-        name = "StatusPreview",
-        part = self.panelPart,
-        faceCamera = true,
-        followMode = "player",
-        offset = Vector3.new(0, 0, 0),
-        playerSpaceOffset = PLAYER_SPACE_OFFSET,
-    })
+	local wgm = WorldGUIManager.getInstance()
+	wgm:registerPanel({
+		name = "StatusPreview",
+		part = self.panelPart,
+		faceCamera = true,
+		followMode = "player",
+		offset = self._config.offset,
+		playerSpaceOffset = self._config.playerSpaceOffset,
+	})
 
-    -- Initial populate
-    task.defer(function()
-        local s = StatsClient.getFormattedStats()
-        if s then
-            self:updateStats(s)
-        end
-    end)
+	self._tuneDisconnect = DevTuningService.subscribe("WorldGUI.panels.StatusPreview", function()
+		self._config.offset = tunedVector3("WorldGUI.panels.StatusPreview.offset", STATUS_PREVIEW_CONFIG.offset)
+		self._config.playerSpaceOffset =
+			tunedVector3("WorldGUI.panels.StatusPreview.playerSpaceOffset", STATUS_PREVIEW_CONFIG.playerSpaceOffset)
+		wgm:updatePanel("StatusPreview", {
+			offset = self._config.offset,
+			playerSpaceOffset = self._config.playerSpaceOffset,
+		})
+	end)
 
-    -- Make preview visible by default; SystemPanelHandler will hide/show as needed
-    wgm:setPanelVisibility("StatusPreview", true, 0.2, workspace)
+	task.defer(function()
+		local stats = StatsClient.getFormattedStats()
+		if stats then
+			self:updateStats(stats)
+		end
+	end)
 
-    -- Listen for stats updates directly so preview doesn't depend on SystemPanelHandler initialization
-    local statsDisconnect = StatsClient.onChanged(function()
-        task.defer(function()
-            local stats = StatsClient.getFormattedStats()
-            if stats then
-                self:updateStats(stats)
-            end
-        end)
-    end)
-    self._statsDisconnect = statsDisconnect
+	wgm:setPanelVisibility("StatusPreview", true, 0.2, workspace)
 
-    return self
+	self._statsDisconnect = StatsClient.onChanged(function()
+		task.defer(function()
+			local stats = StatsClient.getFormattedStats()
+			if stats then
+				self:updateStats(stats)
+			end
+		end)
+	end)
+
+	return self
 end
 
 function StatusPreviewController:updateStats(newStats)
-    if newStats.Health and newStats.Health.getCurrentValue and newStats.Health.getValue then
-        self.healthBarController:updateHealth(newStats.Health:getCurrentValue(), newStats.Health:getValue())
-    end
-    if newStats.Mana and newStats.Mana.getCurrentValue and newStats.Mana.getValue then
-        self.manaBarController:updateMana(newStats.Mana:getCurrentValue(), newStats.Mana:getValue())
-    end
-    if newStats.Stamina and newStats.Stamina.getCurrentValue and newStats.Stamina.getValue then
-        self.staminaBarController:updateStamina(newStats.Stamina:getCurrentValue(), newStats.Stamina:getValue())
-    end
+	if newStats.Health and newStats.Health.getCurrentValue and newStats.Health.getValue then
+		self.healthBarController:updateHealth(newStats.Health:getCurrentValue(), newStats.Health:getValue())
+	end
+	if newStats.Mana and newStats.Mana.getCurrentValue and newStats.Mana.getValue then
+		self.manaBarController:updateMana(newStats.Mana:getCurrentValue(), newStats.Mana:getValue())
+	end
+	if newStats.Stamina and newStats.Stamina.getCurrentValue and newStats.Stamina.getValue then
+		self.staminaBarController:updateStamina(newStats.Stamina:getCurrentValue(), newStats.Stamina:getValue())
+	end
 end
 
 function StatusPreviewController:destroy()
-    if self.panelPart then
-        self.panelPart:Destroy()
-    end
-    self._statsDisconnect()
-    self._statsDisconnect = function() end
+	if self.panelPart then
+		self.panelPart:Destroy()
+	end
+	if self._tuneDisconnect then
+		self._tuneDisconnect()
+		self._tuneDisconnect = nil
+	end
+	self._statsDisconnect()
+	self._statsDisconnect = function() end
 end
 
--- Lazy singleton for convenience
 local _inst: any
+
 local function get()
-    if _inst then return _inst end
-    _inst = StatusPreviewController.new()
-    return _inst
+	if _inst then
+		return _inst
+	end
+	_inst = StatusPreviewController.new()
+	return _inst
 end
 
 return {
-    new = StatusPreviewController.new,
-    get = get,
-    updateStats = function(s)
-        get():updateStats(s)
-    end,
+	new = StatusPreviewController.new,
+	get = get,
+	updateStats = function(s)
+		get():updateStats(s)
+	end,
 }

@@ -80,8 +80,8 @@ local Channels: { [Names.ChannelName]: ChannelDefinition } = {
 		remoteFunction = "InventoryRequest",
 		direction = "bidirectional",
 		qos = "HIGH",
-		intents = { "InventoryRequest", "InventoryAction" },
-		events = { "InventoryDelta" },
+		intents = { "InventoryRequest", "InventoryCommand" },
+		events = { "InventoryEvent" },
 	},
 	Projectiles = {
 		remote = "Projectiles",

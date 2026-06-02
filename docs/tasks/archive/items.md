@@ -166,7 +166,7 @@ Equipment = {
 - src/server/Inventory/ItemInstances.luau (uid generation + storage)
 - src/client/Inventory/InventoryClient.luau
 - src/client/Inventory/EquipmentClient.luau
-- src/client/ui/controllers/InventoryUIController.luau
+- src/client/ui/runtime/InventoryMenuRuntime.luau
 
 ---
 

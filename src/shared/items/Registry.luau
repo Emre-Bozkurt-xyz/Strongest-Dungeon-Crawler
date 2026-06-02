@@ -5,19 +5,48 @@ local ItemTypes = require(script.Parent.ItemTypes)
 
 local Registry = {}
 
-local defs = {
-	ManaPotion = require(script.Parent.Defs.ManaPotion),
-	IronSword = require(script.Parent.Defs.IronSword),
-	LeatherChest = require(script.Parent.Defs.LeatherChest),
-}
-
 local byId: { [string]: ItemTypes.ItemDef } = {}
 
-for _, def in pairs(defs) do
-	assert(def and type(def) == "table", "Item def must be a table")
-	assert(type(def.id) == "string" and def.id ~= "", "Item def missing id")
+local function registerDef(def: ItemTypes.ItemDef, sourceName: string)
+	assert(def and type(def) == "table", `Item def '{sourceName}' must be a table`)
+	assert(type(def.id) == "string" and def.id ~= "", `Item def '{sourceName}' missing id`)
+	assert(byId[def.id] == nil, `Duplicate item def id '{def.id}' from '{sourceName}'`)
 	byId[def.id] = def
 end
+
+local function loadDefModule(module: ModuleScript)
+	registerDef(require(module) :: ItemTypes.ItemDef, module:GetFullName())
+end
+
+local function loadFlatDefs(folder: Instance?)
+	if not folder then
+		return
+	end
+	for _, child in ipairs(folder:GetChildren()) do
+		if child:IsA("ModuleScript") then
+			loadDefModule(child)
+		end
+	end
+end
+
+local function loadEquipmentPackages(folder: Instance?)
+	if not folder then
+		return
+	end
+	for _, package in ipairs(folder:GetChildren()) do
+		if package:IsA("ModuleScript") then
+			loadDefModule(package)
+		elseif package:IsA("Folder") then
+			local init = package:FindFirstChild("init") or package:FindFirstChild("Init")
+			if init and init:IsA("ModuleScript") then
+				loadDefModule(init)
+			end
+		end
+	end
+end
+
+loadEquipmentPackages(script.Parent:FindFirstChild("Equipment"))
+loadFlatDefs(script.Parent:FindFirstChild("Defs"))
 
 function Registry.get(itemId: string): ItemTypes.ItemDef?
 	return byId[itemId]

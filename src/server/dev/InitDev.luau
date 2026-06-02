@@ -2,7 +2,6 @@
 -- Server dev-only hooks (testing, debug, demo setup).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local HttpService = game:GetService("HttpService")
 
 local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
 local AttributeTypes = require(ReplicatedStorage.Shared.AttributeTypes)
@@ -11,6 +10,24 @@ local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local SkillQueryTypes = require(ReplicatedStorage.Shared.skills.SkillQueryTypes)
 
 local Dev = {}
+local devTuneRemote: RemoteEvent? = nil
+local devTuneConn: RBXScriptConnection? = nil
+
+local function ensureDevTuneRemote(): RemoteEvent
+	if devTuneRemote and devTuneRemote.Parent then
+		return devTuneRemote
+	end
+	local existing = ReplicatedStorage:FindFirstChild("DevTuneRemote")
+	if existing and existing:IsA("RemoteEvent") then
+		devTuneRemote = existing
+		return existing
+	end
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = "DevTuneRemote"
+	remote.Parent = ReplicatedStorage
+	devTuneRemote = remote
+	return remote
+end
 
 function Dev.start(ctx)
 	DebugConfig.setMany({
@@ -19,6 +36,32 @@ function Dev.start(ctx)
 		session = true,
 		projectiles = true,
 	})
+
+	local remote = ensureDevTuneRemote()
+	if not devTuneConn then
+		devTuneConn = remote.OnServerEvent:Connect(function(player: Player, rawCommand: any)
+			if type(rawCommand) ~= "string" then
+				return
+			end
+			-- Studio-only relay: lets Client Command Bar trigger tuning commands
+			-- by firing this remote from client context.
+			remote:FireClient(player, rawCommand)
+		end)
+	end
+
+	local g: any = _G
+	g.DevTune = function(commandOrPlayer: any, maybeCommand: any)
+		if typeof(commandOrPlayer) == "Instance" and commandOrPlayer:IsA("Player") and type(maybeCommand) == "string" then
+			remote:FireClient(commandOrPlayer, maybeCommand)
+			return
+		end
+		if type(commandOrPlayer) == "string" then
+			remote:FireAllClients(commandOrPlayer)
+			return
+		end
+		warn("[DevTune] Usage: _G.DevTune(\"set Camera.baseline.shoulderBack 5.2\")")
+		warn("[DevTune]    or: _G.DevTune(player, \"set Camera.baseline.shoulderBack 5.2\")")
+	end
 end
 
 function Dev.onPlayerReady(player: Player, character: Model)
@@ -40,6 +83,9 @@ function Dev.onPlayerReady(player: Player, character: Model)
 
 	npcSpawner.spawn("Dummy", {
 		position = Vector3.new(90, 5, 0),
+	})
+	npcSpawner.spawn("Slime", {
+		position = Vector3.new(100, 5, 0),
 	})
 
 	skillsManager.addSkill(playerId, "Punch")

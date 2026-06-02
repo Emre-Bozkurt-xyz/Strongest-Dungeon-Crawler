@@ -2,9 +2,15 @@
 -- World GUI Manager - Handles positioning and management of world-space GUI panels
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local WorldPanelRegistry = require(script.Parent.ui.world.WorldPanelRegistry)
+local WorldPanelVisibilityAnimator = require(script.Parent.ui.world.WorldPanelVisibilityAnimator)
+local CharacterFacingController = require(script.Parent.CharacterFacingController)
+local SharedConfig = require(ReplicatedStorage.Shared.Config)
+local DevTuningService = require(script.Parent.dev.DevTuningService)
 
 local WorldGUIManager = {}
 WorldGUIManager.__index = WorldGUIManager
@@ -13,13 +19,19 @@ type WorldGUIManagerType = {
 	player: Player,
 	camera: Camera,
 	panels: { [string]: PanelConfig },
-	heartbeatConnection: RBXScriptConnection?,
+	updateLoopBound: boolean,
 	lastTargetUpdateTime: number,
 	cachedTargetPosition: Vector3?,
 	cachedTargetRotation: CFrame?,
 	smoothCamPart: BasePart?, -- Smooth camera part for buttery movement
 	lastAngleBetween: number?, -- Track previous angle to detect direction of change
 	currentTween: Tween?, -- Track current movement tween
+	_panelGroups: { [string]: { [string]: any } },
+	_groupRuntime: { [string]: { [string]: any } },
+	_frozenPanels: { [string]: boolean },
+	_panelVisOps: { [string]: number },
+	_panelVisSeq: number,
+	_activeVisTweens: { [Instance]: Tween },
 	-- Remove PID controller complexity
 	registerPanel: (self: WorldGUIManagerType, config: PanelConfig) -> (),
 	unregisterPanel: (self: WorldGUIManagerType, name: string) -> (),
@@ -36,57 +48,70 @@ type WorldGUIManagerType = {
 	_getIdealPanelRotation: (self: WorldGUIManagerType, panelPosition: Vector3) -> CFrame,
 	_updatePanelPosition: (self: WorldGUIManagerType, config: PanelConfig, deltaTime: number) -> (),
 	_startUpdateLoop: (self: WorldGUIManagerType) -> (),
-	getGUIPosition: (self: WorldGUIManagerType) -> Vector3,
+	_stopUpdateLoop: (self: WorldGUIManagerType) -> (),
+	getPanelTargetPosition: (self: WorldGUIManagerType, panelName: string) -> Vector3?,
+	getPanelSnapshot: (self: WorldGUIManagerType, panelName: string) -> PanelSnapshot?,
+	getPanelLayoutWidth: (self: WorldGUIManagerType, panelName: string) -> number?,
+	updatePanel: (self: WorldGUIManagerType, panelName: string, fields: PanelMutableFields) -> (),
 	setPanelFrozen: (self: WorldGUIManagerType, panelName: string, frozen: boolean) -> (),
 	setPanelFollowMode: (self: WorldGUIManagerType, panelName: string, mode: "player" | "camera" | "target") -> (),
 	_snapPanelToTarget: (self: WorldGUIManagerType, config: PanelConfig) -> (),
-	setGroupLayout: (self: WorldGUIManagerType, groupName: string, layout: { [string]: any }) -> (),
+	setGroupBasisYaw: (self: WorldGUIManagerType, groupName: string, yaw: number?) -> (),
+	getGroupBasisYaw: (self: WorldGUIManagerType, groupName: string) -> number?,
+	getGroupParams: (self: WorldGUIManagerType, groupName: string) -> { [string]: any }?,
+	setPanelTargetOverrideProvider: (self: WorldGUIManagerType, panelName: string, provider: (() -> Vector3?)?) -> (),
 }
 
--- Configuration
-local GUI_OFFSET = Vector3.new(0, 1.5, -3.5)
+local WorldGUIConfig = SharedConfig.WorldGUI
+local WORLD_GUI_RENDER_STEP_NAME = "StrongestDungeonCrawler.WorldGUIManager"
 -- Camera-relative placement for panels that should follow the camera rather than the player
-local CAMERA_PANEL_FORWARD = 4.0 -- default studs in front of camera (non-SystemPanel or legacy)
-local CAMERA_PANEL_FORWARD_OS = 3.5 -- Over-Shoulder (Scriptable) ideal distance for SystemPanel
-local CAMERA_PANEL_FORWARD_FREE = 3.5 -- Free camera (Custom) ideal distance for SystemPanel
-local CAMERA_PANEL_RIGHT = 0.0 -- shift to the right (positive) or left (negative)
-local CAMERA_PANEL_UP = -0.5 -- slight downward offset to better frame content
-local BASE_LERP_SPEED = 8.0 -- Base lerp speed
+local CAMERA_PANEL_FORWARD = WorldGUIConfig.cameraPanel.forward
+local CAMERA_PANEL_FORWARD_OS = WorldGUIConfig.cameraPanel.forwardOverShoulder
+local CAMERA_PANEL_FORWARD_FREE = WorldGUIConfig.cameraPanel.forwardFree
+local CAMERA_PANEL_RIGHT = WorldGUIConfig.cameraPanel.right
+local CAMERA_PANEL_UP = WorldGUIConfig.cameraPanel.up
+local BASE_LERP_SPEED = WorldGUIConfig.defaults.baseLerpSpeed
+local UIMenuConfig = SharedConfig.UIMenu
+
+local function num(path: string, fallback: number): number
+	local v = DevTuningService.get(path)
+	return if type(v) == "number" then v else fallback
+end
+
+local function applyWorldGUITuning()
+	BASE_LERP_SPEED = num("WorldGUI.defaults.baseLerpSpeed", WorldGUIConfig.defaults.baseLerpSpeed)
+	CAMERA_PANEL_FORWARD = num("WorldGUI.cameraPanel.forward", WorldGUIConfig.cameraPanel.forward)
+	CAMERA_PANEL_FORWARD_OS = num("WorldGUI.cameraPanel.forwardOverShoulder", WorldGUIConfig.cameraPanel.forwardOverShoulder)
+	CAMERA_PANEL_FORWARD_FREE = num("WorldGUI.cameraPanel.forwardFree", WorldGUIConfig.cameraPanel.forwardFree)
+	CAMERA_PANEL_RIGHT = num("WorldGUI.cameraPanel.right", WorldGUIConfig.cameraPanel.right)
+	CAMERA_PANEL_UP = num("WorldGUI.cameraPanel.up", WorldGUIConfig.cameraPanel.up)
+end
+
+applyWorldGUITuning()
+DevTuningService.subscribe("WorldGUI", function()
+	applyWorldGUITuning()
+end)
 
 -- Track active tweens per instance to avoid overlapping animations
-local activeVisTweens: { [Instance]: Tween } = {}
-local function playTweenReplace(inst: Instance, info: TweenInfo, props: { [string]: any })
-	local existing = activeVisTweens[inst]
+local function playTweenReplace(self: WorldGUIManagerType, inst: Instance, info: TweenInfo, props: { [string]: any })
+	local tweenMap = (self :: any)._activeVisTweens :: { [Instance]: Tween }
+	local existing = tweenMap[inst]
 	if existing then
 		pcall(function()
 			existing:Cancel()
 		end)
 	end
-	local tween = TweenService:Create(inst, info, props)
-	activeVisTweens[inst] = tween
-	tween.Completed:Connect(function()
-		-- Only clear if this tween is still the current one
-		if activeVisTweens[inst] == tween then
-			activeVisTweens[inst] = nil
-		end
-	end)
-	tween:Play()
-	return tween
+	return WorldPanelVisibilityAnimator.playReplace(tweenMap, inst, info, props)
 end
-
--- Track latest visibility operation per panel to guard delayed actions
-local panelVisOps: { [string]: number } = {}
-local panelVisSeq = 0
 
 type PanelConfig = {
 	name: string,
 	part: BasePart,
 	group: string?, -- Optional panel group (shared params)
-	layoutGroup: string?, -- Optional layout group for multi-panel placement
 	offset: Vector3?, -- Optional custom offset from default position
 	camSpaceOffset: Vector3?, -- Optional camera-space offset (X=right, Y=up, Z=forward)
 	playerSpaceOffset: Vector3?, -- Optional player-space offset (X=right, Y=up, Z=forward)
-	_basePlayerSpaceOffset: Vector3?, -- Internal: original playerSpaceOffset for layout deltas
+	_basePlayerSpaceOffset: Vector3?, -- Internal: authored/tuned player-space offset
 	playerOffsetMode: "full" | "yaw"?, -- Optional: use yaw-only axes for playerSpaceOffset
 	faceCamera: boolean?, -- Whether panel should face the camera (default true)
 	faceMode: "camera" | "player" | "playerYaw" | "target"?, -- Optional facing behavior (default "camera")
@@ -99,206 +124,87 @@ type PanelConfig = {
 	radiusPadding: number?, -- Optional extra min-radius padding (e.g. panel depth/2)
 	lerpSpeed: number?, -- Optional per-panel lerp speed (defaults to BASE_LERP_SPEED)
 	visible: boolean?, -- Current visibility state
+	targetOverrideProvider: (() -> Vector3?)?,
+}
+
+type PanelMutableFields = {
+	group: string?,
+	offset: Vector3?,
+	camSpaceOffset: Vector3?,
+	playerSpaceOffset: Vector3?,
+	playerOffsetMode: "full" | "yaw"?,
+	faceMode: "camera" | "player" | "playerYaw" | "target"?,
+	faceBlend: number?,
+	followMode: "player" | "camera" | "target"?,
+	followTarget: BasePart?,
+	followModeLock: boolean?,
+	minRadius: number?,
+	maxRadius: number?,
+	radiusPadding: number?,
+	lerpSpeed: number?,
+	targetOverrideProvider: (() -> Vector3?)?,
+}
+
+type PanelSnapshot = {
+	name: string,
+	part: BasePart,
+	group: string?,
+	offset: Vector3,
+	camSpaceOffset: Vector3,
+	playerSpaceOffset: Vector3,
+	basePlayerSpaceOffset: Vector3,
+	playerOffsetMode: "full" | "yaw"?,
+	faceMode: "camera" | "player" | "playerYaw" | "target"?,
+	faceBlend: number?,
+	followMode: "player" | "camera" | "target"?,
+	followTarget: BasePart?,
+	followModeLock: boolean?,
+	minRadius: number?,
+	maxRadius: number?,
+	radiusPadding: number?,
+	lerpSpeed: number?,
+	visible: boolean,
 }
 
 local WorldGUIManager_Instance = nil
-local frozenPanels: { [string]: boolean } = {}
-local panelGroups: { [string]: { [string]: any } } = {}
 
-local function getPanelWidth(config: PanelConfig): number
-	local override = (config :: any).layoutWidth
-	if type(override) == "number" and override > 0 then
-		return override
+local function getEffectivePlayerSpaceOffset(config: PanelConfig): Vector3
+	local base = (config :: any)._basePlayerSpaceOffset
+	if typeof(base) ~= "Vector3" then
+		base = (config :: any).playerSpaceOffset or Vector3.new(0, 0, 0)
 	end
-	local attrWidth = config.part:GetAttribute("LayoutWidth")
-	if type(attrWidth) == "number" and attrWidth > 0 then
-		return attrWidth
-	end
-	local function widthFromFace(part: BasePart, face: Enum.NormalId?): number
-		local useFace = face or Enum.NormalId.Front
-		if useFace == Enum.NormalId.Left or useFace == Enum.NormalId.Right then
-			return part.Size.Z
-		end
-		if useFace == Enum.NormalId.Top or useFace == Enum.NormalId.Bottom then
-			return part.Size.X
-		end
-		return part.Size.X
-	end
+	return base :: Vector3
+end
 
-	local largestFromGui = 0
-	for _, child in ipairs(config.part:GetChildren()) do
-		if child:IsA("SurfaceGui") then
-			if child.SizingMode == Enum.SurfaceGuiSizingMode.PixelsPerStud then
-				local pps = child.PixelsPerStud
-				local canvas = child.CanvasSize
-				if pps and pps > 0 and canvas and canvas.X > 0 then
-					largestFromGui = math.max(largestFromGui, canvas.X / pps)
-				end
-			else
-				largestFromGui = math.max(largestFromGui, widthFromFace(config.part, child.Face))
-			end
-		end
+local function getPanelLayoutWidthFromConfig(config: PanelConfig): number
+	local layoutWidth = config.part:GetAttribute("LayoutWidth")
+	if type(layoutWidth) == "number" and layoutWidth > 0 then
+		return layoutWidth
 	end
-	if largestFromGui > 0 then
-		return largestFromGui
-	end
-	-- Use the larger axis to avoid overlaps when panel parts are oriented with width on Z.
 	return math.max(config.part.Size.X, config.part.Size.Z)
 end
 
-local function getLayoutAxisFromPlayer(self: WorldGUIManagerType): Vector3
-	local char = self.player.Character
-	local hrp = char and char:FindFirstChild("HumanoidRootPart")
-	if hrp and hrp:IsA("BasePart") then
-		local right = Vector3.new(hrp.CFrame.RightVector.X, 0, hrp.CFrame.RightVector.Z)
-		if right.Magnitude > 1e-4 then
-			return right.Unit
-		end
-	end
-	return Vector3.xAxis
-end
-
-local function getLayoutAxis(self: WorldGUIManagerType, layout: { [string]: any }): Vector3
-	if layout.space == "camera" and self.camera then
-		local axis = self.camera.CFrame.RightVector
-		if axis.Magnitude > 1e-4 then
-			return axis.Unit
-		end
-	end
-	return getLayoutAxisFromPlayer(self)
-end
-
-local function getPanelHalfExtentOnAxis(config: PanelConfig, axis: Vector3): number
-	local part = config.part
-	local half = part.Size * 0.5
-	local cf = part.CFrame
-	local projectedHalfExtent = math.abs(cf.RightVector:Dot(axis)) * half.X
-		+ math.abs(cf.UpVector:Dot(axis)) * half.Y
-		+ math.abs(cf.LookVector:Dot(axis)) * half.Z
-	local nominalHalfWidth = getPanelWidth(config) * 0.5
-	return math.max(nominalHalfWidth, projectedHalfExtent)
-end
-
-local function applyGroupLayout(self: WorldGUIManagerType, groupName: string)
-	local group = panelGroups[groupName]
-	if not group or not group.layout then
-		return
-	end
-	local layout = group.layout
-	local order: { string } = layout.order or {}
-	if #order == 0 then
-		return
-	end
-	local surface = layout.surface or "line"
-	local arcRadius = layout.arcRadius or 18
-	local arcDepthScale = layout.arcDepthScale or 1
-	local arcToward = layout.arcToward
-	local anchorName = layout.anchor or order[1]
-	local spacing = layout.spacing or 0.4
-	local includeHidden = layout.includeHidden == true
-	local layoutAxis = getLayoutAxis(self, layout)
-
-	local anchorIndex = nil
-	for i, name in ipairs(order) do
-		if name == anchorName then
-			anchorIndex = i
-			break
-		end
-	end
-	if not anchorIndex then
-		anchorIndex = 1
-	end
-
-	local anchorCfg = self.panels[order[anchorIndex]]
-	local placed: { [string]: number } = {}
-	local function shouldPlace(cfg: PanelConfig)
-		return includeHidden or cfg.visible
-	end
-	local function getArcDepthSign(): number
-		if type(layout.arcDepthSign) == "number" and layout.arcDepthSign ~= 0 then
-			return layout.arcDepthSign > 0 and 1 or -1
-		end
-		-- Default behavior preserved for existing callers.
-		local sign = -1
-		if arcToward == "camera" and self.camera and anchorCfg then
-			local anchorPos = anchorCfg.part.Position
-			local camDelta = self.camera.CFrame.Position - anchorPos
-			local char = self.player.Character
-			local hrp = char and char:FindFirstChild("HumanoidRootPart")
-			if hrp and hrp:IsA("BasePart") then
-				local forward = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z)
-				if forward.Magnitude <= 1e-4 then
-					forward = Vector3.new(0, 0, -1)
-				else
-					forward = forward.Unit
-				end
-				if forward.Magnitude > 1e-4 then
-					local dir = camDelta:Dot(forward)
-					if math.abs(dir) > 1e-4 then
-						sign = dir > 0 and 1 or -1
-					end
-				end
-			end
-		elseif arcToward == "away" then
-			sign = 1
-		end
-		return sign
-	end
-	local arcDepthSign = getArcDepthSign()
-	local function scalarToLayoutOffset(s: number): Vector3
-		if surface == "arc" then
-			local radius = math.max(0.1, arcRadius)
-			local theta = s / radius
-			local x = math.sin(theta) * radius
-			local z = arcDepthSign * (1 - math.cos(theta)) * radius * arcDepthScale
-			return Vector3.new(x, 0, z)
-		end
-		return Vector3.new(s, 0, 0)
-	end
-
-	if anchorCfg and shouldPlace(anchorCfg) then
-		placed[anchorCfg.name] = 0
-	end
-
-	local lastName = anchorCfg and anchorCfg.name or nil
-	local lastHalfExtent = anchorCfg and getPanelHalfExtentOnAxis(anchorCfg, layoutAxis) or 0
-
-	for i = anchorIndex + 1, #order do
-		local name = order[i]
-		local cfg = self.panels[name]
-		if cfg and shouldPlace(cfg) then
-			local halfExtent = getPanelHalfExtentOnAxis(cfg, layoutAxis)
-			local offset = lastHalfExtent + halfExtent + spacing
-			local x = (placed[lastName] or 0) + offset
-			placed[name] = x
-			lastName = name
-			lastHalfExtent = halfExtent
-		end
-	end
-
-	lastName = anchorCfg and anchorCfg.name or nil
-	lastHalfExtent = anchorCfg and getPanelHalfExtentOnAxis(anchorCfg, layoutAxis) or 0
-	for i = anchorIndex - 1, 1, -1 do
-		local name = order[i]
-		local cfg = self.panels[name]
-		if cfg and shouldPlace(cfg) then
-			local halfExtent = getPanelHalfExtentOnAxis(cfg, layoutAxis)
-			local offset = lastHalfExtent + halfExtent + spacing
-			local x = (placed[lastName] or 0) - offset
-			placed[name] = x
-			lastName = name
-			lastHalfExtent = halfExtent
-		end
-	end
-
-	for name, x in pairs(placed) do
-		local cfg = self.panels[name]
-		if cfg then
-			local base = cfg._basePlayerSpaceOffset or Vector3.new()
-			local layoutOffset = scalarToLayoutOffset(x)
-			cfg.playerSpaceOffset = Vector3.new(base.X + layoutOffset.X, base.Y + layoutOffset.Y, base.Z + layoutOffset.Z)
-		end
-	end
+local function buildPanelSnapshot(config: PanelConfig): PanelSnapshot
+	return {
+		name = config.name,
+		part = config.part,
+		group = config.group,
+		offset = config.offset or Vector3.zero,
+		camSpaceOffset = config.camSpaceOffset or Vector3.zero,
+		playerSpaceOffset = config.playerSpaceOffset or Vector3.zero,
+		basePlayerSpaceOffset = getEffectivePlayerSpaceOffset(config),
+		playerOffsetMode = config.playerOffsetMode,
+		faceMode = config.faceMode,
+		faceBlend = config.faceBlend,
+		followMode = config.followMode,
+		followTarget = config.followTarget,
+		followModeLock = config.followModeLock,
+		minRadius = config.minRadius,
+		maxRadius = config.maxRadius,
+		radiusPadding = config.radiusPadding,
+		lerpSpeed = config.lerpSpeed,
+		visible = config.visible == true,
+	}
 end
 
 local function clampRadius(anchor: Vector3, desired: Vector3, minRadius: number?, maxRadius: number?): Vector3
@@ -323,31 +229,6 @@ local function clampRadius(anchor: Vector3, desired: Vector3, minRadius: number?
 	return desired
 end
 
-local function clampPositionAlongDesired(anchor: Vector3, desired: Vector3, pos: Vector3, minRadius: number?, maxRadius: number?): Vector3
-	if minRadius == nil and maxRadius == nil then
-		return pos
-	end
-	local desiredOffset = desired - anchor
-	local desiredDist = desiredOffset.Magnitude
-	if desiredDist <= 1e-4 then
-		return pos
-	end
-	local desiredDir = desiredOffset / desiredDist
-	local offset = pos - anchor
-	local dist = offset.Magnitude
-	local targetDist = dist
-	if type(minRadius) == "number" and dist < minRadius then
-		targetDist = minRadius
-	end
-	if type(maxRadius) == "number" and dist > maxRadius then
-		targetDist = maxRadius
-	end
-	if targetDist ~= dist then
-		return anchor + desiredDir * targetDist
-	end
-	return pos
-end
-
 local function computeYawAxes(root: BasePart): (Vector3, Vector3, Vector3)
 	local forward = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
 	if forward.Magnitude <= 1e-4 then
@@ -365,6 +246,188 @@ local function computeYawAxes(root: BasePart): (Vector3, Vector3, Vector3)
 	return right, up, forward
 end
 
+local function computeYawAxesFromYaw(yaw: number): (Vector3, Vector3, Vector3)
+	local forward = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
+	if forward.Magnitude <= 1e-4 then
+		forward = Vector3.new(0, 0, -1)
+	else
+		forward = forward.Unit
+	end
+	local up = Vector3.yAxis
+	local right = forward:Cross(up)
+	if right.Magnitude <= 1e-4 then
+		right = Vector3.new(1, 0, 0)
+	else
+		right = right.Unit
+	end
+	return right, up, forward
+end
+
+local function getMenuGroupName(): string
+	local tuned = DevTuningService.get("UIMenu.groupName")
+	if type(tuned) == "string" and tuned ~= "" then
+		return tuned
+	end
+	return UIMenuConfig.groupName
+end
+
+local function shouldUseGroupBasis(groupName: string?, offsetMode: string?): boolean
+	return groupName == getMenuGroupName() and offsetMode == "yaw"
+end
+
+local function resolveOffsetAxes(self: WorldGUIManagerType, groupName: string?, root: BasePart, offsetMode: string?): (Vector3, Vector3, Vector3)
+	if shouldUseGroupBasis(groupName, offsetMode) then
+		local runtime = (self :: any)._groupRuntime
+		local groupRuntime = runtime and runtime[groupName or ""]
+		local basisYaw = groupRuntime and groupRuntime.basisYaw
+		if type(basisYaw) == "number" then
+			return computeYawAxesFromYaw(basisYaw)
+		end
+	end
+	if offsetMode == "yaw" then
+		return computeYawAxes(root)
+	end
+	return root.CFrame.RightVector, root.CFrame.UpVector, root.CFrame.LookVector
+end
+
+local function getRadiusLimits(self: WorldGUIManagerType, config: PanelConfig): (number?, number?)
+	local group = config.group and self._panelGroups[config.group] or nil
+	local padding = (config :: any).radiusPadding or (group and group.radiusPadding) or 0
+	local minRadius = (config :: any).minRadius or (group and group.minRadius) or nil
+	if type(minRadius) == "number" then
+		minRadius = minRadius + padding
+	end
+	local maxRadius = (config :: any).maxRadius or (group and group.maxRadius) or nil
+	return minRadius, maxRadius
+end
+
+local function smoothTowardTarget(current: CFrame, target: CFrame, deltaTime: number, speed: number): CFrame
+	local alpha = 1 - math.exp(-math.max(0.1, speed) * math.max(0, deltaTime))
+	return current:Lerp(target, alpha)
+end
+
+local function resolvePanelTargetPosition(self: WorldGUIManagerType, config: PanelConfig): Vector3?
+	if not config.part or not config.name then
+		return nil
+	end
+
+	local overrideProvider = (config :: any).targetOverrideProvider
+	if overrideProvider ~= nil then
+		local ok, overridePosition = pcall(overrideProvider)
+		if ok and typeof(overridePosition) == "Vector3" then
+			return overridePosition
+		end
+	end
+
+	local mode = (config.followMode or "player") :: any
+	if mode == "target" then
+		local tgt = config.followTarget
+		if not tgt or not tgt.Parent then
+			return nil
+		end
+
+		local desired = tgt.Position + (config.offset or Vector3.new(0, 0, 0))
+		local pso = getEffectivePlayerSpaceOffset(config)
+		if pso.X ~= 0 or pso.Y ~= 0 or pso.Z ~= 0 then
+			local group = config.group and self._panelGroups[config.group] or nil
+			local offsetMode = (config :: any).playerOffsetMode or (group and group.playerOffsetMode)
+			local r, u, f = resolveOffsetAxes(self, config.group, tgt, offsetMode)
+			desired += r * pso.X + u * pso.Y + f * pso.Z
+		end
+
+		local minRadius, maxRadius = getRadiusLimits(self, config)
+		return clampRadius(tgt.Position, desired, minRadius, maxRadius)
+	end
+
+	if mode == "camera" then
+		local cam = self.camera
+		if not cam then
+			return nil
+		end
+
+		local camCF = cam.CFrame
+		local right = camCF.RightVector
+		local up = camCF.UpVector
+		local look = camCF.LookVector
+		local basePos = camCF.Position
+		local forwardDist = CAMERA_PANEL_FORWARD
+		if config.name == "SystemPanel" then
+			if cam.CameraType == Enum.CameraType.Scriptable then
+				forwardDist = CAMERA_PANEL_FORWARD_OS
+			else
+				forwardDist = CAMERA_PANEL_FORWARD_FREE
+			end
+		end
+
+		local desired = basePos + right * CAMERA_PANEL_RIGHT + up * CAMERA_PANEL_UP + look * forwardDist
+		desired += config.offset or Vector3.new(0, 0, 0)
+
+		local cso = config.camSpaceOffset or Vector3.new(0, 0, 0)
+		if cso.X ~= 0 or cso.Y ~= 0 or cso.Z ~= 0 then
+			desired += right * cso.X + up * cso.Y + look * cso.Z
+		end
+
+		local minRadius, maxRadius = getRadiusLimits(self, config)
+		desired = clampRadius(basePos, desired, minRadius, maxRadius)
+
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		local exclude = {}
+		if self.player.Character then
+			table.insert(exclude, self.player.Character)
+		end
+		table.insert(exclude, config.part)
+		params.FilterDescendantsInstances = (exclude :: any) :: { Instance }
+		local toDesired = desired - basePos
+		local dist = toDesired.Magnitude
+		if dist > 0 then
+			local hit = Workspace:Raycast(basePos, toDesired, params)
+			if hit then
+				local safe = math.max(hit.Distance - 0.5, 2.75)
+				desired = basePos + toDesired.Unit * safe
+			end
+		end
+
+		return clampRadius(basePos, desired, minRadius, maxRadius)
+	end
+
+	if not self.player.Character then
+		return nil
+	end
+	local playerRootPart = self.player.Character:FindFirstChild("HumanoidRootPart")
+	if not playerRootPart or not playerRootPart:IsA("BasePart") then
+		return nil
+	end
+
+	local root = playerRootPart
+	local playerPosition = root.Position
+	local targetPosition = playerPosition + (config.offset or Vector3.new(0, 0, 0))
+	local pso = getEffectivePlayerSpaceOffset(config)
+	if pso.X ~= 0 or pso.Y ~= 0 or pso.Z ~= 0 then
+		local group = config.group and self._panelGroups[config.group] or nil
+		local offsetMode = (config :: any).playerOffsetMode or (group and group.playerOffsetMode)
+		local r, u, f = resolveOffsetAxes(self, config.group, root, offsetMode)
+		local overrideForward = CharacterFacingController.getInstance():getPresentationBasisForward(root)
+		if overrideForward and overrideForward.Magnitude > 1e-4 then
+			f = overrideForward.Unit
+			u = Vector3.yAxis
+			r = f:Cross(u)
+		end
+		targetPosition += r * pso.X + u * pso.Y + f * pso.Z
+	end
+
+	local minRadius, maxRadius = getRadiusLimits(self, config)
+	return clampRadius(playerPosition, targetPosition, minRadius, maxRadius)
+end
+
+local function resolvePanelTargetCFrame(self: WorldGUIManagerType, config: PanelConfig): CFrame?
+	local targetPosition = resolvePanelTargetPosition(self, config)
+	if not targetPosition then
+		return nil
+	end
+	return self:_getIdealPanelRotation(config, targetPosition)
+end
+
 function WorldGUIManager.new()
 	if WorldGUIManager_Instance then
 		return WorldGUIManager_Instance
@@ -373,10 +436,17 @@ function WorldGUIManager.new()
 	local self = setmetatable({}, WorldGUIManager)
 	WorldGUIManager_Instance = self
 
+	local registry = WorldPanelRegistry.new()
 	self.player = Players.LocalPlayer
 	self.camera = Workspace.CurrentCamera
-	self.panels = {} :: { [string]: PanelConfig }
-	self.heartbeatConnection = nil :: RBXScriptConnection?
+	self.panels = registry.panels :: { [string]: PanelConfig }
+	self._panelGroups = registry.groups :: { [string]: { [string]: any } }
+	self._groupRuntime = {} :: { [string]: { [string]: any } }
+	self._frozenPanels = registry.frozen :: { [string]: boolean }
+	self._panelVisOps = registry.visibilityOps :: { [string]: number }
+	self._panelVisSeq = registry.visibilitySeq :: number
+	self._activeVisTweens = registry.activeTweens :: { [Instance]: Tween }
+	self.updateLoopBound = false
 
 	self:_startUpdateLoop()
 
@@ -462,49 +532,6 @@ function WorldGUIManager:_getIdealPanelRotation(config: PanelConfig, panelPositi
 	return CFrame.lookAt(panelPosition, cameraPosition, Vector3.new(0, 1, 0))
 end
 
--- Compute an ideal world position for the camera to reference/aim at
-function WorldGUIManager:_getIdealPanelPosition(customOffset: Vector3?): Vector3
-	local offset = customOffset or Vector3.new(0, 0, 0)
-
-	-- Prefer an explicitly visible panel (e.g., SystemPanel)
-	local systemCfg: any = self.panels["SystemPanel"]
-	if systemCfg and systemCfg.part and (systemCfg.visible or true) then
-		local p: any = systemCfg.part
-		return p.Position + offset
-	end
-
-	-- Otherwise, use the first visible panel; if none marked visible, just take the first registered
-	for _, cfgAny in pairs(self.panels) do
-		local cfg: any = cfgAny
-		if cfg.part and cfg.visible then
-			local p: any = cfg.part
-			return p.Position + offset
-		end
-	end
-	for _, cfgAny in pairs(self.panels) do
-		local cfg: any = cfgAny
-		if cfg.part then
-			local p: any = cfg.part
-			return p.Position + offset
-		end
-	end
-
-	-- Fallback: head-level in front of the player
-	if self.player.Character then
-		local hrp = self.player.Character:FindFirstChild("HumanoidRootPart")
-		if hrp and hrp:IsA("BasePart") then
-			local h: any = hrp
-			return h.Position + Vector3.new(0, GUI_OFFSET.Y, 0) + offset
-		end
-	end
-
-	-- Last resort: camera position (no offset)
-	return self.camera.CFrame.Position
-end
-
--- Check if player is looking at the panel (within tolerance) and return lerp speed modifier
--- Player-follow uses anchored placement; no distance/look smoothing is applied
-
 -- Update a single panel's position and rotation
 function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: number)
 	if not config.part or not config.name then
@@ -512,320 +539,34 @@ function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: nu
 		return
 	end
 
-	-- Camera-relative follow mode: keep panel readable in front of the camera
-	local mode = (config.followMode or "player") :: any
-	if mode == "target" then
-		local tgt = config.followTarget
-		if not tgt or not tgt.Parent then return end
-		local desired: Vector3 = tgt.Position
-		local off: Vector3 = config.offset or Vector3.new(0, 0, 0)
-		desired += off
-		local pso: Vector3 = (config :: any).playerSpaceOffset or Vector3.new(0, 0, 0)
-		if pso.X ~= 0 or pso.Y ~= 0 or pso.Z ~= 0 then
-			local group = config.group and panelGroups[config.group] or nil
-			local offsetMode = (config :: any).playerOffsetMode or (group and group.playerOffsetMode)
-			local r: Vector3 = tgt.CFrame.RightVector
-			local u: Vector3 = tgt.CFrame.UpVector
-			local f: Vector3 = tgt.CFrame.LookVector
-			if offsetMode == "yaw" then
-				r, u, f = computeYawAxes(tgt)
-			end
-			desired += r * pso.X + u * pso.Y + f * pso.Z
-		end
-		local group = config.group and panelGroups[config.group] or nil
-		local padding = (config :: any).radiusPadding or (group and group.radiusPadding) or 0
-		local minRadius = (config :: any).minRadius or (group and group.minRadius) or nil
-		if type(minRadius) == "number" then
-			minRadius = minRadius + padding
-		end
-		local maxRadius = (config :: any).maxRadius or (group and group.maxRadius) or nil
-		desired = clampRadius(tgt.Position, desired, minRadius, maxRadius)
-		local targetCF = self:_getIdealPanelRotation(config, desired)
-		local group = config.group and panelGroups[config.group] or nil
-		local speed = (config :: any).lerpSpeed or (group and group.lerpSpeed) or BASE_LERP_SPEED
-		local frameRateLerp = 1 - math.exp(-speed * deltaTime)
-		local lerpCF = config.part.CFrame:Lerp(targetCF, frameRateLerp)
-		local clampedPos = clampPositionAlongDesired(tgt.Position, desired, lerpCF.Position, minRadius, maxRadius)
-		if (clampedPos - lerpCF.Position).Magnitude > 1e-4 then
-			lerpCF = lerpCF + (clampedPos - lerpCF.Position)
-		end
-		config.part.CFrame = lerpCF
-		return
-	end
-	if mode == "camera" then
-		local cam = self.camera
-		if cam then
-			local camCF: CFrame = cam.CFrame
-			local right: Vector3 = camCF.RightVector
-			local up: Vector3 = camCF.UpVector
-			local look: Vector3 = camCF.LookVector
-			local basePos: Vector3 = camCF.Position
-			-- Per-panel forward distance: SystemPanel varies by camera mode for readability
-			local forwardDist = CAMERA_PANEL_FORWARD
-			if config.name == "SystemPanel" then
-				if cam.CameraType == Enum.CameraType.Scriptable then
-					forwardDist = CAMERA_PANEL_FORWARD_OS
-				else
-					forwardDist = CAMERA_PANEL_FORWARD_FREE
-				end
-			end
-			local desired: Vector3 = basePos + right * CAMERA_PANEL_RIGHT + up * CAMERA_PANEL_UP + look * forwardDist
-
-			-- Apply optional per-panel world offset
-			local off: Vector3 = config.offset or Vector3.new(0, 0, 0)
-			desired += off
-
-			-- Apply optional camera-space offset (X=right, Y=up, Z=forward)
-			local cso: Vector3 = config.camSpaceOffset or Vector3.new(0, 0, 0)
-			if cso.X ~= 0 or cso.Y ~= 0 or cso.Z ~= 0 then
-				desired += right * cso.X + up * cso.Y + look * cso.Z
-			end
-
-			-- Clamp distance from camera if configured
-			local group = config.group and panelGroups[config.group] or nil
-			local padding = (config :: any).radiusPadding or (group and group.radiusPadding) or 0
-			local minRadius = (config :: any).minRadius or (group and group.minRadius) or nil
-			if type(minRadius) == "number" then
-				minRadius = minRadius + padding
-			end
-			local maxRadius = (config :: any).maxRadius or (group and group.maxRadius) or nil
-			desired = clampRadius(basePos, desired, minRadius, maxRadius)
-
-			-- Raycast to avoid placing the panel behind obstacles (including player)
-			local params = RaycastParams.new()
-			params.FilterType = Enum.RaycastFilterType.Exclude
-			local exclude = {}
-			if self.player.Character then
-				table.insert(exclude, self.player.Character)
-			end
-			-- Exclude the panel itself to avoid self-hits pulling it too close
-			table.insert(exclude, config.part)
-			params.FilterDescendantsInstances = (exclude :: any) :: { Instance }
-			local toDesired = desired - basePos
-			local dist = toDesired.Magnitude
-			if dist > 0 then
-				local hit = Workspace:Raycast(basePos, toDesired, params)
-				if hit then
-					-- Pull panel slightly toward camera to avoid clipping; ensure we don't end up behind the head
-					local safe = math.max(hit.Distance - 0.5, 2.75)
-					desired = basePos + toDesired.Unit * safe
-				end
-			end
-
-			desired = clampRadius(basePos, desired, minRadius, maxRadius)
-
-			local targetCF = self:_getIdealPanelRotation(config, desired)
-			local group = config.group and panelGroups[config.group] or nil
-			local speed = (config :: any).lerpSpeed or (group and group.lerpSpeed) or BASE_LERP_SPEED
-			local frameRateLerp = 1 - math.exp(-speed * deltaTime)
-			local lerpCF = config.part.CFrame:Lerp(targetCF, frameRateLerp)
-			local clampedPos = clampPositionAlongDesired(basePos, desired, lerpCF.Position, minRadius, maxRadius)
-			if (clampedPos - lerpCF.Position).Magnitude > 1e-4 then
-				lerpCF = lerpCF + (clampedPos - lerpCF.Position)
-			end
-			config.part.CFrame = lerpCF
-		end
+	local targetCF = resolvePanelTargetCFrame(self, config)
+	if not targetCF then
 		return
 	end
 
-	-- Player-follow anchored placement
-	local offset: Vector3 = config.offset or Vector3.new(0, 0, 0)
-
-	-- Adjust target position to be within the desired distance range from player
-	if self.player.Character then
-		local playerRootPart = self.player.Character:FindFirstChild("HumanoidRootPart")
-		if playerRootPart and playerRootPart:IsA("BasePart") then
-			local root: BasePart = playerRootPart
-			local playerPosition: Vector3 = root.Position
-
-			local targetPosition = playerPosition + offset
-
-			-- Apply optional player-space offset (relative to player's local axes)
-			local pso: Vector3 = (config :: any).playerSpaceOffset or Vector3.new(0, 0, 0)
-			if pso.X ~= 0 or pso.Y ~= 0 or pso.Z ~= 0 then
-				local group = config.group and panelGroups[config.group] or nil
-				local offsetMode = (config :: any).playerOffsetMode or (group and group.playerOffsetMode)
-				local r: Vector3 = root.CFrame.RightVector
-				local u: Vector3 = root.CFrame.UpVector
-				local f: Vector3 = root.CFrame.LookVector
-				if offsetMode == "yaw" then
-					r, u, f = computeYawAxes(root)
-				end
-				if root:GetAttribute("ExternalFacing") == true then
-					local overrideForward = root:GetAttribute("ExternalFacingForward")
-					if typeof(overrideForward) == "Vector3" and overrideForward.Magnitude > 1e-4 then
-						f = overrideForward.Unit
-						u = Vector3.yAxis
-						r = f:Cross(u)
-					end
-				end
-				targetPosition += r * pso.X + u * pso.Y + f * pso.Z
-			end
-
-			local group = config.group and panelGroups[config.group] or nil
-			local padding = (config :: any).radiusPadding or (group and group.radiusPadding) or 0
-			local minRadius = (config :: any).minRadius or (group and group.minRadius) or nil
-			if type(minRadius) == "number" then
-				minRadius = minRadius + padding
-			end
-			local maxRadius = (config :: any).maxRadius or (group and group.maxRadius) or nil
-			local desired = clampRadius(playerPosition, targetPosition, minRadius, maxRadius)
-			local panelRotation: CFrame = self:_getIdealPanelRotation(config, desired)
-
-			-- Use delta time for frame-rate independent lerping
-			local speed = (config :: any).lerpSpeed or (group and group.lerpSpeed) or BASE_LERP_SPEED
-			local frameRateLerp = 1 - math.exp(-speed * deltaTime)
-			local lerpCF = config.part.CFrame:Lerp(panelRotation, frameRateLerp)
-			local clampedPos = clampPositionAlongDesired(playerPosition, desired, lerpCF.Position, minRadius, maxRadius)
-			if (clampedPos - lerpCF.Position).Magnitude > 1e-4 then
-				lerpCF = lerpCF + (clampedPos - lerpCF.Position)
-			end
-			config.part.CFrame = lerpCF
-		end
-	end
-
-	-- print(`🌐 WorldGUIManager: Updated panel '{config.name}' position and rotation`)
+	local group = config.group and self._panelGroups[config.group] or nil
+	local speed = (config :: any).lerpSpeed or (group and group.lerpSpeed) or BASE_LERP_SPEED
+	config.part.CFrame = smoothTowardTarget(config.part.CFrame, targetCF, deltaTime, speed)
 end
 
--- Snap a panel to its immediate target position for the current followMode (no lerp)
 function WorldGUIManager:_snapPanelToTarget(config: PanelConfig)
 	if not config.part or not config.name then
 		return
 	end
-	local mode = (config.followMode or "player") :: any
-	if mode == "target" then
-		local tgt = config.followTarget
-		if not tgt or not tgt.Parent then return end
-		local desired: Vector3 = tgt.Position + (config.offset or Vector3.new(0, 0, 0))
-		local pso: Vector3 = (config :: any).playerSpaceOffset or Vector3.new(0, 0, 0)
-		if pso.X ~= 0 or pso.Y ~= 0 or pso.Z ~= 0 then
-			local group = config.group and panelGroups[config.group] or nil
-			local offsetMode = (config :: any).playerOffsetMode or (group and group.playerOffsetMode)
-			local r: Vector3 = tgt.CFrame.RightVector
-			local u: Vector3 = tgt.CFrame.UpVector
-			local f: Vector3 = tgt.CFrame.LookVector
-			if offsetMode == "yaw" then
-				r, u, f = computeYawAxes(tgt)
-			end
-			desired += r * pso.X + u * pso.Y + f * pso.Z
-		end
-		local group = config.group and panelGroups[config.group] or nil
-		local padding = (config :: any).radiusPadding or (group and group.radiusPadding) or 0
-		local minRadius = (config :: any).minRadius or (group and group.minRadius) or nil
-		if type(minRadius) == "number" then
-			minRadius = minRadius + padding
-		end
-		local maxRadius = (config :: any).maxRadius or (group and group.maxRadius) or nil
-		desired = clampRadius(tgt.Position, desired, minRadius, maxRadius)
-		config.part.CFrame = self:_getIdealPanelRotation(config, desired)
+
+	local targetCF = resolvePanelTargetCFrame(self, config)
+	if not targetCF then
 		return
 	end
-	if mode == "camera" then
-		local cam = self.camera
-		if not cam then
-			return
-		end
-		local camCF: CFrame = cam.CFrame
-		local right: Vector3 = camCF.RightVector
-		local up: Vector3 = camCF.UpVector
-		local look: Vector3 = camCF.LookVector
-		local basePos: Vector3 = camCF.Position
-		-- Per-panel forward distance: SystemPanel varies by camera mode for readability
-		local forwardDist = CAMERA_PANEL_FORWARD
-		if config.name == "SystemPanel" then
-			if cam.CameraType == Enum.CameraType.Scriptable then
-				forwardDist = CAMERA_PANEL_FORWARD_OS
-			else
-				forwardDist = CAMERA_PANEL_FORWARD_FREE
-			end
-		end
-		local desired: Vector3 = basePos
-			+ right * CAMERA_PANEL_RIGHT
-			+ up * CAMERA_PANEL_UP
-			+ look * forwardDist
-		local off: Vector3 = config.offset or Vector3.new(0, 0, 0)
-		desired += off
-		local cso: Vector3 = (config :: any).camSpaceOffset or Vector3.new(0, 0, 0)
-		if cso.X ~= 0 or cso.Y ~= 0 or cso.Z ~= 0 then
-			desired += right * cso.X + up * cso.Y + look * cso.Z
-		end
-		local group = config.group and panelGroups[config.group] or nil
-		local padding = (config :: any).radiusPadding or (group and group.radiusPadding) or 0
-		local minRadius = (config :: any).minRadius or (group and group.minRadius) or nil
-		if type(minRadius) == "number" then
-			minRadius = minRadius + padding
-		end
-		local maxRadius = (config :: any).maxRadius or (group and group.maxRadius) or nil
-		desired = clampRadius(basePos, desired, minRadius, maxRadius)
-		-- Raycast guard
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Exclude
-		local exclude: { Instance } = {}
-		if self.player.Character then
-			table.insert(exclude, self.player.Character)
-		end
-		table.insert(exclude, config.part)
-		params.FilterDescendantsInstances = exclude
-		local toDesired = desired - basePos
-		local dist = toDesired.Magnitude
-		if dist > 0 then
-			local hit = Workspace:Raycast(basePos, toDesired, params)
-			if hit then
-				local safe = math.max(hit.Distance - 0.5, 2.75)
-				desired = basePos + toDesired.Unit * safe
-			end
-		end
-		desired = clampRadius(basePos, desired, minRadius, maxRadius)
-		config.part.CFrame = self:_getIdealPanelRotation(config, desired)
-		return
-	end
-	-- player follow (anchored)
-	if not self.player.Character then
-		return
-	end
-	local playerRootPart = self.player.Character:FindFirstChild("HumanoidRootPart")
-	if not playerRootPart or not playerRootPart:IsA("BasePart") then
-		return
-	end
-	local root: BasePart = playerRootPart
-	local playerPosition: Vector3 = root.Position
-	local offset: Vector3 = config.offset or Vector3.new(0, 0, 0)
-	local targetPosition = playerPosition + offset
-	local pso: Vector3 = (config :: any).playerSpaceOffset or Vector3.new(0, 0, 0)
-	if pso.X ~= 0 or pso.Y ~= 0 or pso.Z ~= 0 then
-		local group = config.group and panelGroups[config.group] or nil
-		local offsetMode = (config :: any).playerOffsetMode or (group and group.playerOffsetMode)
-		local r2: Vector3 = root.CFrame.RightVector
-		local u2: Vector3 = root.CFrame.UpVector
-		local f2: Vector3 = root.CFrame.LookVector
-		if offsetMode == "yaw" then
-			r2, u2, f2 = computeYawAxes(root)
-		end
-		if root:GetAttribute("ExternalFacing") == true then
-			local overrideForward = root:GetAttribute("ExternalFacingForward")
-			if typeof(overrideForward) == "Vector3" and overrideForward.Magnitude > 1e-4 then
-				f2 = overrideForward.Unit
-				u2 = Vector3.yAxis
-				r2 = f2:Cross(u2)
-			end
-		end
-		targetPosition += r2 * pso.X + u2 * pso.Y + f2 * pso.Z
-	end
-	local group = config.group and panelGroups[config.group] or nil
-	local padding = (config :: any).radiusPadding or (group and group.radiusPadding) or 0
-	local minRadius = (config :: any).minRadius or (group and group.minRadius) or nil
-	if type(minRadius) == "number" then
-		minRadius = minRadius + padding
-	end
-	local maxRadius = (config :: any).maxRadius or (group and group.maxRadius) or nil
-	targetPosition = clampRadius(playerPosition, targetPosition, minRadius, maxRadius)
-	config.part.CFrame = self:_getIdealPanelRotation(config, targetPosition)
+
+	config.part.CFrame = targetCF
 end
 
 function WorldGUIManager:setPanelFollowTarget(panelName: string, followTarget: BasePart?)
 	local cfg = self.panels[panelName]
 	if not cfg then return end
-	(cfg :: any).followTarget = followTarget
+	local cfgAny = cfg :: any
+	cfgAny.followTarget = followTarget
 end
 
 -- Adjust a panel's lerp speed at runtime
@@ -833,28 +574,33 @@ function WorldGUIManager:setPanelLerpSpeed(panelName: string, speed: number)
 	local cfg = self.panels[panelName]
 	if not cfg then return end
 	if type(speed) ~= "number" then return end
-	(cfg :: any).lerpSpeed = speed
+	local cfgAny = cfg :: any
+	cfgAny.lerpSpeed = speed
 end
 
 -- Main update loop
 function WorldGUIManager:_startUpdateLoop()
-	if self.heartbeatConnection then
-		self.heartbeatConnection:Disconnect()
+	if self.updateLoopBound then
+		RunService:UnbindFromRenderStep(WORLD_GUI_RENDER_STEP_NAME)
 	end
 
-	-- Run every frame for smooth lerping
-	self.heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime: number)
-		for groupName, group in pairs(panelGroups) do
-			if group and group.layout then
-				applyGroupLayout(self, groupName)
-			end
-		end
+	-- Update after the custom camera step so panel solve always sees the latest
+	-- camera CFrame and character yaw for this rendered frame.
+	RunService:BindToRenderStep(WORLD_GUI_RENDER_STEP_NAME, Enum.RenderPriority.Camera.Value + 1, function(deltaTime: number)
 		for _, config in pairs(self.panels) do
-			if not frozenPanels[config.name] then
+			if not self._frozenPanels[config.name] then
 				self:_updatePanelPosition(config, deltaTime)
 			end
 		end
 	end)
+	self.updateLoopBound = true
+end
+
+function WorldGUIManager:_stopUpdateLoop()
+	if self.updateLoopBound then
+		RunService:UnbindFromRenderStep(WORLD_GUI_RENDER_STEP_NAME)
+	end
+	self.updateLoopBound = false
 end
 
 -- Tween a panel to a specific position (useful for animations)
@@ -888,9 +634,9 @@ function WorldGUIManager:setPanelVisibility(panelName: string, visible: boolean,
 	duration = duration or 0.3
 
 	-- Establish an operation token to identify delayed actions belonging to this call
-	panelVisSeq += 1
-	local opId = panelVisSeq
-	panelVisOps[panelName] = opId
+	self._panelVisSeq += 1
+	local opId = self._panelVisSeq
+	self._panelVisOps[panelName] = opId
 
 	-- Parent on show immediately so the panel is present during fade-in; default to Workspace
 	if visible then
@@ -909,7 +655,7 @@ function WorldGUIManager:setPanelVisibility(panelName: string, visible: boolean,
 		local originalTransparency = part:GetAttribute("OriginalTransparency") or 0
 		local targetTransparency = visible and originalTransparency or 1
 
-		playTweenReplace(part, TweenInfo.new(duration, Enum.EasingStyle.Quart), { Transparency = targetTransparency })
+		playTweenReplace(self, part, TweenInfo.new(duration, Enum.EasingStyle.Quart), { Transparency = targetTransparency })
 	end
 
 	-- Tween all GUI descendants: background, text, image, and strokes; also handle borders
@@ -949,7 +695,7 @@ function WorldGUIManager:setPanelVisibility(panelName: string, visible: boolean,
 					end
 
 					-- Apply tween to the GuiObject
-					playTweenReplace(child, TweenInfo.new(duration, Enum.EasingStyle.Quart), props)
+					playTweenReplace(self, child, TweenInfo.new(duration, Enum.EasingStyle.Quart), props)
 
 					-- UIStroke borders attached to this GuiObject
 					for _, deco in ipairs(child:GetChildren()) do
@@ -959,7 +705,7 @@ function WorldGUIManager:setPanelVisibility(panelName: string, visible: boolean,
 							end
 							local oSt = deco:GetAttribute("OriginalStrokeTransparency") or 0
 							local tSt = visible and oSt or 1
-							playTweenReplace(
+							playTweenReplace(self,
 								deco,
 								TweenInfo.new(duration, Enum.EasingStyle.Quart),
 								{ Transparency = tSt }
@@ -988,7 +734,7 @@ function WorldGUIManager:setPanelVisibility(panelName: string, visible: boolean,
 							else
 								task.delay(duration, function()
 									-- hide border after fade completes (only if this op is still current and still hidden)
-									if panelVisOps[panelName] == opId and not (config.visible :: any) then
+									if self._panelVisOps[panelName] == opId and not (config.visible :: any) then
 										if frame and frame.Parent then
 											frame.BorderSizePixel = 0
 										end
@@ -1022,9 +768,10 @@ function WorldGUIManager:setPanelVisibility(panelName: string, visible: boolean,
 	-- On hide, unparent after fade completes if this op is still the latest
 	if not visible then
 		task.delay(duration, function()
-			if panelVisOps[panelName] == opId and not (config.visible :: any) then
+			if self._panelVisOps[panelName] == opId and not (config.visible :: any) then
 				if config.part and (config.part :: any).Parent then
-					(config.part :: any).Parent = nil
+					local partAny = config.part :: any
+					partAny.Parent = nil
 				end
 			end
 		end)
@@ -1037,30 +784,89 @@ function WorldGUIManager:resetInitialDirection()
 end
 
 -- Get the GUI panel position for camera targeting
-function WorldGUIManager:getGUIPosition(): Vector3
-	-- Prefer centering on visible menu panels when available
-	local sum = Vector3.new()
-	local weightSum = 0
-	for _, cfg in pairs(self.panels) do
-		if cfg and cfg.part and cfg.visible and cfg.group == "menu" then
-			local weight = 1
-			local group = cfg.group and panelGroups[cfg.group] or nil
-			local weights = group and group.centerWeights
-			if type(weights) == "table" then
-				local w = weights[cfg.name] or weights._default
-				if type(w) == "number" then
-					weight = w
-				end
-			end
-			sum += cfg.part.Position * weight
-			weightSum += weight
-		end
+function WorldGUIManager:getPanelTargetPosition(panelName: string): Vector3?
+	local config = self.panels[panelName]
+	if not config or not config.part then
+		return nil
 	end
-	if weightSum > 0 then
-		return sum / weightSum
+	return resolvePanelTargetPosition(self, config)
+end
+
+function WorldGUIManager:getPanelSnapshot(panelName: string): PanelSnapshot?
+	local config = self.panels[panelName]
+	if not config or not config.part then
+		return nil
 	end
-	-- Otherwise, return the ideal panel position for the camera to look at
-	return self:_getIdealPanelPosition()
+	return buildPanelSnapshot(config)
+end
+
+function WorldGUIManager:getPanelLayoutWidth(panelName: string): number?
+	local config = self.panels[panelName]
+	if not config or not config.part then
+		return nil
+	end
+	return getPanelLayoutWidthFromConfig(config)
+end
+
+function WorldGUIManager:updatePanel(panelName: string, fields: PanelMutableFields)
+	local cfg = self.panels[panelName]
+	if not cfg or not fields then
+		return
+	end
+
+	if fields.group ~= nil then
+		cfg.group = fields.group
+	end
+	if fields.offset ~= nil then
+		cfg.offset = fields.offset
+	end
+	if fields.camSpaceOffset ~= nil then
+		cfg.camSpaceOffset = fields.camSpaceOffset
+	end
+	if fields.playerSpaceOffset ~= nil then
+		cfg.playerSpaceOffset = fields.playerSpaceOffset
+		cfg._basePlayerSpaceOffset = fields.playerSpaceOffset
+	end
+	if fields.playerOffsetMode ~= nil then
+		cfg.playerOffsetMode = fields.playerOffsetMode
+	end
+	if fields.faceMode ~= nil then
+		cfg.faceMode = fields.faceMode
+	end
+	if fields.faceBlend ~= nil then
+		cfg.faceBlend = fields.faceBlend
+	end
+	if fields.followMode ~= nil then
+		cfg.followMode = fields.followMode
+	end
+	if fields.followTarget ~= nil or fields.followMode == "target" then
+		cfg.followTarget = fields.followTarget
+	end
+	if fields.followModeLock ~= nil then
+		cfg.followModeLock = fields.followModeLock
+	end
+	if fields.minRadius ~= nil then
+		cfg.minRadius = fields.minRadius
+	end
+	if fields.maxRadius ~= nil then
+		cfg.maxRadius = fields.maxRadius
+	end
+	if fields.radiusPadding ~= nil then
+		cfg.radiusPadding = fields.radiusPadding
+	end
+	if fields.lerpSpeed ~= nil then
+		cfg.lerpSpeed = fields.lerpSpeed
+	end
+	if fields.targetOverrideProvider ~= nil then
+		cfg.targetOverrideProvider = fields.targetOverrideProvider
+	end
+end
+
+function WorldGUIManager:getGroupParams(groupName: string): { [string]: any }?
+	if type(groupName) ~= "string" or groupName == "" then
+		return nil
+	end
+	return self._panelGroups[groupName]
 end
 
 -- Expose all registered panel parts for systems that need to ignore them (e.g., camera collision raycasts)
@@ -1076,9 +882,9 @@ end
 
 function WorldGUIManager:setPanelFrozen(panelName: string, frozen: boolean)
 	if frozen then
-		frozenPanels[panelName] = true
+		self._frozenPanels[panelName] = true
 	else
-		frozenPanels[panelName] = nil :: any
+		self._frozenPanels[panelName] = nil :: any
 	end
 end
 
@@ -1101,7 +907,8 @@ function WorldGUIManager:setPanelFollowModeLock(panelName: string, locked: boole
 	if not cfg then
 		return
 	end
-	(cfg :: any).followModeLock = locked and true or false
+	local cfgAny = cfg :: any
+	cfgAny.followModeLock = locked and true or false
 end
 
 function WorldGUIManager:setPanelGroup(panelName: string, groupName: string?)
@@ -1109,25 +916,48 @@ function WorldGUIManager:setPanelGroup(panelName: string, groupName: string?)
 	if not cfg then
 		return
 	end
-	(cfg :: any).group = groupName
+	local cfgAny = cfg :: any
+	cfgAny.group = groupName
 end
 
 function WorldGUIManager:setGroupParams(groupName: string, params: { [string]: any })
 	if type(groupName) ~= "string" or groupName == "" then
 		return
 	end
-	panelGroups[groupName] = panelGroups[groupName] or {}
+	self._panelGroups[groupName] = self._panelGroups[groupName] or {}
 	for key, value in pairs(params) do
-		panelGroups[groupName][key] = value
+		self._panelGroups[groupName][key] = value
 	end
 end
 
-function WorldGUIManager:setGroupLayout(groupName: string, layout: { [string]: any })
+function WorldGUIManager:setGroupBasisYaw(groupName: string, yaw: number?)
 	if type(groupName) ~= "string" or groupName == "" then
 		return
 	end
-	panelGroups[groupName] = panelGroups[groupName] or {}
-	panelGroups[groupName].layout = layout
+	self._groupRuntime[groupName] = self._groupRuntime[groupName] or {}
+	if type(yaw) == "number" then
+		self._groupRuntime[groupName].basisYaw = yaw
+	else
+		self._groupRuntime[groupName].basisYaw = nil
+	end
+end
+
+function WorldGUIManager:getGroupBasisYaw(groupName: string): number?
+	if type(groupName) ~= "string" or groupName == "" then
+		return nil
+	end
+	local runtime = self._groupRuntime[groupName]
+	local yaw = runtime and runtime.basisYaw
+	return if type(yaw) == "number" then yaw else nil
+end
+
+function WorldGUIManager:setPanelTargetOverrideProvider(panelName: string, provider: (() -> Vector3?)?)
+	local cfg = self.panels[panelName]
+	if not cfg then
+		return
+	end
+	local cfgAny = cfg :: any
+	cfgAny.targetOverrideProvider = provider
 end
 
 function WorldGUIManager:setPanelCameraSpaceOffset(panelName: string, off: Vector3)
@@ -1135,7 +965,8 @@ function WorldGUIManager:setPanelCameraSpaceOffset(panelName: string, off: Vecto
 	if not cfg then
 		return
 	end
-	(cfg :: any).camSpaceOffset = off
+	local cfgAny = cfg :: any
+	cfgAny.camSpaceOffset = off
 end
 
 function WorldGUIManager:setPanelPlayerSpaceOffset(panelName: string, off: Vector3)
@@ -1143,7 +974,10 @@ function WorldGUIManager:setPanelPlayerSpaceOffset(panelName: string, off: Vecto
 	if not cfg then
 		return
 	end
-	(cfg :: any).playerSpaceOffset = off
+	local cfgAny = cfg :: any
+	-- Base offset is authored/tuned per panel; layout contributes a separate delta.
+	cfgAny.playerSpaceOffset = off
+	cfgAny._basePlayerSpaceOffset = off
 end
 
 function WorldGUIManager:isPanelVisible(panelName: string): boolean
@@ -1158,30 +992,38 @@ end
 
 -- Cleanup
 function WorldGUIManager:destroy()
-	if self.heartbeatConnection then
-		self.heartbeatConnection:Disconnect()
-	end
-	(self :: any).heartbeatConnection = nil
+	self:_stopUpdateLoop()
+	local selfAny = self :: any
 
 	-- Clean up current tween
 	if self.currentTween then
 		self.currentTween:Cancel()
 	end
-	(self :: any).currentTween = nil
+	selfAny.currentTween = nil
 
 	-- Clean up smooth cam part
 	if self.smoothCamPart then
 		self.smoothCamPart:Destroy()
 	end
-	(self :: any).smoothCamPart = nil
+	selfAny.smoothCamPart = nil
 
 	self.panels = {}
+	self._panelGroups = {}
+	self._groupRuntime = {}
+	self._frozenPanels = {}
+	self._panelVisOps = {}
+	self._panelVisSeq = 0
+	self._activeVisTweens = {}
 	WorldGUIManager_Instance = nil :: any
 end
 
 -- Get the singleton instance
 function WorldGUIManager.getInstance()
 	return WorldGUIManager_Instance or WorldGUIManager.new()
+end
+
+function WorldGUIManager.peekInstance()
+	return WorldGUIManager_Instance
 end
 
 return WorldGUIManager

@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 
 local FXPlayer = require(script.Parent.Parent.Parent.fx.FXPlayer)
 local AnimationCoordinator = require(script.Parent.Parent.Parent.Animation.AnimationCoordinator)
+local AnimationOverrideStore = require(script.Parent.Parent.Parent.Animation.AnimationOverrideStore)
 local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 local Replicator = require(script.Parent.Parent.Parent.fx.Replicator)
 local ImmediateHitFeedback = require(script.Parent.Parent.Parent.fx.ImmediateHitFeedback)
@@ -51,6 +52,7 @@ function BaseSkill.new(name: string?, config: any?)
 
 	self.player = Players.LocalPlayer
 	self.entityId = Registrar.getEntityId(self.player.Character)
+	AnimationOverrideStore.setLocalEntityId(self.entityId)
 
 	self.config = config or {}
 	self.fxMap = {} :: { [string]: any }
@@ -210,6 +212,7 @@ function BaseSkill:_findAnchor(anchorName: string): Instance?
 end
 
 function BaseSkill:playAnimation(animKey: string, opts: { [string]: any }?): AnimationTrack?
+	animKey = AnimationOverrideStore.resolve(animKey, self.entityId)
 	-- If we already have a predicted track playing, stop it before starting a new one.
 	if self.currentAnimationHandle then
 		pcall(function()

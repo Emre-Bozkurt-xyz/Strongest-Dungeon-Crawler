@@ -3,40 +3,84 @@
 -- while enforcing sensible zoom limits and respecting character respawns.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local WorldGUIManager = require(script.Parent.WorldGUIManager)
+local CharacterFacingController = require(script.Parent.CharacterFacingController)
+local SharedConfig = require(ReplicatedStorage.Shared.Config)
+local DevTuningService = require(script.Parent.dev.DevTuningService)
 
 local CameraController = {}
 CameraController.__index = CameraController
 
+local CameraConfig = SharedConfig.Camera
+local CAMERA_BASELINE = CameraConfig.baseline
 -- Configuration
 -- Over-shoulder defaults: lateral (right), up, and back distance from the player
-local SHOULDER_RIGHT = 2.0
-local SHOULDER_UP = 2.75
-local SHOULDER_BACK = 6.0
-local FOLLOW_SMOOTHNESS = 0.5 -- How smoothly camera follows player (0-1)
-local LOOK_SMOOTHNESS = 0.15 -- How smoothly camera looks at target
-local MIN_CAMERA_DISTANCE = 1 -- Minimum distance from player when colliding
+local SHOULDER_RIGHT = CAMERA_BASELINE.shoulderRight
+local SHOULDER_UP = CAMERA_BASELINE.shoulderUp
+local SHOULDER_BACK = CAMERA_BASELINE.shoulderBack
+local FOLLOW_SMOOTHNESS = CAMERA_BASELINE.followSmoothness -- How smoothly camera follows player (0-1)
+local LOOK_SMOOTHNESS = CAMERA_BASELINE.lookSmoothness -- How smoothly camera looks at target
+local MIN_CAMERA_DISTANCE = CAMERA_BASELINE.minCameraDistance -- Minimum distance from player when colliding
 
-local DEFAULT_MIN_ZOOM = 2.5 -- don't let players zoom into the face
-local DEFAULT_MAX_ZOOM = 16
-local LOOK_FORWARD_DISTANCE = 25
-local LOOK_UP_OFFSET_Y = 1.5
-local _FOCUS_DISTANCE = 6.0
-local _FOCUS_UP = 0.5
-local _FOCUS_TWEEN = 0.3
+local DEFAULT_MIN_ZOOM = CAMERA_BASELINE.defaultMinZoom -- don't let players zoom into the face
+local DEFAULT_MAX_ZOOM = CAMERA_BASELINE.defaultMaxZoom
+local LOOK_FORWARD_DISTANCE = CAMERA_BASELINE.lookForwardDistance
+local LOOK_UP_OFFSET_Y = CAMERA_BASELINE.lookUpOffsetY
+local _FOCUS_DISTANCE = CAMERA_BASELINE.focus.distance
+local _FOCUS_UP = CAMERA_BASELINE.focus.up
+local _FOCUS_TWEEN = CAMERA_BASELINE.focus.tween
 
-local BASE_FOV = 70
+local BASE_FOV = CAMERA_BASELINE.baseFov
 
 -- Mouse-look configuration (Over-Shoulder)
-local MOUSE_SENS_YAW = 0.0025
-local MOUSE_SENS_PITCH = 0.0020
-local PITCH_MIN = math.rad(-45)
-local PITCH_MAX = math.rad(35)
+local MOUSE_SENS_YAW = CAMERA_BASELINE.mouseSensYaw
+local MOUSE_SENS_PITCH = CAMERA_BASELINE.mouseSensPitch
+local PITCH_MIN = CAMERA_BASELINE.pitchMin
+local PITCH_MAX = CAMERA_BASELINE.pitchMax
+
+local function num(path: string, fallback: number): number
+	local v = DevTuningService.get(path)
+	return if type(v) == "number" then v else fallback
+end
+
+local function notifyInteractionCameraMode(mode: Mode)
+	local ok, InteractionStateController = pcall(require, script.Parent.input.InteractionStateController)
+	if ok and InteractionStateController and InteractionStateController.setCameraMode then
+		InteractionStateController.setCameraMode(mode)
+	end
+end
+
+local function applyBaselineTuning()
+	SHOULDER_RIGHT = num("Camera.baseline.shoulderRight", CAMERA_BASELINE.shoulderRight)
+	SHOULDER_UP = num("Camera.baseline.shoulderUp", CAMERA_BASELINE.shoulderUp)
+	SHOULDER_BACK = num("Camera.baseline.shoulderBack", CAMERA_BASELINE.shoulderBack)
+	FOLLOW_SMOOTHNESS = num("Camera.baseline.followSmoothness", CAMERA_BASELINE.followSmoothness)
+	LOOK_SMOOTHNESS = num("Camera.baseline.lookSmoothness", CAMERA_BASELINE.lookSmoothness)
+	MIN_CAMERA_DISTANCE = num("Camera.baseline.minCameraDistance", CAMERA_BASELINE.minCameraDistance)
+	DEFAULT_MIN_ZOOM = num("Camera.baseline.defaultMinZoom", CAMERA_BASELINE.defaultMinZoom)
+	DEFAULT_MAX_ZOOM = num("Camera.baseline.defaultMaxZoom", CAMERA_BASELINE.defaultMaxZoom)
+	LOOK_FORWARD_DISTANCE = num("Camera.baseline.lookForwardDistance", CAMERA_BASELINE.lookForwardDistance)
+	LOOK_UP_OFFSET_Y = num("Camera.baseline.lookUpOffsetY", CAMERA_BASELINE.lookUpOffsetY)
+	_FOCUS_DISTANCE = num("Camera.baseline.focus.distance", CAMERA_BASELINE.focus.distance)
+	_FOCUS_UP = num("Camera.baseline.focus.up", CAMERA_BASELINE.focus.up)
+	_FOCUS_TWEEN = num("Camera.baseline.focus.tween", CAMERA_BASELINE.focus.tween)
+	BASE_FOV = num("Camera.baseline.baseFov", CAMERA_BASELINE.baseFov)
+	MOUSE_SENS_YAW = num("Camera.baseline.mouseSensYaw", CAMERA_BASELINE.mouseSensYaw)
+	MOUSE_SENS_PITCH = num("Camera.baseline.mouseSensPitch", CAMERA_BASELINE.mouseSensPitch)
+	PITCH_MIN = num("Camera.baseline.pitchMin", CAMERA_BASELINE.pitchMin)
+	PITCH_MAX = num("Camera.baseline.pitchMax", CAMERA_BASELINE.pitchMax)
+end
+
+applyBaselineTuning()
+DevTuningService.subscribe("Camera.baseline", function()
+	applyBaselineTuning()
+end)
 
 export type Mode = "Free" | "OverShoulder"
 
@@ -45,7 +89,7 @@ type CameraControllerType = {
 	camera: Camera,
 	enabled: boolean,
 	mode: Mode,
-	heartbeatConnection: RBXScriptConnection?,
+	updateLoopBound: boolean,
 	originalCameraType: Enum.CameraType,
 	targetLookPosition: Vector3?,
 	minZoom: number,
@@ -74,6 +118,7 @@ type CameraControllerType = {
 	pushModifier: (self: CameraControllerType, spec: { [string]: any }) -> string,
 	popModifier: (self: CameraControllerType, id: string) -> (),
 	clearModifiers: (self: CameraControllerType) -> (),
+	setAngles: (self: CameraControllerType, yaw: number?, pitch: number?) -> (),
 	_updateCamera: (self: CameraControllerType) -> (),
 	_getIdealCameraPosition: (self: CameraControllerType, settings: { [string]: any }, yawOverride: number?, pitchOverride: number?) -> Vector3,
 	_checkCollision: (self: CameraControllerType, startPos: Vector3, endPos: Vector3) -> Vector3,
@@ -119,6 +164,7 @@ type CameraModifierSpec = {
 	shake: CameraShake?,
 	yawAssist: { maxYaw: number, deadzone: number, smoothness: number }?,
 	lookAtProvider: (() -> Vector3?)?,
+	entryPose: { pitch: number?, yawOffset: number? }?,
 }
 
 type CameraModifierEntry = {
@@ -129,6 +175,7 @@ type CameraModifierEntry = {
 }
 
 local CameraController_Instance = nil
+local CAMERA_RENDER_STEP_NAME = "StrongestDungeonCrawler.CameraController"
 
 function CameraController.new()
 	if CameraController_Instance then
@@ -142,7 +189,7 @@ function CameraController.new()
 	self.camera = Workspace.CurrentCamera
 	self.enabled = false
 	self.mode = "OverShoulder"
-	self.heartbeatConnection = nil
+	self.updateLoopBound = false
 	self._inputConn = nil
 	self.originalCameraType = self.camera.CameraType
 	self.targetLookPosition = nil
@@ -178,7 +225,9 @@ end
 
 function CameraController:setMode(mode: Mode)
 	self.mode = mode
+	notifyInteractionCameraMode(mode)
 	if not self.enabled then
+		CharacterFacingController.getInstance():setCameraMode(mode)
 		return
 	end
 
@@ -187,22 +236,9 @@ function CameraController:setMode(mode: Mode)
 		self.camera.CameraType = Enum.CameraType.Custom
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
-		-- Restore character auto-rotate
-		local hum = self.player.Character and self.player.Character:FindFirstChildOfClass("Humanoid")
-		if hum then
-			hum.AutoRotate = true
-		end
-		-- Panels: follow camera in Free mode
-		local wg = WorldGUIManager.getInstance()
-		if wg then
-			wg:setPanelFollowMode("SystemPanel", "camera")
-			wg:setPanelCameraSpaceOffset("SystemPanel", Vector3.new(0, 0.0, 0.0))
-		end
-		if self.heartbeatConnection then
-			self.heartbeatConnection:Disconnect()
-			local s: any = self
-			s.heartbeatConnection = nil
-		end
+		CharacterFacingController.getInstance():setCameraMode(mode)
+		-- Panel follow modes are owned by UI runtimes (SystemPanelRuntime/StatusPreview/etc).
+		self:_stopUpdateLoop()
 		if self._inputConn then
 			self._inputConn:Disconnect()
 			local s2: any = self
@@ -233,22 +269,10 @@ function CameraController:setMode(mode: Mode)
 		-- derive pitch from camera forward Y
 		self._pitch = math.clamp(math.asin(math.clamp(look.Y, -1, 1)), PITCH_MIN, PITCH_MAX)
 	end
-	-- Panels: keep following camera in OS mode as well for consistency
-	local wg2 = WorldGUIManager.getInstance()
-	if wg2 then
-		wg2:setPanelFollowMode("SystemPanel", "camera")
-		wg2:setPanelCameraSpaceOffset("SystemPanel", Vector3.new(0, 0.0, 0.0))
-	end
-	-- Disable character auto-rotate; we will orient to camera yaw
-	local hum2 = self.player.Character and self.player.Character:FindFirstChildOfClass("Humanoid")
-	if hum2 then
-		hum2.AutoRotate = false
-	end
-	if self.heartbeatConnection then
-		self.heartbeatConnection:Disconnect()
-		local s: any = self
-		s.heartbeatConnection = nil
-	end
+	CharacterFacingController.getInstance():setCameraMode(mode)
+	CharacterFacingController.getInstance():applyCameraYaw(self._yaw)
+	-- Panel follow modes are owned by UI runtimes (SystemPanelRuntime/StatusPreview/etc).
+	self:_stopUpdateLoop()
 	-- Mouse delta -> yaw/pitch
 	if self._inputConn then
 		self._inputConn:Disconnect()
@@ -275,10 +299,11 @@ function CameraController:isCursorUnlocked(): boolean
 end
 
 function CameraController:setCursorUnlocked(unlocked: boolean)
-	(self :: any)._cursorUnlocked = unlocked and true or false
+	local selfAny = self :: any
+	selfAny._cursorUnlocked = unlocked and true or false
 	-- Apply immediately if currently in Over-Shoulder mode
 	if self.enabled and self.mode == "OverShoulder" then
-		if (self :: any)._cursorUnlocked then
+		if selfAny._cursorUnlocked then
 			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 			UserInputService.MouseIconEnabled = true
 		else
@@ -322,6 +347,8 @@ function CameraController:disable()
 	self.camera.CameraType = self.originalCameraType
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
+	notifyInteractionCameraMode("Free")
+	CharacterFacingController.getInstance():setCameraMode("Free")
 end
 
 -- Set a specific position for the camera to look at (optional override)
@@ -362,6 +389,15 @@ end
 
 function CameraController:clearModifiers()
 	self._modifiers = {}
+end
+
+function CameraController:setAngles(yaw: number?, pitch: number?)
+	if type(yaw) == "number" then
+		self._yaw = yaw
+	end
+	if type(pitch) == "number" then
+		self._pitch = math.clamp(pitch, PITCH_MIN, PITCH_MAX)
+	end
 end
 
 function CameraController:_computeOverrides(): CameraSettings
@@ -548,15 +584,6 @@ function CameraController:_getLookAtPosition(): Vector3
 		return pos + camForward * LOOK_FORWARD_DISTANCE + Vector3.new(0, LOOK_UP_OFFSET_Y, 0)
 	end
 
-	-- As a last resort, if we have WorldGUIManager and we couldn't find HRP, try its target
-	local worldGUIManager = WorldGUIManager.getInstance()
-	if worldGUIManager then
-		local guiPosition = worldGUIManager:getGUIPosition()
-		if guiPosition and guiPosition.Magnitude > 0 then
-			return guiPosition
-		end
-	end
-
 	return Vector3.new(0, 0, 0)
 end
 
@@ -629,37 +656,26 @@ end
 
 -- Start the camera update loop
 function CameraController:_startUpdateLoop()
-	if self.heartbeatConnection then
-		self.heartbeatConnection:Disconnect()
+	if self.updateLoopBound then
+		RunService:UnbindFromRenderStep(CAMERA_RENDER_STEP_NAME)
 	end
 
-	self.heartbeatConnection = RunService.Heartbeat:Connect(function()
+	RunService:BindToRenderStep(CAMERA_RENDER_STEP_NAME, Enum.RenderPriority.Camera.Value, function()
 		if self.mode ~= "OverShoulder" then
 			return
 		end
 		self:_updateCamera()
-		-- Orient character to camera yaw so movement is camera-relative and mouse controls facing
-		local character = self.player.Character
-		local hrpAny = character and character:FindFirstChild("HumanoidRootPart")
-		local hum = character and character:FindFirstChildOfClass("Humanoid")
-		if hrpAny and hrpAny:IsA("BasePart") and hum then
-			local hrp = hrpAny :: BasePart
-			if hrp:GetAttribute("ExternalFacing") == true then
-				return
-			end
-			local pos = hrp.Position
-			local desired = CFrame.new(pos) * CFrame.Angles(0, self._yaw, 0)
-			hrp.CFrame = desired
-		end
+		CharacterFacingController.getInstance():applyCameraYaw(self._yaw)
 	end)
+	self.updateLoopBound = true
 end
 
 -- Stop the camera update loop
 function CameraController:_stopUpdateLoop()
-	if self.heartbeatConnection then
-		self.heartbeatConnection:Disconnect()
+	if self.updateLoopBound then
+		RunService:UnbindFromRenderStep(CAMERA_RENDER_STEP_NAME)
 	end
-	(self :: any).heartbeatConnection = nil
+	self.updateLoopBound = false
 	if self._inputConn then
 		self._inputConn:Disconnect()
 		local s4: any = self
@@ -676,11 +692,6 @@ function CameraController:focusOn(target: BasePart, _tweenTime: number?)
 	s._isFocusing = true
 	if self.mode == "OverShoulder" then
 		s._focusTarget = target
-		-- Ensure panel is anchored to player during OS focus to avoid camera-follow feedback loops
-		local wg = WorldGUIManager.getInstance()
-		if wg then
-			wg:setPanelFollowMode("SystemPanel", "player")
-		end
 	end
 	-- In Free mode, do nothing special; panel remains readable via its own placement.
 end
@@ -690,12 +701,6 @@ function CameraController:clearFocus()
 	local s: any = self
 	s._isFocusing = false
 	s._focusTarget = nil
-	if self.mode == "OverShoulder" then
-		local wg = WorldGUIManager.getInstance()
-		if wg then
-			wg:setPanelFollowMode("SystemPanel", "camera")
-		end
-	end
 end
 
 -- Cleanup

@@ -20,6 +20,7 @@ local flags: { [string]: boolean } = {
 	combat = false,
 	stagger = false,
 	projectiles = false,
+	inputFlow = false,
 }
 
 function DebugConfig.isDev(): boolean

@@ -12,6 +12,10 @@ local ClientSpec: Types.SkillSpecMap = {
 	DodgeRoll = require(SpecFolder.DodgeRoll),
 	ManaBall = require(SpecFolder.ManaBall),
 	CascadingManaBalls = require(SpecFolder.CascadingManaBalls),
+	-- ClientSpec is a manual map, not autoloaded (unlike SkillsData/ on the server) -- a new skill
+	-- must be added here explicitly or the client warns "no client spec for skill" and the keybind
+	-- silently does nothing (see trap 2 in the Phase B handoff brief).
+	BasicAttack = require(SpecFolder.BasicAttack),
 }
 
 return ClientSpec

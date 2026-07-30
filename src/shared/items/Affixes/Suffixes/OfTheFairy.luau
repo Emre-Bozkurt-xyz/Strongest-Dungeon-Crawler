@@ -3,7 +3,10 @@
 local ItemTypes = require(script.Parent.Parent.Parent.ItemTypes)
 
 local meleeWeaponTier1: { ItemTypes.AffixModifierRollDef } = {
-	{ kind = "flat", target = "CriticalHitChance", min = 1, max = 3, scaleMinPerItemLevel = 0.03, scaleMaxPerItemLevel = 0.06 },
+	{ kind = "flat", target = "CriticalHitChance", min = 1, max = 3, scaleMinPerItemLevel = 0.03, scaleMaxPerItemLevel = 0.06, scope = "weapon" },
+}
+local magicWeaponTier1: { ItemTypes.AffixModifierRollDef } = {
+	{ kind = "flat", target = "CriticalHitChance", min = 1, max = 3, scaleMinPerItemLevel = 0.03, scaleMaxPerItemLevel = 0.06, scope = "weapon" },
 }
 local glovesTier1: { ItemTypes.AffixModifierRollDef } = {
 	{ kind = "flat", target = "Dexterity", min = 1, max = 2, scaleMinPerItemLevel = 0.04, scaleMaxPerItemLevel = 0.08, container = "attribute" },
@@ -23,6 +26,7 @@ local tiers: { ItemTypes.AffixTierDef } = {
 		labels = { "of the Fairy" },
 		modifiersByContext = {
 			melee_weapon = meleeWeaponTier1,
+			magic_weapon = magicWeaponTier1,
 			gloves = glovesTier1,
 			body_armor = bodyArmorTier1,
 			any = anyTier1,

@@ -27,6 +27,15 @@
 -- Dependencies kept minimal: only requires SkillsClient to actually fire skill usage.
 
 local SkillsClient = require(script.Parent.SkillsClient)
+local DebugConfig = require(game:GetService("ReplicatedStorage").Shared.Debug.DebugConfig)
+
+-- Temporary diagnostics: activate/release return silently when a slot is empty, which looks
+-- identical to a dead keybind. Gated on the existing `inputFlow` flag.
+local function logFlow(...: any)
+	if DebugConfig.isEnabled("inputFlow") then
+		print("[InputFlow]", ...)
+	end
+end
 
 local SkillSlots = {}
 
@@ -142,16 +151,23 @@ end
 function SkillSlots.activate(index: number)
 	local skill = SkillSlots.get(index)
 	if not skill then
+		local p = profiles[activeProfile]
+		logFlow(
+			`activate({index}): NO SKILL in profile {activeProfile} (profile exists={p ~= nil}, filled slots={#SkillSlots.getFilledSlots()})`
+		)
 		return
 	end
+	logFlow(`activate({index}): -> SkillsClient.useSkill('{skill}')`)
 	SkillsClient.useSkill(skill)
 end
 
 function SkillSlots.release(index: number)
 	local skill = SkillSlots.get(index)
 	if not skill then
+		logFlow(`release({index}): NO SKILL in profile {activeProfile}`)
 		return
 	end
+	logFlow(`release({index}): -> SkillsClient.releaseSkill('{skill}')`)
 	SkillsClient.releaseSkill(skill)
 end
 

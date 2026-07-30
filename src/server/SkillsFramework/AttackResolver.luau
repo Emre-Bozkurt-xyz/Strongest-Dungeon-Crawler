@@ -12,6 +12,13 @@ local ModifierRegistry = require(script.Parent.ModifierRegistry)
 
 type AttackPacket = AttackTypes.AttackPacket
 
+-- A single typed damage contribution. Weapons can deal more than one damage type (a flame sword
+-- rolls Physical and Fire), which the single `damage`/`damageType` pair below cannot express.
+export type TypedDamage = {
+	type: string,
+	amount: number,
+}
+
 -- Type definitions (inline until proper type module exists)
 type AttackQueryContext = {
 	entityId: string,
@@ -21,8 +28,13 @@ type AttackQueryContext = {
 	step: number?,
 	metadata: { [string]: any }?,
 	baseAttack: {
+		-- Single-type form. Still the path every non-weapon skill uses; unchanged.
 		damage: number?,
 		damageType: string?,
+		-- Multi-type form, used by weapon-driven attacks. When present and non-empty this takes
+		-- precedence over `damage`/`damageType`; one packet is emitted per entry. Additive by
+		-- design: callers that do not set it behave exactly as before.
+		damages: { TypedDamage }?,
 		effectId: string?,
 		effectChance: number?,
 		comboStep: number?,
@@ -48,7 +60,20 @@ local function resolveAttack(ctx: AttackQueryContext): AttackQueryResult
 	-- Start with a single damage packet from base values
 	local packets: { AttackPacket } = {}
 
-	if baseAttack.damage and baseAttack.damage > 0 then
+	local typedDamages = baseAttack.damages
+	if typedDamages and #typedDamages > 0 then
+		-- Multi-type form: one packet per typed contribution, so a weapon's own damage types
+		-- survive into the packet list instead of being flattened to a single hardcoded type.
+		for _, entry in ipairs(typedDamages) do
+			if entry.amount > 0 then
+				table.insert(packets, {
+					type = "damage",
+					damageType = entry.type,
+					amount = entry.amount,
+				})
+			end
+		end
+	elseif baseAttack.damage and baseAttack.damage > 0 then
 		local damageAmount = baseAttack.damage
 		local damageType = baseAttack.damageType or "Physical"
 

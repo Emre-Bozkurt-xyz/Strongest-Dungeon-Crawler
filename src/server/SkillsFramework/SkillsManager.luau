@@ -8,6 +8,8 @@ local Schema = require(ReplicatedStorage.Shared.Debug.Schema)
 local CooldownService = require(script.Parent.CooldownService)
 local SessionManager = require(script.Parent.SessionManager) -- Phase 3.6: Unified system (legacy removed)
 local Registrar = require(game.ServerScriptService.Server.Services.Registrar)
+local CombatLoadoutService = require(game.ServerScriptService.Server.Inventory.CombatLoadout.CombatLoadoutService)
+local SkillRequirementResolver = require(ReplicatedStorage.Shared.skills.SkillRequirementResolver)
 
 local SkillsManager = {}
 
@@ -45,6 +47,38 @@ function SkillsManager.addSkill(caster: Caster, name: string, override: SkillsCo
 
 	return skill
 end
+
+-- Authoritative catch-up for the client's skill list.
+--
+-- `skill_added` deltas are fire-and-forget: the server grants skills as soon as the character is
+-- registered, which can be seconds before the client has loaded SkillsClient and subscribed to
+-- SkillsUpdate. Any delta sent in that window is lost, leaving the client with no usable skills
+-- and no error to show for it. The client therefore asks for the full list once it is ready,
+-- instead of relying on having been listening at the right moment.
+dispatcherAny:onRequest("SkillsSnapshot", function(_data: any, _meta: any, context: any)
+	local player = context and context.player
+	if not player then
+		return { skills = {} }
+	end
+
+	local casterId = Registrar.getPlayerId(player)
+	if not casterId then
+		return { skills = {} }
+	end
+
+	local skills = casterSkills[casterId]
+	if not skills then
+		return { skills = {} }
+	end
+
+	local names: { string } = {}
+	for skillName, _ in pairs(skills) do
+		table.insert(names, skillName)
+	end
+	table.sort(names)
+
+	return { skills = names }
+end)
 
 local function debugLog(...: any)
 	if DebugConfig.isEnabled("skills") then
@@ -183,6 +217,22 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 			return nil, "locked" -- non-combo skill cannot be re-used during its own execution
 		end
 		debugLog("Same skill locked, but is combo - allowing through")
+	end
+
+	-- Phase C (D8): weapon requirement gate. LAYER 1 only -- "can this skill be used at all".
+	-- Added into the existing rejection sequence (trap 1) rather than a parallel path, so the
+	-- SkillRequestUse handler's existing `{ success = false, error = reason }` plumbing already
+	-- reaches the client with a structured reason (exit criterion 6).
+	do
+		local weaponReq = skillCfg and skillCfg.requirements and skillCfg.requirements.weapon
+		if weaponReq then
+			local loadout = CombatLoadoutService.get(caster)
+			local reqOk, reqReason = SkillRequirementResolver.evaluate(weaponReq, loadout)
+			if not reqOk then
+				debugLog("REJECTED: weapon requirement failed, reason:", reqReason)
+				return nil, reqReason or "requirements_not_met"
+			end
+		end
 	end
 
 	if comboCfg then
@@ -481,7 +531,6 @@ dispatcher:onRequest("SkillRequestRelease", function(requestData, _meta, context
 end)
 
 dispatcher:onRequest("SkillRequestMarker", function(requestData, _meta, context)
-	print("Received: ", requestData)
 	local player = context.player
 	if not player then
 		return { success = false, error = "no_player" }

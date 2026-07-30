@@ -21,6 +21,8 @@ local InventoryQueryService = require(script.Parent.Domain.InventoryQueryService
 local LootDropService = require(script.Parent.Domain.LootDropService)
 local InventoryCommandService = require(script.Parent.Domain.InventoryCommandService)
 local EquipmentProjectionService = require(script.Parent.Projection.EquipmentProjectionService)
+local CombatLoadoutService = require(script.Parent.CombatLoadout.CombatLoadoutService)
+local EquipmentEquipValidator = require(script.Parent.Validation.EquipmentEquipValidator)
 local UseHandlers = require(script.Parent.UseHandlers)
 
 local dispatcher = Networking.server()
@@ -38,6 +40,17 @@ end)
 EquipmentProjectionService.setEmitter(function(entityId: string, projection: ItemTypes.EquipmentProjectionSnapshot)
 	InventoryReplicationService.emitProjection(entityId, projection)
 end)
+CombatLoadoutService.setItemGetter(function(uid: string): ItemTypes.ItemInstance?
+	return ItemInstances.get(uid)
+end)
+CombatLoadoutService.setEmitter(function(entityId: string, loadout: ItemTypes.CombatLoadoutSnapshot)
+	InventoryReplicationService.emitLoadout(entityId, loadout)
+end)
+
+local function recomputeEquipmentDerived(entityId: string)
+	EquipmentProjectionService.recompute(entityId)
+	CombatLoadoutService.recompute(entityId)
+end
 
 local function buildDropDisplay(inst: ItemTypes.ItemInstance): { displayName: string?, rarity: string?, stackSize: number? }
 	local meta = inst.meta
@@ -214,7 +227,7 @@ function InventoryService.initializePlayer(player: Player)
 		InventoryReplicationService.emitDelta(entityId, { kind = "item_added", item = item })
 	end
 	InventoryReplicationService.emitSnapshot(entityId, snapshot)
-	EquipmentProjectionService.recompute(entityId)
+	recomputeEquipmentDerived(entityId)
 end
 
 function InventoryService.addItem(entityId: string, itemId: string, count: number, meta: ItemTypes.ItemMeta?): boolean
@@ -310,9 +323,57 @@ local function moveInventoryToEquipment(
 	if not inst then
 		return false, "missing_item"
 	end
-	if not EquipmentRepository.canEquip(inst.itemId, equipSlot) then
-		return false, "invalid_slot"
+	local itemGetter = function(itemUid: string): ItemTypes.ItemInstance?
+		return ItemInstances.get(itemUid)
 	end
+	local valid, reason, outcome = EquipmentEquipValidator.validate(entityId, inst, equipSlot, {
+		equipment = equip,
+		itemGetter = itemGetter,
+	})
+
+	if not valid and outcome and outcome.requiresSecondaryUnequip then
+		-- D10: two-handed equip auto-unequips an occupied Secondary, as a single atomic operation
+		-- (trap 5). Check inventory space *before* any mutation, and only recompute the derived
+		-- combat loadout once both slots have settled -- never leave a half-state where the
+		-- secondary is unequipped but the two-hander failed to equip.
+		local secondaryUid = equip.slots.Secondary
+		if not secondaryUid then
+			-- The outcome claimed a conflict but Secondary is empty now (stale read/race) -- fail
+			-- loud rather than silently proceeding on an assumption that no longer holds.
+			warn(
+				`InventoryService.moveInventoryToEquipment: requiresSecondaryUnequip outcome but`
+					.. ` Secondary is empty for entity {entityId}`
+			)
+			return false, reason or "requirements_not_met"
+		end
+
+		local destSlot = findEmptySlot(inv)
+		if not destSlot then
+			return false, "inventory_full"
+		end
+
+		-- Nothing has been mutated above this line. Perform both moves together, then recompute
+		-- and replicate once.
+		local prevMain = equip.slots[equipSlot]
+		EquipmentRepository.setSlot(entityId, "Secondary", nil)
+		EquipmentRepository.setSlot(entityId, equipSlot, uid)
+		inv.slots[destSlot] = secondaryUid
+		inv.slots[fromSlot] = prevMain
+		rebuildStacks(inv)
+		emitDeltas(entityId, {
+			{ kind = "equipment_slot", slot = "Secondary", uid = nil },
+			{ kind = "equipment_slot", slot = equipSlot, uid = equip.slots[equipSlot] },
+			{ kind = "inventory_slot", slot = destSlot, uid = inv.slots[destSlot] },
+			{ kind = "inventory_slot", slot = fromSlot, uid = inv.slots[fromSlot] },
+		})
+		recomputeEquipmentDerived(entityId)
+		return true, nil
+	end
+
+	if not valid then
+		return false, reason
+	end
+
 	local prev = equip.slots[equipSlot]
 	EquipmentRepository.setSlot(entityId, equipSlot, uid)
 	inv.slots[fromSlot] = prev
@@ -321,7 +382,7 @@ local function moveInventoryToEquipment(
 		{ kind = "equipment_slot", slot = equipSlot, uid = equip.slots[equipSlot] },
 		{ kind = "inventory_slot", slot = fromSlot, uid = inv.slots[fromSlot] },
 	})
-	EquipmentProjectionService.recompute(entityId)
+	recomputeEquipmentDerived(entityId)
 	return true, nil
 end
 
@@ -343,8 +404,17 @@ local function moveEquipmentToInventory(
 	local destUid = inv.slots[destSlot]
 	if destUid then
 		local destInst = ItemInstances.get(destUid)
-		if not destInst or not EquipmentRepository.canEquip(destInst.itemId, equipSlot) then
+		if not destInst then
 			return false, "invalid_swap"
+		end
+		local valid, reason = EquipmentEquipValidator.validate(entityId, destInst, equipSlot, {
+			equipment = equip,
+			itemGetter = function(itemUid: string): ItemTypes.ItemInstance?
+				return ItemInstances.get(itemUid)
+			end,
+		})
+		if not valid then
+			return false, reason or "invalid_swap"
 		end
 	end
 	EquipmentRepository.setSlot(entityId, equipSlot, destUid)
@@ -354,7 +424,7 @@ local function moveEquipmentToInventory(
 		{ kind = "equipment_slot", slot = equipSlot, uid = equip.slots[equipSlot] },
 		{ kind = "inventory_slot", slot = destSlot, uid = inv.slots[destSlot] },
 	})
-	EquipmentProjectionService.recompute(entityId)
+	recomputeEquipmentDerived(entityId)
 	return true, nil
 end
 
@@ -526,7 +596,7 @@ local function useItem(entityId: string, uid: string): (boolean, string?)
 	end
 	emitDeltas(entityId, deltas)
 	if location == "equipment" then
-		EquipmentProjectionService.recompute(entityId)
+		recomputeEquipmentDerived(entityId)
 	end
 	return true, nil
 end
@@ -661,6 +731,7 @@ dispatcherAny:onRequest("InventoryCommand", function(payload: ItemTypes.Inventor
 		ok = ok,
 		error = err,
 		projection = EquipmentProjectionService.get(entityId),
+		loadout = CombatLoadoutService.get(entityId),
 	}
 end)
 

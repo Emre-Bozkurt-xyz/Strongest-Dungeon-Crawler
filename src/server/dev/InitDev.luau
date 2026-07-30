@@ -51,7 +51,11 @@ function Dev.start(ctx)
 
 	local g: any = _G
 	g.DevTune = function(commandOrPlayer: any, maybeCommand: any)
-		if typeof(commandOrPlayer) == "Instance" and commandOrPlayer:IsA("Player") and type(maybeCommand) == "string" then
+		if
+			typeof(commandOrPlayer) == "Instance"
+			and commandOrPlayer:IsA("Player")
+			and type(maybeCommand) == "string"
+		then
 			remote:FireClient(commandOrPlayer, maybeCommand)
 			return
 		end
@@ -59,8 +63,8 @@ function Dev.start(ctx)
 			remote:FireAllClients(commandOrPlayer)
 			return
 		end
-		warn("[DevTune] Usage: _G.DevTune(\"set Camera.baseline.shoulderBack 5.2\")")
-		warn("[DevTune]    or: _G.DevTune(player, \"set Camera.baseline.shoulderBack 5.2\")")
+		warn('[DevTune] Usage: _G.DevTune("set Camera.baseline.shoulderBack 5.2")')
+		warn('[DevTune]    or: _G.DevTune(player, "set Camera.baseline.shoulderBack 5.2")')
 	end
 end
 
@@ -88,7 +92,9 @@ function Dev.onPlayerReady(player: Player, character: Model)
 		position = Vector3.new(100, 5, 0),
 	})
 
-	skillsManager.addSkill(playerId, "Punch")
+	-- Phase B: BasicAttack replaces Punch as the bound offensive primitive (D6, adaptive per
+	-- current weapon). Punch stays granted only implicitly via NPCs/tests; players get BasicAttack.
+	skillsManager.addSkill(playerId, "BasicAttack")
 	skillsManager.addSkill(playerId, "TripleStrike")
 	skillsManager.addSkill(playerId, "Dash")
 	skillsManager.addSkill(playerId, "DodgeRoll")
@@ -97,6 +103,13 @@ function Dev.onPlayerReady(player: Player, character: Model)
 
 	inventoryService.addItem(playerId, "mana_potion", 5)
 	inventoryService.addItem(playerId, "iron_sword", 1, { rarity = "normal" })
+	inventoryService.addItem(playerId, "iron_sword", 1, { rarity = "magic" })
+	-- Two of each one-hander so dual-wield hand alternation can be exercised.
+	inventoryService.addItem(playerId, "crooked_wand", 1, { rarity = "magic" })
+	inventoryService.addItem(playerId, "crooked_wand", 1, { rarity = "normal" })
+	inventoryService.addItem(playerId, "iron_dagger", 1, { rarity = "magic" })
+	inventoryService.addItem(playerId, "iron_dagger", 1, { rarity = "normal" })
+	inventoryService.addItem(playerId, "round_shield", 1, { rarity = "magic" })
 	inventoryService.addItem(playerId, "leather_chest", 1, { rarity = "normal" })
 
 	statsManager.addModifier(

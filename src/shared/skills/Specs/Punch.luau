@@ -3,7 +3,7 @@
 
 local Types = require(script.Parent.Parent.SkillSpecTypes)
 
-local spec: Types.BasicComboSkillSpec = {
+local spec: Types.SkillSpec = {
 	class = "BasicComboSkill",
 	icon = "rbxassetid://13050670424",
 	label = "Punch",

@@ -10,6 +10,7 @@ local SlotVisuals = {}
 
 export type SlotNodes = {
 	icon: ImageLabel?,
+	name: TextLabel?,
 	stack: TextLabel?,
 	rarityFrame: GuiObject?,
 	rarityImage: ImageLabel?,
@@ -71,6 +72,7 @@ end
 function SlotVisuals.bind(slot: Instance): SlotNodes
 	local binder = PanelBinder.new(slot)
 	local icon = binder:find({ "Icon" }, "ImageLabel") :: ImageLabel?
+	local name = binder:find({ "NameLabel" }, "TextLabel") :: TextLabel?
 	local stack = binder:find({ "StackLabel" }, "TextLabel") :: TextLabel?
 	local rarityNode = binder:find({ "RarityFrame" }, nil)
 	local rarityFrame = if rarityNode and rarityNode:IsA("GuiObject") then rarityNode else nil
@@ -83,6 +85,7 @@ function SlotVisuals.bind(slot: Instance): SlotNodes
 	end
 	return {
 		icon = icon,
+		name = name,
 		stack = stack,
 		rarityFrame = rarityFrame,
 		rarityImage = rarityImage,
@@ -153,6 +156,10 @@ function SlotVisuals.setEmpty(slot: Instance, nodes: SlotNodes)
 		nodes.icon.Image = ""
 		nodes.icon.Visible = false
 	end
+	if nodes.name then
+		nodes.name.Text = ""
+		nodes.name.Visible = false
+	end
 	if nodes.stack then
 		nodes.stack.Text = ""
 		nodes.stack.Visible = false
@@ -164,9 +171,14 @@ function SlotVisuals.setEmpty(slot: Instance, nodes: SlotNodes)
 end
 
 function SlotVisuals.setItem(slot: Instance, item: ItemTypes.ItemInstance, def: ItemTypes.ItemDef, nodes: SlotNodes)
+	local displayName = if item.meta and type(item.meta.displayName) == "string" then item.meta.displayName else def.name
 	if nodes.icon then
 		nodes.icon.Image = def.icon or ""
 		nodes.icon.Visible = nodes.icon.Image ~= ""
+	end
+	if nodes.name then
+		nodes.name.Text = displayName
+		nodes.name.Visible = displayName ~= ""
 	end
 	if nodes.stack then
 		nodes.stack.Text = item.stackSize > 1 and tostring(item.stackSize) or ""
@@ -176,10 +188,7 @@ function SlotVisuals.setItem(slot: Instance, item: ItemTypes.ItemInstance, def: 
 	SlotVisuals.applyRarityVisual(slot, nodes, rarity)
 	slot:SetAttribute("ItemUid", item.uid)
 	slot:SetAttribute("ItemRarity", rarity)
-	slot:SetAttribute(
-		"ItemDisplayName",
-		if item.meta and type(item.meta.displayName) == "string" then item.meta.displayName else def.name
-	)
+	slot:SetAttribute("ItemDisplayName", displayName)
 end
 
 return SlotVisuals

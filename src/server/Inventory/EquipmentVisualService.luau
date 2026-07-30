@@ -354,6 +354,37 @@ local function onSlotChanged(entityId: string, slot: string, uid: string?)
 	attachVisual(entity, slot, uid)
 end
 
+-- The live attached visual for a slot, or nil when the slot is empty or its asset failed to build.
+-- Callers may read the returned instance but must not reparent or destroy it; clearVisual owns its
+-- lifetime.
+function EquipmentVisualService.getVisual(entityId: string, slot: string): Instance?
+	local bucket = visualsByEntity[entityId]
+	if not bucket then
+		return nil
+	end
+	local inst = bucket[slot]
+	if inst and inst.Parent then
+		return inst
+	end
+	return nil
+end
+
+-- World CFrame of a named Attachment on the visual equipped in `slot`.
+function EquipmentVisualService.getSocketCFrame(entityId: string, slot: string, socketName: string): CFrame?
+	if socketName == "" then
+		return nil
+	end
+	local visual = EquipmentVisualService.getVisual(entityId, slot)
+	if not visual then
+		return nil
+	end
+	local node = visual:FindFirstChild(socketName, true)
+	if node and node:IsA("Attachment") then
+		return node.WorldCFrame
+	end
+	return nil
+end
+
 function EquipmentVisualService.start()
 	EquipmentRepository.onSlotChanged(onSlotChanged)
 end

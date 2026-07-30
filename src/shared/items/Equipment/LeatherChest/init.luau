@@ -1,12 +1,14 @@
 --!strict
-local itemsRoot = script:FindFirstAncestor("items")
-assert(itemsRoot, "LeatherChest item package must be under Shared.items")
-local ItemTypes = require((itemsRoot :: any).ItemTypes)
+local RS = game:GetService("ReplicatedStorage")
+local items = RS:WaitForChild("Shared"):WaitForChild("items")
+assert(items, "LeatherChest item package must be under Shared.items")
+local ItemTypes = require(items.ItemTypes)
+local ItemEnums = require(items.ItemEnums)
 
 local baseRolls: { ItemTypes.EquipmentModifierRollDef } = {
 	{
 		id = "base_roll::armor",
-		kind = "flat",
+		kind = ItemEnums.ModifierKind.Flat,
 		target = "Armor",
 		min = 2,
 		max = 4,
@@ -18,9 +20,9 @@ local baseRolls: { ItemTypes.EquipmentModifierRollDef } = {
 
 local equipment: ItemTypes.EquipmentConfig = {
 	itemLevel = 1,
-	slots = { "Body" },
-	class = "body_armor",
-	affixContext = "body_armor",
+	slots = { ItemEnums.EquipSlot.Body },
+	class = ItemEnums.EquipmentClass.BodyArmor,
+	affixContext = ItemEnums.AffixContext.BodyArmor,
 	requirements = {
 		level = 1,
 		attributes = { Dexterity = 5 },
@@ -32,10 +34,10 @@ local equipment: ItemTypes.EquipmentConfig = {
 local def: ItemTypes.ItemDef = {
 	id = "leather_chest",
 	name = "Leather Chestpiece",
-	category = "equipment",
+	category = ItemEnums.ItemCategory.Equipment,
 	stackLimit = 1,
 	icon = "",
-	tags = { "armor" },
+	tags = { ItemEnums.Tag.Armor },
 	equipment = equipment,
 	metadata = {
 		baseType = "chest",

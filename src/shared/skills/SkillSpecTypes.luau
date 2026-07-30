@@ -1,6 +1,8 @@
 --!strict
 -- Shared type definitions for client-facing skill specs.
 
+local SkillRequirementTypes = require(script.Parent.SkillRequirementTypes)
+
 local Types = {}
 
 export type AnimKeySpec = { key: string }
@@ -155,7 +157,16 @@ export type ProjectileSpec = {
 	impact: ProjectileImpactSpec?,
 }
 
-export type SkillSpecBase = {
+-- One open spec type covering every skill. The fields above are composable capabilities: a skill
+-- opts into projectiles by setting `projectile`, into combos by setting `combo`, and so on.
+--
+-- Adding a skill must not require editing this file. A skill that wants to *require* one of these
+-- capabilities rather than leave it optional states that in its own spec file:
+--
+--   local spec: Types.SkillSpec & { projectile: Types.ProjectileSpec } = { ... }
+--
+-- which keeps the constraint next to the content it constrains.
+export type SkillSpec = {
 	class: string,
 	icon: string?,
 	label: string?,
@@ -173,27 +184,12 @@ export type SkillSpecBase = {
 	targeting: TargetingSpec?,
 	flurry: FlurrySpec?,
 	charge: ChargeSpec?,
+	-- Phase B (adaptive BasicAttack, see D6 in equipment-item-architecture.md): when true,
+	-- BasicComboSkill resolves combo/anim from BasicAttackProfileRegistry via CombatLoadoutMirror
+	-- instead of reading `anim.comboSteps` / `combo` statically off this spec. Additive: skills
+	-- that leave this unset keep the static path unchanged.
+	adaptiveBasicAttack: boolean?,
 }
-
-export type BasicSkillSpec = SkillSpecBase
-export type BasicComboSkillSpec = SkillSpecBase & { combo: ComboSpec }
-export type DashSkillSpec = SkillSpecBase & { directional: DirectionalSpecMap? }
-export type DodgeRollSkillSpec = SkillSpecBase & { directional: DirectionalSpecMap? }
-export type ManaBallSpec = BasicSkillSpec & { projectile: ProjectileSpec, targeting: TargetingSpec? }
-export type CascadingManaBallsSpec = SkillSpecBase & {
-	flurry: FlurrySpec,
-	charge: ChargeSpec,
-	projectile: ProjectileSpec,
-	targeting: TargetingSpec?,
-}
-
-export type SkillSpec = BasicSkillSpec
-	| BasicComboSkillSpec
-	| DashSkillSpec
-	| DodgeRollSkillSpec
-	| ManaBallSpec
-	| CascadingManaBallsSpec
-	| SkillSpecBase
 
 export type SkillSpecMap = { [string]: SkillSpec }
 
@@ -238,6 +234,11 @@ export type ServerSkillConfig = {
 	distance: number?,
 	invulnerabilityDuration: number?,
 	projectileServer: ProjectileServerSpec?,
+	-- Phase C (D8, docs/tasks/equipment-item-architecture.md): eligibility gate, authored once here
+	-- and read by both SkillsManager.useSkill (authoritative) and the client preflight via
+	-- replicated metadata (SkillMetadataService). Additive -- skills that omit this are ungated,
+	-- matching every skill's behavior before Phase C.
+	requirements: SkillRequirementTypes.SkillRequirements?,
 }
 
 return Types

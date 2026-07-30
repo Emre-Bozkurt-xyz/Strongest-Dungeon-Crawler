@@ -35,6 +35,12 @@ StatsConfig.DEFAULT_STATS = {
 		maxValue = 10.0,
 		name = "Spell Cast Speed",
 	}, -- multiplier
+	[Types.StaticStats.Armor] = {
+		baseValue = 0,
+		minValue = 0,
+		maxValue = 9999,
+		name = "Armor",
+	},
 	[Types.StaticStats.CriticalHitChance] = {
 		baseValue = 5,
 		minValue = 0,

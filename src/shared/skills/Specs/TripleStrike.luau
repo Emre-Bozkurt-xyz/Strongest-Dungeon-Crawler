@@ -3,7 +3,7 @@
 
 local Types = require(script.Parent.Parent.SkillSpecTypes)
 
-local spec: Types.BasicSkillSpec = {
+local spec: Types.SkillSpec = {
 	class = "BasicSkill",
 	icon = "rbxassetid://13050670424",
 	label = "Triple",

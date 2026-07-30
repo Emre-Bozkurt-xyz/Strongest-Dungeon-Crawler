@@ -9,8 +9,11 @@ local bodyArmorTier1: { ItemTypes.AffixModifierRollDef } = {
 local glovesTier1: { ItemTypes.AffixModifierRollDef } = {
 	{ kind = "flat", target = "Dexterity", min = 1, max = 2, scaleMinPerItemLevel = 0.04, scaleMaxPerItemLevel = 0.06, container = "attribute" },
 }
-local anyTier1: { ItemTypes.AffixModifierRollDef } = {
-	{ kind = "flat", target = "Armor", min = 1, max = 3, scaleMinPerItemLevel = 0.06, scaleMaxPerItemLevel = 0.1 },
+-- Shields roll harder armor than body armor of the same item level; it is what an offhand gives up
+-- a second weapon for.
+local shieldTier1: { ItemTypes.AffixModifierRollDef } = {
+	{ kind = "flat", target = "Armor", min = 3, max = 7, scaleMinPerItemLevel = 0.1, scaleMaxPerItemLevel = 0.2 },
+	{ kind = "flat", target = "Defense", min = 1, max = 3, scaleMinPerItemLevel = 0.05, scaleMaxPerItemLevel = 0.08, container = "attribute" },
 }
 
 local tiers: { ItemTypes.AffixTierDef } = {
@@ -22,7 +25,7 @@ local tiers: { ItemTypes.AffixTierDef } = {
 		modifiersByContext = {
 			body_armor = bodyArmorTier1,
 			gloves = glovesTier1,
-			any = anyTier1,
+			shield = shieldTier1,
 		},
 	},
 }

@@ -14,6 +14,8 @@ local Clock = require(ReplicatedStorage.Shared.Time.Clock)
 local SkillPacer = require(script.Parent.Parent.SkillPacer)
 local ProjectilesClient = require(script.Parent.Parent.Parent.Services.ProjectilesClient)
 local Registrar = require(script.Parent.Parent.Parent.Services.Registrar)
+local SkillRequirementResolver = require(ReplicatedStorage.Shared.skills.SkillRequirementResolver)
+local CombatLoadoutMirror = require(script.Parent.Parent.Parent.Inventory.CombatLoadoutMirror)
 
 -- Client-side state mirrors
 local CooldownClient = require(script.Parent.Parent.CooldownClient)
@@ -38,6 +40,14 @@ export type RejectionReason =
 	| "locked"
 	| "insufficient_resources"
 	| "invalid_combo_window"
+	-- Phase C (D8): structured weapon-requirement rejection reasons, mirroring
+	-- shared/skills/SkillRequirementResolver.luau and the server's authoritative gate.
+	| "requires_weapon"
+	| "wrong_weapon_class"
+	| "wrong_weapon_tags"
+	| "requires_shield"
+	| "requirements_not_met"
+	| "offhand_blocked"
 	| "unknown"
 
 function BaseSkill.new(name: string?, config: any?)
@@ -366,6 +376,19 @@ function BaseSkill:canUseLocally(comboStep: number?, isComboAdvance: boolean?): 
 		end
 	end
 
+	-- Phase C (D8) weapon requirement preflight: UX only, using the SAME predicate the server
+	-- gates with (shared/skills/SkillRequirementResolver.luau) against the mirrored loadout. The
+	-- server independently re-checks this with its own authoritative loadout (Guardrail 10) --
+	-- this only saves a round trip when the answer is already obviously "no".
+	local metadata = _SkillMetadataClient.get(self.name)
+	local weaponReq = metadata and metadata.requirements and metadata.requirements.weapon
+	if weaponReq then
+		local reqOk, reqReason = SkillRequirementResolver.evaluate(weaponReq, CombatLoadoutMirror.get())
+		if not reqOk then
+			return false, (reqReason :: RejectionReason?) or "requirements_not_met"
+		end
+	end
+
 	-- Check action permissions (includes execution lock + blocking status effects)
 	local permissions = ActionPermissions.client()
 	if permissions then
@@ -461,7 +484,10 @@ function BaseSkill:predictTiming(): (number, number?)
 		return nil
 	end
 
-	local result = SkillTimingResolver.resolve(skillTags, statLookup)
+	-- Weapon tempo comes from the mirrored combat loadout, never from requiring InventoryClient
+	-- directly (keeps skills decoupled from inventory ownership; see CombatLoadoutMirror).
+	local weaponTempo = CombatLoadoutMirror.getMainAttackSpeed()
+	local result = SkillTimingResolver.resolve(skillTags, statLookup, weaponTempo)
 	return result.tempo, result.durationScale
 end
 

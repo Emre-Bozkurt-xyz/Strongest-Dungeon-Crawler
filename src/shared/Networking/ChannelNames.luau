@@ -26,6 +26,7 @@ export type IntentName =
 	| "SkillRequestRelease"
 	| "SkillRequestMarker"
 	| "SkillMetadataSnapshot"
+	| "SkillsSnapshot"
 	| "InventoryRequest"
 	| "InventoryCommand"
 	| "CooldownSnapshotRequest"

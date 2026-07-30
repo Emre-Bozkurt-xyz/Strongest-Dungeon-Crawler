@@ -3,7 +3,9 @@
 
 local Types = require(script.Parent.Parent.SkillSpecTypes)
 
-local spec: Types.ManaBallSpec = {
+-- The intersection is the skill asserting its own requirement: ManaBallSkill cannot function
+-- without a projectile, so leaving it optional here would hide a broken spec until cast time.
+local spec: Types.SkillSpec & { projectile: Types.ProjectileSpec } = {
 	class = "BasicSkill",
 	icon = "rbxassetid://13050670424",
 	label = "Mana Ball",

@@ -65,4 +65,17 @@ function InventoryReplicationService.emitProjection(entityId: string, projection
 	}, { targets = player })
 end
 
+function InventoryReplicationService.emitLoadout(entityId: string, loadout: ItemTypes.CombatLoadoutSnapshot)
+	local player = resolvePlayer(entityId)
+	if not player then
+		return
+	end
+	dispatcherAny:emit("InventoryEvent", {
+		version = 1,
+		kind = "loadout",
+		loadout = loadout,
+		sequence = nextSequence(entityId),
+	}, { targets = player })
+end
+
 return InventoryReplicationService

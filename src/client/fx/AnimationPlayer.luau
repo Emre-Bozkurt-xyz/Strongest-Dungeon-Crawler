@@ -86,6 +86,21 @@ function AnimationPlayer.playReturn(key: string, fade: number?, speed: number?):
 	return track
 end
 
+-- Tracks are cached and reused per key, so Looped is set on every call rather than once at load:
+-- the same track may previously have been played un-looped by another caller.
+function AnimationPlayer.playLooped(key: string, fade: number?, speed: number?): AnimationTrack?
+	local track = loadTrack(key)
+	if not track then
+		return nil
+	end
+	track.Looped = true
+	track:Play(fade or 0.15)
+	if speed then
+		track:AdjustSpeed(speed)
+	end
+	return track
+end
+
 export type TimedOptions = {
 	fade: number?,
 	duration: number,

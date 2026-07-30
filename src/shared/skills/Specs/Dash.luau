@@ -3,7 +3,7 @@
 
 local Types = require(script.Parent.Parent.SkillSpecTypes)
 
-local spec: Types.DashSkillSpec = {
+local spec: Types.SkillSpec = {
 	class = "DashSkill",
 	icon = "rbxassetid://13050670424",
 	label = "Dash",

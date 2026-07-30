@@ -12,6 +12,9 @@ local SkillQueryTypes = require(ReplicatedStorage.Shared.skills.SkillQueryTypes)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local SkillTimingService = require(script.Parent.Parent.SkillTimingService)
 local AttackTypes = require(ReplicatedStorage.Shared.skills.AttackTypes)
+local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
+local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
+local CombatLoadoutService = require(Server.Inventory.CombatLoadout.CombatLoadoutService)
 
 local BaseSkill = {}
 BaseSkill.__index = BaseSkill
@@ -119,6 +122,144 @@ end
 function BaseSkill:resolveTiming()
 	-- Simplified: timing service now infers tempo and durationScale from skill tags and entity stats.
 	return SkillTimingService.resolve(self.casterId, self.name)
+end
+
+-- Phase C: "both" combines both hands' typed damage (see resolveWeaponDamage below); it is never
+-- passed to CombatLoadoutService lookups directly.
+export type WeaponHand = "main" | "secondary" | "both"
+
+-- Damage pipeline (see D2 in the equipment architecture doc):
+--   final = (weaponBase + addedFlat) * (1 + increased%)
+-- The weapon (or the unarmed profile, when the hand is empty) provides the per-hit base range;
+-- the global PhysicalDamage stat is flat added damage, not a base. Weapon-scoped affix bonuses
+-- are already folded into the loadout's weapon damage range by CombatLoadoutResolver, so this
+-- method never has to look at affixes itself.
+-- Global flat damage stats are named `<Type>Damage`, the same convention weapon-scoped modifier
+-- targets use (see EquipmentDefUtils.weaponDamageTypeForTarget). A weapon's Magic damage is
+-- therefore scaled by MagicDamage, not PhysicalDamage.
+--
+-- Not every damage type has a matching stat -- there is no FireDamage today -- and that is a
+-- legitimate authoring state, not an error: those types simply receive no flat bonus.
+local FLAT_DAMAGE_STAT_BY_TYPE: { [string]: any } = {
+	Physical = StatTypes.StaticStats.PhysicalDamage,
+	Magic = StatTypes.StaticStats.MagicDamage,
+}
+
+function BaseSkill:resolveFlatDamageBonus(damageType: string): number
+	local statType = FLAT_DAMAGE_STAT_BY_TYPE[damageType]
+	if not statType then
+		return 0
+	end
+	return self:resolveStat(statType)
+end
+
+-- Client AimResolver raycasts up to 500 studs, so anything past this is malformed.
+local MAX_AIM_DISTANCE = 600
+
+-- Validate a client-supplied aim point and turn it into a unit direction from `origin`, or nil for
+-- the caller to fall back to the caster's facing.
+--
+-- Only the client knows where the cursor is, so this is untrusted input. The checks guard against
+-- malformed data rather than advantage: a plausible-but-dishonest aim point grants nothing, since a
+-- player can already turn to face any direction instantly.
+function BaseSkill:resolveAimDirection(requestData: any?, origin: Vector3): Vector3?
+	local aimPoint = requestData and requestData.aimPoint
+	if typeof(aimPoint) ~= "Vector3" then
+		return nil
+	end
+
+	local offset = aimPoint - origin
+	local distance = offset.Magnitude
+
+	-- Phrased to reject NaN as well, since every comparison against NaN is false.
+	if not (distance > 1e-3) or distance > MAX_AIM_DISTANCE then
+		return nil
+	end
+
+	return offset.Unit
+end
+
+-- The weapon a given hand holds, or nil for an empty hand, an offhand item, or "both".
+--
+-- "both" has no single weapon, so callers needing per-hand data (projectile config, weapon class)
+-- must ask about a concrete hand. Damage is the one thing that meaningfully combines, and
+-- resolveWeaponDamage handles that itself.
+function BaseSkill:getLoadoutWeapon(hand: WeaponHand?): ItemTypes.CombatLoadoutWeapon?
+	local resolvedHand: WeaponHand = hand or "main"
+	if resolvedHand == "both" then
+		return nil
+	end
+
+	local loadout = CombatLoadoutService.get(self.casterId)
+	if not loadout then
+		return nil
+	end
+
+	if resolvedHand == "main" then
+		return loadout.main
+	end
+	if loadout.secondary and loadout.secondary.kind == "weapon" then
+		return loadout.secondary.weapon
+	end
+	return nil
+end
+
+-- Resolve the current weapon's (or the unarmed profile's) damage into typed contributions.
+--
+-- Returns one entry per damage range the weapon declares, so multi-type weapons keep every type,
+-- and each entry carries its own type-matched flat bonus. Callers pass the list straight to
+-- resolveAttack as `damages`.
+function BaseSkill:resolveWeaponDamage(hand: WeaponHand?): { AttackResolver.TypedDamage }
+	local resolvedHand: WeaponHand = hand or "main"
+
+	if resolvedHand == "both" then
+		-- D9/trap 6: combine both hands' typed damage lists by concatenation rather than picking
+		-- one -- the explicit choice for `hand = "both"` steps (BasicAttackHand) and skills
+		-- (WeaponRequirementMode "both"). Each hand's own flat-damage bonus is already applied by
+		-- the recursive calls below, so this never double-counts.
+		local mainDamages = self:resolveWeaponDamage("main")
+		local secondaryDamages = self:resolveWeaponDamage("secondary")
+		local combined: { AttackResolver.TypedDamage } = {}
+		for _, entry in ipairs(mainDamages) do
+			table.insert(combined, entry)
+		end
+		for _, entry in ipairs(secondaryDamages) do
+			table.insert(combined, entry)
+		end
+		return combined
+	end
+
+	local weapon = self:getLoadoutWeapon(resolvedHand)
+
+	local ranges: { ItemTypes.WeaponDamageRange }
+	if weapon and #weapon.damage > 0 then
+		ranges = weapon.damage
+	else
+		-- Phase B: the unarmed base moved from the CombatConfig stepping stone into the
+		-- unarmed_basic BasicAttackProfile (see D6). Warn rather than silently dealing 0 damage if
+		-- that profile is ever missing its unarmedBase -- this is the exact silent-no-op class the
+		-- equipment refactor exists to remove.
+		local unarmedBase = BasicAttackProfileRegistry.getUnarmedProfile().unarmedBase
+		if unarmedBase and #unarmedBase.damage > 0 then
+			ranges = unarmedBase.damage
+		else
+			warn("BaseSkill:resolveWeaponDamage: unarmed_basic profile has no unarmedBase.damage; dealing no damage")
+			return {}
+		end
+	end
+
+	local out: { AttackResolver.TypedDamage } = {}
+	for _, range in ipairs(ranges) do
+		local rolled = if range.max > range.min
+			then range.min + math.random() * (range.max - range.min)
+			else range.min
+		table.insert(out, {
+			type = range.type,
+			amount = rolled + self:resolveFlatDamageBonus(range.type),
+		})
+	end
+
+	return out
 end
 
 -- DEPRECATED: Cast sounds are now played client-side immediately via ImmediateHitFeedback
@@ -288,9 +429,13 @@ end
 
 -- Build an attack composition from base damage values
 -- Uses SkillMediator resolver pipeline for modifier support
+-- `base` accepts either the single-type form (`damage` + `damageType`) or the multi-type form
+-- (`damages`), which takes precedence when present. Both are optional so weapon-driven skills can
+-- pass typed damage without inventing a placeholder single value.
 function BaseSkill:resolveAttack(base: {
-	damage: number,
-	damageType: string,
+	damage: number?,
+	damageType: string?,
+	damages: { AttackResolver.TypedDamage }?,
 	[string]: any,
 }): AttackTypes.AttackContext
 	-- Build attack query context
@@ -304,6 +449,7 @@ function BaseSkill:resolveAttack(base: {
 		baseAttack = {
 			damage = base.damage,
 			damageType = base.damageType,
+			damages = base.damages,
 			effectId = base.effectId,
 			effectChance = base.effectChance,
 			comboStep = base.comboStep,

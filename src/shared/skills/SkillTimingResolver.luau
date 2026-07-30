@@ -39,14 +39,16 @@ local function resolveStatTypeForSkill(skillTags: { string }?): StatTypes.Static
 	return nil
 end
 
--- Calculate tempo and duration scale from stat value
+-- Calculate tempo and duration scale from stat value and an optional weapon tempo.
+-- tempo composes multiplicatively: tempo = weaponTempo * globalStatMultiplier (see D3).
 -- tempo: speed multiplier (1.0 = normal, 2.0 = twice as fast)
 -- durationScale: inverse of tempo (1.0 = normal, 0.5 = half duration)
-local function calculateTempo(statValue: number?): (number, number)
-	local tempo = 1
+local function calculateTempo(statValue: number?, weaponTempo: number?): (number, number)
+	local statMultiplier = 1
 	if type(statValue) == "number" and statValue > 0 then
-		tempo = statValue
+		statMultiplier = statValue
 	end
+	local tempo = (weaponTempo or 1) * statMultiplier
 	tempo = math.clamp(tempo, MIN_TEMPO, MAX_TEMPO)
 	local durationScale = 1 / tempo
 	return tempo, durationScale
@@ -58,18 +60,21 @@ export type TimingResult = {
 	statType: any, -- Which stat was used (AttackSpeed, SpellCastSpeed, etc.)
 }
 
--- Resolve timing for a skill given its tags and a stat lookup function
+-- Resolve timing for a skill given its tags and a stat lookup function.
 -- statLookup: function(statType) -> statValue
-function SkillTimingResolver.resolve(skillTags: { string }?, statLookup: (any) -> number?): TimingResult
+-- weaponTempo: optional weapon-local attack speed (kept out of the shared resolver's stat lookup
+-- so this module stays dependency-free; each side -- server SkillTimingService, client BaseSkill
+-- prediction -- reads its own combat loadout and passes the number in).
+function SkillTimingResolver.resolve(skillTags: { string }?, statLookup: (any) -> number?, weaponTempo: number?): TimingResult
 	local statType = resolveStatTypeForSkill(skillTags)
 	local statValue: number? = nil
-	
+
 	if statType and statLookup then
 		statValue = statLookup(statType)
 	end
-	
-	local tempo, durationScale = calculateTempo(statValue)
-	
+
+	local tempo, durationScale = calculateTempo(statValue, weaponTempo)
+
 	return {
 		tempo = tempo,
 		durationScale = durationScale,

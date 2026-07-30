@@ -1,8 +1,8 @@
 --!strict
-
-local itemsRoot = script:FindFirstAncestor("items")
-assert(itemsRoot, "LeatherChest visual package must be under Shared.items")
-local ItemTypes = require(itemsRoot.ItemTypes)
+local RS = game:GetService("ReplicatedStorage")
+local items = RS:WaitForChild("Shared"):WaitForChild("items")
+assert(items, "LeatherChest visual package must be under Shared.items")
+local ItemTypes = require(items.ItemTypes)
 
 local profile: ItemTypes.EquipmentVisualProfile = {
 	id = "leather_chest_r6_rigid",

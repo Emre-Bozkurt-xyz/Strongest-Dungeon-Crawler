@@ -5,8 +5,18 @@
 
 local UserInputService = game:GetService("UserInputService")
 local ContextActionService = game:GetService("ContextActionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ActionConfig = require(script.Parent.ActionConfig)
+local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
+
+-- Temporary diagnostics for the "keybinds do nothing, no logs" investigation.
+-- Gated on the existing `inputFlow` flag (enabled in client dev/InitDev).
+local function logFlow(...: any)
+	if DebugConfig.isEnabled("inputFlow") then
+		print("[InputFlow]", ...)
+	end
+end
 
 export type ActionCallback = (actionName: string, bindingMeta: { [string]: any }?) -> ()
 
@@ -123,22 +133,36 @@ local function dispatchActionInput(
 	began: boolean,
 	gameProcessedEvent: boolean
 ): boolean
+	local phase = if began then "press" else "release"
+
 	if shouldSuppressInput() then
+		logFlow(`{act.name}: SUPPRESSED ({phase}) - a TextBox has focus`)
+		return false
+	end
+
+	if not contextEnabled[act.context] then
+		logFlow(`{act.name}: BLOCKED ({phase}) - context '{act.context}' is disabled`)
 		return false
 	end
 
 	local matched = false
-	if contextEnabled[act.context] then
-		for _, b in ipairs(act.bindings) do
-			if bindingMatches(b, input, began) then
-				matched = true
-				local meta = buildMeta(b, input, gameProcessedEvent)
-				for _, cb in ipairs(act.callbackList) do
-					task.spawn(cb, act.name, meta)
-				end
-				break
+	for _, b in ipairs(act.bindings) do
+		if bindingMatches(b, input, began) then
+			matched = true
+			local meta = buildMeta(b, input, gameProcessedEvent)
+			logFlow(`{act.name}: MATCHED ({phase}) -> firing {#act.callbackList} callback(s)`)
+			for _, cb in ipairs(act.callbackList) do
+				task.spawn(cb, act.name, meta)
 			end
+			break
 		end
+	end
+
+	if not matched then
+		local shiftDown, ctrlDown, altDown = getModifierStateForInput(input)
+		logFlow(
+			`{act.name}: NO BINDING MATCH ({phase}) key={input.KeyCode.Name} shift={shiftDown} ctrl={ctrlDown} alt={altDown}`
+		)
 	end
 
 	return matched
@@ -162,7 +186,17 @@ end
 local function bindContextActions()
 	for actionName, action in pairs(actions) do
 		local inputs = getBindingInputs(action)
+		if #inputs == 0 then
+			logFlow(`bind: '{actionName}' has NO inputs - never bound`)
+		end
 		if #inputs > 0 then
+			local names: { string } = {}
+			for _, entry in ipairs(inputs) do
+				table.insert(names, tostring((entry :: any).Name or entry))
+			end
+			logFlow(
+				`bind: '{actionName}' ctx='{action.context}' enabled={contextEnabled[action.context]} keys=[{table.concat(names, ", ")}]`
+			)
 			ContextActionService:BindActionAtPriority(
 				"SDC_" .. actionName,
 				function(_boundName: string, inputState: Enum.UserInputState, input: InputObject)

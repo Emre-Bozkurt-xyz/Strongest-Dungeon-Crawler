@@ -797,6 +797,15 @@ function StatsManager.addModifier(entityId: string, statType: StatType, modifier
 		return false
 	end
 	local stat = stats[statType]
+	-- Equipment projection runs inside the equip transaction, so a modifier naming a stat that does
+	-- not exist must cost only itself, not the transaction around it.
+	if not stat then
+		warn(
+			`Attempted to add modifier for unknown stat '{tostring(statType)}' on entity {entityId}.`
+				.. ` Declared in StatTypes but missing from StatsConfig.DEFAULT_STATS?`
+		)
+		return false
+	end
 	stat:addModifier(modifier)
 	StatsMediator.invalidateStat(entityId, statType)
 	StatsManager.invalidateAllCaches(entityId)
@@ -813,6 +822,9 @@ function StatsManager.removeModifier(entityId: string, statType: StatType, sourc
 		return false
 	end
 	local stat = stats[statType]
+	if not stat then
+		return false
+	end
 	local removed = stat:removeModifier(source_id)
 	if removed then
 		StatsMediator.invalidateStat(entityId, statType)

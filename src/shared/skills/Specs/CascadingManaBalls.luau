@@ -3,7 +3,11 @@
 
 local Types = require(script.Parent.Parent.SkillSpecTypes)
 
-local spec: Types.CascadingManaBallsSpec = {
+local spec: Types.SkillSpec & {
+	projectile: Types.ProjectileSpec,
+	flurry: Types.FlurrySpec,
+	charge: Types.ChargeSpec,
+} = {
 	class = "CascadingManaBallsSkill",
 	icon = "rbxassetid://13050670424",
 	label = "Cascading Mana Balls",

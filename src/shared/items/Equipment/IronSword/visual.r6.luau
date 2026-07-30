@@ -1,8 +1,9 @@
 --!strict
 
-local itemsRoot = script:FindFirstAncestor("items")
-assert(itemsRoot, "IronSword visual package must be under Shared.items")
-local ItemTypes = require(itemsRoot.ItemTypes)
+local RS = game:GetService("ReplicatedStorage")
+local items = RS:WaitForChild("Shared"):WaitForChild("items")
+assert(items, "IronSword visual package must be under Shared.items")
+local ItemTypes = require(items.ItemTypes)
 
 local profile: ItemTypes.EquipmentVisualProfile = {
 	id = "iron_sword_r6",

@@ -105,6 +105,41 @@ function AffixRegistry.listByKind(kind: ItemTypes.AffixKind): { ItemTypes.AffixD
 	return table.clone(byKind[kind])
 end
 
+-- Does this tier grant anything on an item of `context`?
+--
+-- "any" is an explicit declaration that the affix applies to every item (OfVigor's flat Health),
+-- not a fallback for affixes that simply have no entry for the context being asked about.
+function AffixRegistry.tierAppliesToContext(tier: ItemTypes.AffixTierDef, context: string): boolean
+	local defs = tier.modifiersByContext[context]
+	if defs and #defs > 0 then
+		return true
+	end
+	local anyDefs = tier.modifiersByContext.any
+	return anyDefs ~= nil and #anyDefs > 0
+end
+
+-- Affixes of `kind` that can legally roll on an item of `context` at `itemLevel`.
+--
+-- Eligibility is by declared context: an affix that says nothing about wands cannot appear on one.
+-- Without this filter every affix is a candidate for every item, and an armour prefix landing on a
+-- weapon is only prevented by whatever its fallback bucket happens to contain.
+function AffixRegistry.listByKindForContext(
+	kind: ItemTypes.AffixKind,
+	context: string,
+	itemLevel: number
+): { ItemTypes.AffixDef }
+	local out: { ItemTypes.AffixDef } = {}
+	for _, def in ipairs(byKind[kind]) do
+		for _, tier in ipairs(def.tiers) do
+			if itemLevel >= tier.minItemLevel and AffixRegistry.tierAppliesToContext(tier, context) then
+				table.insert(out, def)
+				break
+			end
+		end
+	end
+	return out
+end
+
 function AffixRegistry.list(): { ItemTypes.AffixDef }
 	local out = {}
 	for _, def in pairs(byId) do

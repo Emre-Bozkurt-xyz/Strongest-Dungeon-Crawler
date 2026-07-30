@@ -7,6 +7,21 @@ local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUti
 
 local CapabilityResolver = {}
 
+-- Rolled modifiers (base modifiers + affixes) declare where they apply via `scope`. Route them
+-- into the matching capability container, and skip "weapon"/"skill" scoped entries entirely --
+-- those stay local to CombatLoadoutResolver and must never leak into global player stats.
+local function projectModifier(capability: ItemTypes.ItemCapability, entry: ItemTypes.ModifierEntry)
+	local scope = EquipmentDefUtils.resolveScope(entry)
+	if not EquipmentDefUtils.isProjectedScope(scope) then
+		return
+	end
+	if scope == "attribute" then
+		table.insert(capability.attributes :: { ItemTypes.ModifierEntry }, entry)
+	else
+		table.insert(capability.stats :: { ItemTypes.ModifierEntry }, entry)
+	end
+end
+
 function CapabilityResolver.resolve(def: ItemTypes.ItemDef, item: ItemTypes.ItemInstance?): ItemTypes.ItemCapability
 	local capability: ItemTypes.ItemCapability = {
 		stats = {},
@@ -15,14 +30,15 @@ function CapabilityResolver.resolve(def: ItemTypes.ItemDef, item: ItemTypes.Item
 		animationOverrides = {},
 	}
 
+	-- Rolled base modifiers: scope-based container selection.
 	for _, entry in ipairs(EquipmentDefUtils.getBaseModifiers(def, item)) do
-		if entry.meta and entry.meta.container == "attribute" then
-			table.insert(capability.attributes :: { ItemTypes.ModifierEntry }, entry)
-		else
-			table.insert(capability.stats :: { ItemTypes.ModifierEntry }, entry)
-		end
+		projectModifier(capability, entry)
 	end
 
+	-- Static authored capabilities declare their container by *which list they are in*
+	-- (staticCapabilities.stats vs .attributes), not by scope. Do NOT route these through
+	-- scope-based selection -- every unmarked attribute capability would silently
+	-- re-classify as a stat.
 	local staticCapabilities = EquipmentDefUtils.getCapabilities(def)
 	if staticCapabilities then
 		if staticCapabilities.stats then
@@ -47,6 +63,7 @@ function CapabilityResolver.resolve(def: ItemTypes.ItemDef, item: ItemTypes.Item
 		end
 	end
 
+	-- Rolled affix modifiers: scope-based container selection.
 	local meta = item and item.meta or nil
 	local affixes = meta and meta.affixes
 	if affixes then
@@ -55,19 +72,11 @@ function CapabilityResolver.resolve(def: ItemTypes.ItemDef, item: ItemTypes.Item
 			if type(anyAffix) == "table" and anyAffix.modifiers then
 				for _, entry in ipairs(anyAffix.modifiers) do
 					if entry.target then
-						if entry.meta and entry.meta.container == "attribute" then
-							table.insert(capability.attributes :: { ItemTypes.ModifierEntry }, entry)
-						else
-							table.insert(capability.stats :: { ItemTypes.ModifierEntry }, entry)
-						end
+						projectModifier(capability, entry)
 					end
 				end
 			elseif anyAffix.target then
-				if anyAffix.meta and anyAffix.meta.container == "attribute" then
-					table.insert(capability.attributes :: { ItemTypes.ModifierEntry }, anyAffix)
-				else
-					table.insert(capability.stats :: { ItemTypes.ModifierEntry }, anyAffix)
-				end
+				projectModifier(capability, anyAffix :: ItemTypes.ModifierEntry)
 			end
 		end
 	end

@@ -6,6 +6,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Networking = require(ReplicatedStorage.Shared.Networking)
+local SkillRequirementTypes = require(ReplicatedStorage.Shared.skills.SkillRequirementTypes)
 
 local EVENT_NAME = "SkillMetadataUpdate"
 local REQUEST_SNAPSHOT = "SkillMetadataSnapshot"
@@ -49,6 +50,11 @@ export type SkillMetadata = {
 	executionDuration: number?,
 	tags: { string }?,
 	cooldownOnCancel: boolean?,
+
+	-- Phase C (D8): weapon requirement gate, replicated verbatim from the server-authored
+	-- SkillsData/*.luau so client preflight (BaseSkill:canUseLocally) uses the SAME requirement the
+	-- server gates with -- see SkillRequirementResolver.
+	requirements: SkillRequirementTypes.SkillRequirements?,
 }
 
 -- Cache of skill metadata by skill name

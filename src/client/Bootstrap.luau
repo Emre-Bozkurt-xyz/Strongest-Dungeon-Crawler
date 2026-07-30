@@ -105,6 +105,12 @@ function Bootstrap.startAll(): BootstrapContext
 			AttributesClient.requestAttributesData()
 			InventoryClient.requestSnapshot()
 
+			-- Pull the authoritative skill list. Server-side `skill_added` deltas are fired when
+			-- the character registers, which is typically before SkillsClient has subscribed, so
+			-- without this catch-up the client can end up with no usable skills and no error.
+			local SkillsClient = require(script.Parent.SkillsFramework.SkillsClient)
+			SkillsClient.requestSnapshot()
+
 			local SkillMetadataClient = require(script.Parent.SkillsFramework.SkillMetadataClient)
 			SkillMetadataClient.requestSnapshot()
 

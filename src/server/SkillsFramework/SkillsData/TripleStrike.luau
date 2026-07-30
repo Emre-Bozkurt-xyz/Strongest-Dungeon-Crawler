@@ -15,5 +15,14 @@ local data: Types.ServerSkillConfig = {
         { t = 0.25, yaw = -25, coneAngle = 50, coneRange = 8, damageMult = 0.9 },
         { t = 0.40, yaw = 25, coneAngle = 50, coneRange = 8, damageMult = 0.9 },
     },
+    -- Phase C (D8): a dedicated sword combo -- requires a sword-class weapon in either hand.
+    -- Demonstrates the "wrong_weapon_class" rejection path (see Phase C exit criterion 3).
+    requirements = {
+        weapon = {
+            mode = "any",
+            classes = { "sword" },
+            allowUnarmed = false,
+        },
+    },
 }
 return data

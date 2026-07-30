@@ -1,3 +1,7 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local SkillRequirementTypes = require(ReplicatedStorage.Shared.skills.SkillRequirementTypes)
+
 local SkillsFolder = script.Parent.Skills
 local SkillsDataFolder = script.Parent.SkillsData
 
@@ -18,6 +22,9 @@ export type SkillData = {
 	castSounds: { string }?, -- Array of sound asset IDs for cast/start (plays random)
 	hitSounds: { string }?, -- Array of sound asset IDs for hit impacts (plays random)
 	cooldownOnCancel: boolean?,
+	-- Phase C (D8): eligibility gate. Additive -- see SkillSpecTypes.ServerSkillConfig, which is
+	-- what SkillsData/*.luau actually authors against.
+	requirements: SkillRequirementTypes.SkillRequirements?,
 	combo: {
 		steps: number,
 		window: number,
@@ -73,6 +80,7 @@ export type SkillConfigOverride = {
 			damageMult: number?,
 		}
 	}?,
+	requirements: SkillRequirementTypes.SkillRequirements?,
 }
 
 -- Build skills table by loading all modules under SkillsData

@@ -20,6 +20,7 @@ end
 
 local Networking = require(getNetworkingModule())
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
+local CombatLoadoutMirror = require(script.Parent.CombatLoadoutMirror)
 
 local dispatcher = Networking.client()
 local dispatcherAny = dispatcher :: any
@@ -30,13 +31,15 @@ local items: { [string]: ItemTypes.ItemInstance } = {}
 local inventory: ItemTypes.InventoryState? = nil
 local equipment: ItemTypes.EquipmentState? = nil
 local projection: ItemTypes.EquipmentProjectionSnapshot? = nil
+local combatLoadout: ItemTypes.CombatLoadoutSnapshot? = nil
 
 local changeSignal = Instance.new("BindableEvent")
 
 type ChangeContext = {
-	kind: "snapshot" | "delta" | "projection",
+	kind: "snapshot" | "delta" | "projection" | "loadout",
 	delta: ItemTypes.InventoryDelta?,
 	projection: ItemTypes.EquipmentProjectionSnapshot?,
+	loadout: ItemTypes.CombatLoadoutSnapshot?,
 }
 
 local function notifyChange(context: ChangeContext)
@@ -100,13 +103,17 @@ dispatcherAny:on("InventoryEvent", function(event: ItemTypes.InventoryEvent)
 		items = event.snapshot.items or {}
 		inventory = event.snapshot.inventory
 		equipment = event.snapshot.equipment
-		notifyChange({ kind = "snapshot", delta = nil, projection = nil })
+		notifyChange({ kind = "snapshot", delta = nil, projection = nil, loadout = nil })
 	elseif event.kind == "delta" and event.delta ~= nil then
 		applyDelta(event.delta)
-		notifyChange({ kind = "delta", delta = event.delta, projection = nil })
+		notifyChange({ kind = "delta", delta = event.delta, projection = nil, loadout = nil })
 	elseif event.kind == "projection" and event.projection ~= nil then
 		projection = event.projection
-		notifyChange({ kind = "projection", delta = nil, projection = projection })
+		notifyChange({ kind = "projection", delta = nil, projection = projection, loadout = nil })
+	elseif event.kind == "loadout" and event.loadout ~= nil then
+		combatLoadout = event.loadout
+		CombatLoadoutMirror.set(combatLoadout)
+		notifyChange({ kind = "loadout", delta = nil, projection = nil, loadout = combatLoadout })
 	end
 end)
 
@@ -129,7 +136,7 @@ function InventoryClient.requestSnapshot()
 	items = snapshot.items or {}
 	inventory = snapshot.inventory
 	equipment = snapshot.equipment
-	notifyChange({ kind = "snapshot", delta = nil, projection = nil })
+	notifyChange({ kind = "snapshot", delta = nil, projection = nil, loadout = nil })
 end
 
 function InventoryClient.getInventory(): ItemTypes.InventoryState?
@@ -163,6 +170,10 @@ function InventoryClient.getProjection(): ItemTypes.EquipmentProjectionSnapshot?
 	return projection
 end
 
+function InventoryClient.getCombatLoadout(): ItemTypes.CombatLoadoutSnapshot?
+	return combatLoadout
+end
+
 function InventoryClient.requestAction(payload: any): { ok: boolean, error: string? }?
 	local ok, response = pcall(function()
 		local command: ItemTypes.InventoryCommand = {
@@ -187,6 +198,15 @@ function InventoryClient.requestAction(payload: any): { ok: boolean, error: stri
 	if not ok then
 		warn("InventoryClient: InventoryCommand failed:", response)
 		return nil
+	end
+	if response and response.projection ~= nil then
+		projection = response.projection
+		notifyChange({ kind = "projection", delta = nil, projection = projection, loadout = nil })
+	end
+	if response and response.loadout ~= nil then
+		combatLoadout = response.loadout
+		CombatLoadoutMirror.set(combatLoadout)
+		notifyChange({ kind = "loadout", delta = nil, projection = nil, loadout = combatLoadout })
 	end
 	return response
 end

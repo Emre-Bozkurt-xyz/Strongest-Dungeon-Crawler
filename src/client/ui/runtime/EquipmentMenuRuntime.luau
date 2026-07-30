@@ -161,13 +161,14 @@ end
 
 function EquipmentMenuRuntime:refresh(
 	equipState: any,
+	inventoryState: any,
 	itemsByUid: { [string]: any },
 	registryGet: (string) -> any
 )
 	if not self._slotRuntime then
 		return
 	end
-	self._slotRuntime:refresh(equipState, itemsByUid, registryGet)
+	self._slotRuntime:refresh(equipState, inventoryState, itemsByUid, registryGet)
 end
 
 function EquipmentMenuRuntime:refreshFromClient()
@@ -175,8 +176,9 @@ function EquipmentMenuRuntime:refreshFromClient()
 		return
 	end
 	local equip = InventoryClient.getEquipment()
+	local inventory = InventoryClient.getInventory()
 	local items = InventoryClient.getItems()
-	self:refresh(equip, items, function(itemId: string)
+	self:refresh(equip, inventory, items, function(itemId: string)
 		return Registry.get(itemId)
 	end)
 

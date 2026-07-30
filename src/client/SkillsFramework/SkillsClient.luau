@@ -143,6 +143,54 @@ dispatcher:on("StatusEffectBlocking", function(payload: any, _meta: any?)
 	end
 end)
 
+-- Instantiate a skill class and store it in availableSkills.
+-- Shared by the SkillsUpdate delta path and the snapshot catch-up path.
+-- Idempotent: re-registering an already-known skill is a no-op.
+local function registerSkill(skillName: string, source: string): boolean
+	if type(skillName) ~= "string" or skillName == "" then
+		warn(`{source}: invalid skillName`, skillName)
+		return false
+	end
+	if availableSkills[skillName] then
+		return true
+	end
+
+	local skillSpec = ClientSpec[skillName]
+	if not skillSpec then
+		warn(`{source}: no client spec for skill`, skillName)
+		return false
+	end
+	if type(skillSpec.class) ~= "string" then
+		warn(`{source}: invalid class for skill`, skillName, "class=", tostring(skillSpec.class))
+		return false
+	end
+	local skillClassModule = script.Parent.Skills:FindFirstChild(skillSpec.class)
+	if not skillClassModule then
+		warn(`{source}: missing skill class module`, skillSpec.class)
+		return false
+	end
+	local okClass, skillClass = pcall(require, skillClassModule)
+	if not okClass then
+		warn(`{source}: failed to require class`, skillSpec.class, skillClass)
+		return false
+	end
+	if type(skillClass) ~= "table" or type(skillClass.new) ~= "function" then
+		warn(`{source}: invalid class export for`, skillSpec.class)
+		return false
+	end
+	local okInstance, skillInstance = pcall(skillClass.new, skillName, skillSpec)
+	if not okInstance then
+		warn(`{source}: failed to create instance for`, skillName, skillInstance)
+		return false
+	end
+
+	availableSkills[skillName] = skillInstance
+	if DebugConfig.isEnabled("inputFlow") then
+		print("[InputFlow]", `registered skill '{skillName}' via {source}`)
+	end
+	return true
+end
+
 -- update client state for active skills
 dispatcher:on("SkillsUpdate", function(payload: any, _meta: any?)
 	if type(payload) ~= "table" then
@@ -154,44 +202,39 @@ dispatcher:on("SkillsUpdate", function(payload: any, _meta: any?)
 			warn("SkillsUpdate: missing data for skill_added")
 			return
 		end
-		local skillName = payload.data.skillName
-		if type(skillName) ~= "string" or skillName == "" then
-			warn("SkillsUpdate: invalid skillName", skillName)
-			return
-		end
-
-		-- instantiate skill class and store in availableSkills
-		local skillSpec = ClientSpec[skillName]
-		if not skillSpec then
-			warn("SkillsUpdate: no client spec for skill", skillName)
-			return
-		end
-		if type(skillSpec.class) ~= "string" then
-			warn("SkillsUpdate: invalid class for skill", skillName, "class=", tostring(skillSpec.class))
-			return
-		end
-		local skillClassModule = script.Parent.Skills:FindFirstChild(skillSpec.class)
-		if not skillClassModule then
-			warn("SkillsUpdate: missing skill class module", skillSpec.class)
-			return
-		end
-		local okClass, skillClass = pcall(require, skillClassModule)
-		if not okClass then
-			warn("SkillsUpdate: failed to require class", skillSpec.class, skillClass)
-			return
-		end
-		if type(skillClass) ~= "table" or type(skillClass.new) ~= "function" then
-			warn("SkillsUpdate: invalid class export for", skillSpec.class)
-			return
-		end
-		local okInstance, skillInstance = pcall(skillClass.new, skillName, skillSpec)
-		if not okInstance then
-			warn("SkillsUpdate: failed to create instance for", skillName, skillInstance)
-			return
-		end
-		availableSkills[skillName] = skillInstance
+		registerSkill(payload.data.skillName, "SkillsUpdate")
 	end
 end)
+
+-- Ask the server for the authoritative skill list and register anything we missed.
+--
+-- Skills are granted server-side as soon as the character registers, which is frequently before
+-- this module has loaded and subscribed to SkillsUpdate. Those deltas are lost with no error, so
+-- the client pulls the full list once it is ready rather than assuming it was listening in time.
+-- Safe to call more than once; registerSkill ignores skills already present.
+function SkillsClient.requestSnapshot()
+	local ok, payload = pcall(function()
+		return dispatcherAny:request("SkillsSnapshot", {})
+	end)
+	if not ok then
+		warn("SkillsClient: skills snapshot request failed:", payload)
+		return
+	end
+	if type(payload) ~= "table" or type(payload.skills) ~= "table" then
+		warn("SkillsClient: invalid skills snapshot:", typeof(payload))
+		return
+	end
+
+	local registered = 0
+	for _, skillName in ipairs(payload.skills) do
+		if registerSkill(skillName, "SkillsSnapshot") then
+			registered += 1
+		end
+	end
+	if DebugConfig.isEnabled("inputFlow") then
+		print("[InputFlow]", `SkillsSnapshot: {registered}/{#payload.skills} skill(s) available`)
+	end
+end
 
 function SkillsClient.useSkill(skillName: string)
 	local skill = availableSkills[skillName]

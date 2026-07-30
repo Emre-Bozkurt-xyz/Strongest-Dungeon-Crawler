@@ -30,7 +30,12 @@ local function makeSource(entityId: string, target: string, entry: ItemTypes.Mod
 	return `equipment_proj::{entityId}::{target}::{id}`
 end
 
-local function applyStatModifier(entityId: string, entry: ItemTypes.ModifierEntry, index: number)
+-- Returns the entry stamped with its sourceId, or nil when the modifier did not apply.
+local function applyStatModifier(
+	entityId: string,
+	entry: ItemTypes.ModifierEntry,
+	index: number
+): ItemTypes.ModifierEntry?
 	local sourceId = makeSource(entityId, entry.target, entry, index)
 	local modifier = nil
 	if entry.kind == "percent" then
@@ -60,7 +65,11 @@ local function applyStatModifier(entityId: string, entry: ItemTypes.ModifierEntr
 			priority = entry.priority,
 		})
 	end
-	StatsManager.addModifier(entityId, entry.target, modifier)
+	-- A projection entry must reflect something that actually applied, or clear() will try to
+	-- remove a modifier that was never added.
+	if not StatsManager.addModifier(entityId, entry.target, modifier) then
+		return nil
+	end
 	local withSource = table.clone(entry)
 	withSource.sourceId = sourceId
 	return withSource

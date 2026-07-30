@@ -213,6 +213,12 @@ local function calculateMetadata(entityId: string, skillName: string): { [string
 	metadata.baseDuration = skillData.baseDuration
 	metadata.tags = skillData.tags
 	metadata.cooldownOnCancel = skillData.cooldownOnCancel
+	-- Phase C (D8): replicate the authored weapon requirement so the client can preflight with the
+	-- SAME requirement data the server gates with (shared/skills/SkillRequirementResolver.luau) --
+	-- authored once in SkillsData/*.luau, never duplicated in ClientSpec.
+	if skillData.requirements then
+		metadata.requirements = skillData.requirements
+	end
 	metadata.customData = metadata.customData or {}
 	if skillData.hold and skillData.hold.maxDuration ~= nil then
 		metadata.customData.holdMaxDuration = skillData.hold.maxDuration

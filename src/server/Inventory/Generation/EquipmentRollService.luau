@@ -67,6 +67,7 @@ local function rollBaseModifier(
 		tags = cloneTags(rollDef.tags),
 		priority = rollDef.priority,
 		meta = if next(meta) ~= nil then meta else nil,
+		scope = rollDef.scope,
 	}
 end
 
@@ -77,12 +78,12 @@ function EquipmentRollService.prepareMeta(def: ItemTypes.ItemDef, meta: ItemType
 
 	local out = cloneMeta(meta)
 	out = AffixRollService.prepareMeta(def, out) or out
+	local rng = Random.new()
+	local itemLevel = EquipmentDefUtils.resolveInstanceItemLevel(def, out)
+	out.itemLevel = itemLevel
 
 	local baseRolls = EquipmentDefUtils.getBaseRolls(def)
 	if baseRolls and (#baseRolls > 0) and (out.baseModifiers == nil or #out.baseModifiers == 0) then
-		local rng = Random.new()
-		local itemLevel = EquipmentDefUtils.resolveInstanceItemLevel(def, out)
-		out.itemLevel = itemLevel
 		local rolled: { ItemTypes.ModifierEntry } = {}
 		for index, rollDef in ipairs(baseRolls) do
 			table.insert(rolled, rollBaseModifier(def, rollDef, itemLevel, index, rng))

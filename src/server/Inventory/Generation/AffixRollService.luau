@@ -71,10 +71,18 @@ local function pickRarity(meta: ItemTypes.ItemMeta, def: ItemTypes.ItemDef, rng:
 	return picked or "normal"
 end
 
-local function pickTier(affixDef: ItemTypes.AffixDef, itemLevel: number, rng: Random): ItemTypes.AffixTierDef?
+-- Tiers are filtered by context as well as item level: an affix can be eligible overall while a
+-- particular tier grants nothing on this item, and picking that tier would produce an affix with no
+-- modifiers.
+local function pickTier(
+	affixDef: ItemTypes.AffixDef,
+	itemLevel: number,
+	context: string,
+	rng: Random
+): ItemTypes.AffixTierDef?
 	local eligible: { ItemTypes.AffixTierDef } = {}
 	for _, tier in ipairs(affixDef.tiers) do
-		if itemLevel >= tier.minItemLevel then
+		if itemLevel >= tier.minItemLevel and AffixRegistry.tierAppliesToContext(tier, context) then
 			table.insert(eligible, tier)
 		end
 	end
@@ -94,6 +102,8 @@ local function pickLabel(tier: ItemTypes.AffixTierDef, rng: Random): string
 	return tier.labels[i]
 end
 
+-- `any` is reached only by affixes that declared it, since eligibility filtering already excluded
+-- affixes with nothing to say about this context.
 local function resolveModifierDefs(
 	tier: ItemTypes.AffixTierDef,
 	context: string
@@ -144,6 +154,7 @@ local function makeRolledModifier(
 		priority = rollDef.priority,
 		tags = rollDef.tags,
 		meta = if next(meta) ~= nil then meta else nil,
+		scope = rollDef.scope,
 	}
 end
 
@@ -161,8 +172,7 @@ local function rollAffixInstances(
 		if count <= 0 then
 			return
 		end
-		local pool = AffixRegistry.listByKind(kind)
-		local available = table.clone(pool)
+		local available = AffixRegistry.listByKindForContext(kind, context, itemLevel)
 		for _ = 1, count do
 			local pickedDef = weightedPick(available, function(entry)
 				return entry.weight
@@ -170,7 +180,7 @@ local function rollAffixInstances(
 			if not pickedDef then
 				break
 			end
-			local tier = pickTier(pickedDef, itemLevel, rng)
+			local tier = pickTier(pickedDef, itemLevel, context, rng)
 			if tier then
 				local label = pickLabel(tier, rng)
 				local modDefs = resolveModifierDefs(tier, context)

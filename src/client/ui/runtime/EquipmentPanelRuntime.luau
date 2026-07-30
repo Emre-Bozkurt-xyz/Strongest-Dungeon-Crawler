@@ -3,8 +3,11 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local InventoryClient = require(script.Parent.Parent.Parent.Inventory.InventoryClient)
+local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local EquipmentSlotSchema = require(ReplicatedStorage.Shared.ui.EquipmentSlotSchema)
+local PanelBinder = require(script.Parent.PanelBinder)
 local SlotVisuals = require(script.Parent.SlotVisuals)
 
 type SlotNodes = SlotVisuals.SlotNodes
@@ -17,6 +20,9 @@ type SlotDiscoveryReport = {
 
 local EquipmentPanelRuntime = {}
 EquipmentPanelRuntime.__index = EquipmentPanelRuntime
+
+local CANDIDATE_GRID_NAME = "InventoryGrid"
+local CANDIDATE_TEMPLATE_NAME = "ItemSlotTemplate"
 
 local function makeSlotLookup(slotIds: { string }): { [string]: string }
 	local lookup: { [string]: string } = {}
@@ -103,12 +109,83 @@ local function connectSlotClick(slotFrame: Frame, nodes: SlotNodes, handler: () 
 		return
 	end
 
-	slotFrame.Active = true
-	slotFrame.InputBegan:Connect(function(input: InputObject)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			handler()
+	local lastClickTime = 0
+	local function onInput(input: InputObject)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+			return
 		end
-	end)
+
+		local now = os.clock()
+		if now - lastClickTime < 0.05 then
+			return
+		end
+		lastClickTime = now
+		handler()
+	end
+
+	local clickTargets: { GuiObject } = { slotFrame }
+	for _, descendant in ipairs(slotFrame:GetDescendants()) do
+		if descendant:IsA("GuiObject") then
+			table.insert(clickTargets, descendant)
+		end
+	end
+
+	for _, target in ipairs(clickTargets) do
+		target.Active = true
+		target.InputBegan:Connect(onInput)
+	end
+end
+
+local function getCompatibleSocketIds(def: ItemTypes.ItemDef): { string }
+	local compatible = {}
+	if not EquipmentDefUtils.isEquipment(def) then
+		return compatible
+	end
+
+	local equipSlots = EquipmentDefUtils.getEquipSlots(def)
+	if not equipSlots then
+		return compatible
+	end
+
+	local validSockets = makeSlotLookup(EquipmentSlotSchema.list())
+	for _, rawSlot in ipairs(equipSlots) do
+		local canonical = EquipmentSlotSchema.canonicalize(rawSlot)
+		if canonical and validSockets[canonical] then
+			table.insert(compatible, canonical)
+		end
+	end
+
+	return compatible
+end
+
+local function hasSocketId(socketIds: { string }, slotId: string): boolean
+	for _, socketId in ipairs(socketIds) do
+		if socketId == slotId then
+			return true
+		end
+	end
+	return false
+end
+
+local function resolveCandidateTargetSlot(def: ItemTypes.ItemDef, selectedSlotId: string?): string?
+	local compatible = getCompatibleSocketIds(def)
+	if #compatible == 0 then
+		return nil
+	end
+
+	if selectedSlotId and hasSocketId(compatible, selectedSlotId) then
+		return selectedSlotId
+	end
+
+	return compatible[1]
+end
+
+local function resolveSlotId(slotFrame: Frame): string?
+	local attr = slotFrame:GetAttribute("EquipmentSlot")
+	if type(attr) ~= "string" then
+		return nil
+	end
+	return EquipmentSlotSchema.canonicalize(attr)
 end
 
 function EquipmentPanelRuntime.new(panelPart: BasePart, reporter: ((string) -> ())?): any
@@ -116,10 +193,17 @@ function EquipmentPanelRuntime.new(panelPart: BasePart, reporter: ((string) -> (
 	self._panelPart = panelPart
 	self._slots = {}
 	self._slotNodes = {}
+	self._candidateGrid = nil :: ScrollingFrame?
+	self._candidateTemplate = nil :: Frame?
+	self._candidateSlots = {} :: { Frame }
+	self._lastInventory = nil :: ItemTypes.InventoryState?
+	self._lastItems = nil :: { [string]: ItemTypes.ItemInstance }?
+	self._lastRegistryGet = nil :: ((itemId: string) -> ItemTypes.ItemDef?)?
 	self._reported = false
 	self._reporter = reporter
 	self._inspectSelectionHandler = nil :: ((string?) -> ())?
 	self._selectedUid = nil :: string?
+	self._selectedSlotId = nil :: string?
 	return self
 end
 
@@ -152,15 +236,46 @@ function EquipmentPanelRuntime:_bindDefaultSlots()
 	self:_bind(EquipmentSlotSchema.list())
 end
 
+function EquipmentPanelRuntime:_bindCandidateGrid()
+	if self._candidateGrid ~= nil or self._candidateTemplate ~= nil then
+		return
+	end
+
+	local binder = PanelBinder.new(self._panelPart)
+	local grid = binder:find({ CANDIDATE_GRID_NAME }, "ScrollingFrame") :: ScrollingFrame?
+	if not grid then
+		return
+	end
+
+	local template = PanelBinder.new(grid):find({ CANDIDATE_TEMPLATE_NAME }, "Frame") :: Frame?
+	if not template then
+		warn(`EquipmentPanelRuntime: missing {CANDIDATE_GRID_NAME}.{CANDIDATE_TEMPLATE_NAME}`)
+		return
+	end
+
+	template.Visible = false
+	self._candidateGrid = grid
+	self._candidateTemplate = template
+end
+
 function EquipmentPanelRuntime:_ensureBound()
 	if next(self._slots) == nil then
 		self:_bindDefaultSlots()
 	end
+	self:_bindCandidateGrid()
+end
+
+function EquipmentPanelRuntime:_clearCandidateSlots()
+	for _, slotFrame in ipairs(self._candidateSlots) do
+		slotFrame:Destroy()
+	end
+	table.clear(self._candidateSlots)
 end
 
 function EquipmentPanelRuntime:_refreshSelection(selectedUid: string?)
-	for _, slotFrame in pairs(self._slots) do
-		local isSelected = selectedUid ~= nil and slotFrame:GetAttribute("ItemUid") == selectedUid
+	for slotId, slotFrame in pairs(self._slots) do
+		local isSelected = self._selectedSlotId == slotId
+			or (selectedUid ~= nil and slotFrame:GetAttribute("ItemUid") == selectedUid)
 		local selectionFrame = slotFrame:FindFirstChild("SelectionFrame", true)
 		if selectionFrame and selectionFrame:IsA("GuiObject") then
 			selectionFrame.Visible = isSelected
@@ -174,13 +289,17 @@ function EquipmentPanelRuntime:setSelectedUid(uid: string?)
 end
 
 function EquipmentPanelRuntime:clearSelection()
+	self._selectedSlotId = nil
 	self:setSelectedUid(nil)
+	self:_rerenderCandidateItems()
 end
 
 function EquipmentPanelRuntime:_emitSelectionForSlot(slotFrame: Frame)
+	self._selectedSlotId = resolveSlotId(slotFrame)
 	local uid = slotFrame:GetAttribute("ItemUid")
 	local selectedUid = if type(uid) == "string" then uid else nil
 	self:setSelectedUid(selectedUid)
+	self:_rerenderCandidateItems()
 	if self._inspectSelectionHandler then
 		self._inspectSelectionHandler(selectedUid)
 	end
@@ -190,14 +309,76 @@ function EquipmentPanelRuntime:setInspectSelectionHandler(handler: ((string?) ->
 	self._inspectSelectionHandler = handler
 end
 
+function EquipmentPanelRuntime:_renderCandidateItems(
+	inventory: ItemTypes.InventoryState?,
+	items: { [string]: ItemTypes.ItemInstance },
+	registryGet: (itemId: string) -> ItemTypes.ItemDef?
+)
+	self:_clearCandidateSlots()
+
+	local slotId = self._selectedSlotId
+	local grid = self._candidateGrid
+	local template = self._candidateTemplate
+	if not inventory or not grid or not template then
+		return
+	end
+
+	local layoutOrder = 0
+	for slotIndex = 1, inventory.capacity do
+		local uid = inventory.slots[slotIndex]
+		local item = if uid then items[uid] else nil
+		local def = if item then registryGet(item.itemId) else nil
+		local targetSlotId = if def then resolveCandidateTargetSlot(def, slotId) else nil
+		if item and def and targetSlotId then
+			layoutOrder += 1
+			local clone = template:Clone()
+			clone.Name = `Candidate_{slotIndex}`
+			clone.LayoutOrder = layoutOrder
+			clone.Visible = true
+			clone.Parent = grid
+			local selectionFrame = clone:FindFirstChild("SelectionFrame", true)
+			if selectionFrame and selectionFrame:IsA("GuiObject") then
+				selectionFrame.Visible = false
+			end
+
+			local nodes = SlotVisuals.bind(clone)
+			SlotVisuals.setItem(clone, item, def, nodes)
+			connectSlotClick(clone, nodes, function()
+				self:setSelectedUid(item.uid)
+				if self._inspectSelectionHandler then
+					self._inspectSelectionHandler(item.uid)
+				end
+				InventoryClient.requestAction({
+					action = "equip",
+					fromSlot = slotIndex,
+					toSlot = targetSlotId,
+				})
+			end)
+
+			table.insert(self._candidateSlots, clone)
+		end
+	end
+end
+
+function EquipmentPanelRuntime:_rerenderCandidateItems()
+	if not self._lastItems or not self._lastRegistryGet then
+		return
+	end
+	self:_renderCandidateItems(self._lastInventory, self._lastItems, self._lastRegistryGet)
+end
+
 function EquipmentPanelRuntime:refresh(
 	equip: ItemTypes.EquipmentState?,
+	inventory: ItemTypes.InventoryState?,
 	items: { [string]: ItemTypes.ItemInstance },
 	registryGet: (itemId: string) -> ItemTypes.ItemDef?
 )
 	if not equip then
 		return
 	end
+	self._lastInventory = inventory
+	self._lastItems = items
+	self._lastRegistryGet = registryGet
 	self:_ensureBound()
 	for slotName, slotFrame in pairs(self._slots) do
 		local nodes = self._slotNodes[slotName]
@@ -217,6 +398,7 @@ function EquipmentPanelRuntime:refresh(
 		end
 	end
 	self:_refreshSelection(self._selectedUid)
+	self:_renderCandidateItems(inventory, items, registryGet)
 end
 
 return EquipmentPanelRuntime

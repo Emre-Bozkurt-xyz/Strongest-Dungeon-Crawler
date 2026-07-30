@@ -53,6 +53,7 @@ local Channels: { [Names.ChannelName]: ChannelDefinition } = {
 			"SkillRequestRelease",
 			"SkillRequestMarker",
 			"SkillMetadataSnapshot",
+			"SkillsSnapshot",
 		},
 		events = { "SkillsUpdate", "SkillMetadataUpdate" },
 	},

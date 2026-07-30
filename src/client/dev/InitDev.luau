@@ -56,8 +56,9 @@ local function setupSkillProfiles()
 	local p2 = SkillSlots.createProfile()
 
 	-- Profile 1: core melee + traversal
+	-- Phase B: BasicAttack in place of Punch -- same slot/keybind, adaptive per current weapon.
 	SkillSlots.setActiveProfile(p1)
-	SkillSlots.assign(1, "Punch")
+	SkillSlots.assign(1, "BasicAttack")
 	SkillSlots.assign(2, "Dash")
 	SkillSlots.assign(3, "DodgeRoll")
 

@@ -3,7 +3,7 @@
 local ItemTypes = require(script.Parent.Parent.Parent.ItemTypes)
 
 local meleeWeaponTier1: { ItemTypes.AffixModifierRollDef } = {
-	{ kind = "flat", target = "PhysicalDamage", min = 1, max = 3, scaleMinPerItemLevel = 0.08, scaleMaxPerItemLevel = 0.15 },
+	{ kind = "flat", target = "PhysicalDamage", min = 1, max = 3, scaleMinPerItemLevel = 0.08, scaleMaxPerItemLevel = 0.15, scope = "weapon" },
 }
 local glovesTier1: { ItemTypes.AffixModifierRollDef } = {
 	{ kind = "percent", target = "AttackSpeed", min = 0.03, max = 0.06, scaleMinPerItemLevel = 0.002, scaleMaxPerItemLevel = 0.003 },
@@ -11,21 +11,15 @@ local glovesTier1: { ItemTypes.AffixModifierRollDef } = {
 local bodyArmorTier1: { ItemTypes.AffixModifierRollDef } = {
 	{ kind = "flat", target = "Strength", min = 1, max = 2, scaleMinPerItemLevel = 0.05, scaleMaxPerItemLevel = 0.08, container = "attribute" },
 }
-local anyTier1: { ItemTypes.AffixModifierRollDef } = {
-	{ kind = "flat", target = "PhysicalDamage", min = 1, max = 2, scaleMinPerItemLevel = 0.05, scaleMaxPerItemLevel = 0.08 },
-}
 
 local meleeWeaponTier2: { ItemTypes.AffixModifierRollDef } = {
-	{ kind = "flat", target = "PhysicalDamage", min = 4, max = 8, scaleMinPerItemLevel = 0.12, scaleMaxPerItemLevel = 0.2 },
+	{ kind = "flat", target = "PhysicalDamage", min = 4, max = 8, scaleMinPerItemLevel = 0.12, scaleMaxPerItemLevel = 0.2, scope = "weapon" },
 }
 local glovesTier2: { ItemTypes.AffixModifierRollDef } = {
 	{ kind = "percent", target = "AttackSpeed", min = 0.07, max = 0.13, scaleMinPerItemLevel = 0.002, scaleMaxPerItemLevel = 0.004 },
 }
 local bodyArmorTier2: { ItemTypes.AffixModifierRollDef } = {
 	{ kind = "flat", target = "Strength", min = 3, max = 5, scaleMinPerItemLevel = 0.08, scaleMaxPerItemLevel = 0.12, container = "attribute" },
-}
-local anyTier2: { ItemTypes.AffixModifierRollDef } = {
-	{ kind = "flat", target = "PhysicalDamage", min = 2, max = 4, scaleMinPerItemLevel = 0.08, scaleMaxPerItemLevel = 0.12 },
 }
 
 local tiers: { ItemTypes.AffixTierDef } = {
@@ -38,7 +32,6 @@ local tiers: { ItemTypes.AffixTierDef } = {
 			melee_weapon = meleeWeaponTier1,
 			gloves = glovesTier1,
 			body_armor = bodyArmorTier1,
-			any = anyTier1,
 		},
 	},
 	{
@@ -50,7 +43,6 @@ local tiers: { ItemTypes.AffixTierDef } = {
 			melee_weapon = meleeWeaponTier2,
 			gloves = glovesTier2,
 			body_armor = bodyArmorTier2,
-			any = anyTier2,
 		},
 	},
 }

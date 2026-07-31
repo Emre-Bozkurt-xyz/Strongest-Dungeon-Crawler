@@ -1,0 +1,656 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+	<Meta name="ExplicitAutoJoints">true</Meta>
+	<External>null</External>
+	<External>nil</External>
+	<Item class="Folder" referent="RBX3DFBE5907D694DADB5775A2CE9D35F94">
+		<Properties>
+			<BinaryString name="AttributesSerialize"></BinaryString>
+			<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+			<bool name="DefinesCapabilities">false</bool>
+			<string name="Name">Design</string>
+			<int64 name="SourceAssetId">-1</int64>
+			<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+		</Properties>
+		<Item class="StyleSheet" referent="RBXC5A7F120CC0B4C6891AC5E884AB25056">
+			<Properties>
+				<BinaryString name="AttributesSerialize"></BinaryString>
+				<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+				<bool name="DefinesCapabilities">false</bool>
+				<string name="Name">EquipmentPanelStyle</string>
+				<int64 name="SourceAssetId">-1</int64>
+				<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+			</Properties>
+			<Item class="StyleDerive" referent="RBX437985EC25D5400A8CC72D172F87B1B5">
+				<Properties>
+					<int name="Priority">0</int>
+					<Ref name="StyleSheet">RBX563A17B295F14586BAAA6CD210C0296F</Ref>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">Derive from BaseStyleSheet</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleDerive" referent="RBX4E846BCC1A4A48A7A397B8D98B25714C">
+				<Properties>
+					<int name="Priority">0</int>
+					<Ref name="StyleSheet">RBX0AF301F3AD1B43F39595EDE63FFA48DF</Ref>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">Derive from SoloLeveling</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBXDBBCF1BA4C9C45E2A092705B15BDAA73">
+				<Properties>
+					<int name="Priority">1</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[AgAAABAAAABCYWNrZ3JvdW5kQ29sb3IzAhAAAAAkQmFja2dyb3VuZENvbG9yFgAAAEJhY2tn
+cm91bmRUcmFuc3BhcmVuY3kCFwAAACRCYWNrZ3JvdW5kVHJhbnNwYXJlbmN5]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">.Background</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">.Background</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleDerive" referent="RBXEBD1D5829F854088AA2C7EE9F91BC234">
+				<Properties>
+					<int name="Priority">0</int>
+					<Ref name="StyleSheet">RBXC64F1A9798A740CE8046E7D68FF4FED9</Ref>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">Derive from Tokens</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBXE6B95DE9A2AC423892618500294AF5BE">
+				<Properties>
+					<int name="Priority">2</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[AgAAABAAAABCYWNrZ3JvdW5kQ29sb3IzAgoAAAAkQm9keUNvbG9yFgAAAEJhY2tncm91bmRU
+cmFuc3BhcmVuY3kCEQAAACRCb2R5VHJhbnNwYXJlbmN5]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">.Body</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">.Body</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX63CD637F3FEF45C6B31288727EA99230">
+				<Properties>
+					<int name="Priority">3</int>
+					<BinaryString name="PropertiesSerialize">AQAAABYAAABCYWNrZ3JvdW5kVHJhbnNwYXJlbmN5BgAAAAAAAPA/</BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">.SlotContainer</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">.SlotContainer</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBXB86299A4C6D246B78E6C65AFC79176E6">
+				<Properties>
+					<int name="Priority">4</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[AgAAABAAAABCYWNrZ3JvdW5kQ29sb3IzAhcAAAAkRXF1aXBtZW50U2xvdEJvZHlDb2xvcgQA
+AABTaXplCgAAgD/i////AACAP+L///8=]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">.SlotBody</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">.SlotBody</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+				<Item class="StyleRule" referent="RBX35C35BD7BD22454C98149FC2A12A513D">
+					<Properties>
+						<int name="Priority">1</int>
+						<BinaryString name="PropertiesSerialize">AQAAAAwAAABDb3JuZXJSYWRpdXMJAAAAAA8AAAA=</BinaryString>
+						<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+						<string name="Selector">::UICorner</string>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<string name="Name">::UICorner</string>
+						<int64 name="SourceAssetId">-1</int64>
+						<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					</Properties>
+				</Item>
+				<Item class="StyleRule" referent="RBXF7EA35D633E24B9180742024A708E1FB">
+					<Properties>
+						<int name="Priority">2</int>
+						<BinaryString name="PropertiesSerialize"><![CDATA[AQAAABAAAABCYWNrZ3JvdW5kQ29sb3IzAhwAAAAkRXF1aXBtZW50U2xvdEJvZHlIb3ZlckNv
+bG9y]]></BinaryString>
+						<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+						<string name="Selector">:Hover</string>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<string name="Name">:Hover</string>
+						<int64 name="SourceAssetId">-1</int64>
+						<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					</Properties>
+				</Item>
+				<Item class="StyleRule" referent="RBX66B328709DDB45FFAD10B2CFD1D13F7E">
+					<Properties>
+						<int name="Priority">3</int>
+						<BinaryString name="PropertiesSerialize"><![CDATA[AQAAABAAAABCYWNrZ3JvdW5kQ29sb3IzAhwAAAAkRXF1aXBtZW50U2xvdEJvZHlQcmVzc0Nv
+bG9y]]></BinaryString>
+						<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+						<string name="Selector">:Press</string>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<string name="Name">:Press</string>
+						<int64 name="SourceAssetId">-1</int64>
+						<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					</Properties>
+				</Item>
+				<Item class="StyleRule" referent="RBX5DEBB3AACC674CDE8EF5136AEFFAAFAF">
+					<Properties>
+						<int name="Priority">4</int>
+						<BinaryString name="PropertiesSerialize"><![CDATA[BAAAAA0AAABQYWRkaW5nQm90dG9tAhkAAAAkRXF1aXBtZW50U2xvdEJvZHlQYWRkaW5nCwAA
+AFBhZGRpbmdMZWZ0AhkAAAAkRXF1aXBtZW50U2xvdEJvZHlQYWRkaW5nDAAAAFBhZGRpbmdS
+aWdodAIZAAAAJEVxdWlwbWVudFNsb3RCb2R5UGFkZGluZwoAAABQYWRkaW5nVG9wAhkAAAAk
+RXF1aXBtZW50U2xvdEJvZHlQYWRkaW5n]]></BinaryString>
+						<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+						<string name="Selector">::UIPadding</string>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<string name="Name">::UIPadding</string>
+						<int64 name="SourceAssetId">-1</int64>
+						<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					</Properties>
+				</Item>
+			</Item>
+			<Item class="StyleRule" referent="RBX10AAE47B51E344E49EF296D8380C4872">
+				<Properties>
+					<int name="Priority">5</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[AgAAABAAAABCYWNrZ3JvdW5kQ29sb3IzAggAAAAkUHJpbWFyeRYAAABCYWNrZ3JvdW5kVHJh
+bnNwYXJlbmN5AhYAAAAkU2xvdEZyYW1lVHJhbnNwYXJlbmN5]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">.RarityFrame</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">.RarityFrame</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+				<Item class="StyleRule" referent="RBXC138BA34F0C54D87AA215C51E2FA250F">
+					<Properties>
+						<int name="Priority">1</int>
+						<BinaryString name="PropertiesSerialize">AQAAAAwAAABDb3JuZXJSYWRpdXMJAAAAAA8AAAA=</BinaryString>
+						<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+						<string name="Selector">::UICorner</string>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<string name="Name">::UICorner</string>
+						<int64 name="SourceAssetId">-1</int64>
+						<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					</Properties>
+				</Item>
+				<Item class="StyleRule" referent="RBX999C1941DF93454DB09076B672ED5703">
+					<Properties>
+						<int name="Priority">2</int>
+						<BinaryString name="PropertiesSerialize"><![CDATA[BQAAABYAAABCYWNrZ3JvdW5kVHJhbnNwYXJlbmN5BgAAAAAAAPA/CQAAAFNjYWxlVHlwZRUJ
+AAAAU2NhbGVUeXBlAQAAAAQAAABTaXplCgAAgD8AAAAAAACAPwAAAAALAAAAU2xpY2VDZW50
+ZXICIwAAACRFcXVpcG1lbnRTbG90RnJhbWVJbWFnZVNsaWNlQ2VudGVyCgAAAFNsaWNlU2Nh
+bGUCIgAAACRFcXVpcG1lbnRTbG90RnJhbWVJbWFnZVNsaWNlU2NhbGU=]]></BinaryString>
+						<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+						<string name="Selector">&gt;.BackgroundImage</string>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<string name="Name">&gt;.BackgroundImage</string>
+						<int64 name="SourceAssetId">-1</int64>
+						<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					</Properties>
+				</Item>
+			</Item>
+		</Item>
+		<Item class="StyleSheet" referent="RBX563A17B295F14586BAAA6CD210C0296F">
+			<Properties>
+				<BinaryString name="AttributesSerialize"></BinaryString>
+				<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+				<bool name="DefinesCapabilities">false</bool>
+				<string name="Name">BaseStyleSheet</string>
+				<int64 name="SourceAssetId">-1</int64>
+				<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+			</Properties>
+			<Item class="StyleRule" referent="RBX7AFC973A3C364168A12CFAFD95C1F02D">
+				<Properties>
+					<int name="Priority">0</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[BAAAABAAAABCYWNrZ3JvdW5kQ29sb3IzDwAAgD8AAIA/AACAPwwAAABCb3JkZXJDb2xvcjMP
+AAAAAAAAAAAAAAAADwAAAEJvcmRlclNpemVQaXhlbAYAAAAAAAAAAAQAAABTaXplCgAAAABk
+AAAAAAAAAGQAAAA=]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">ViewportFrame</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">ViewportFrame</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX64F34B6469874883AE14353CF65EB90C">
+				<Properties>
+					<int name="Priority">1</int>
+					<BinaryString name="PropertiesSerialize">AQAAAAkAAABTb3J0T3JkZXIVCQAAAFNvcnRPcmRlcgIAAAA=</BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">UIListLayout</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">UIListLayout</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBXC2FACB37459F445AB8E84D2AA33DD8AB">
+				<Properties>
+					<int name="Priority">2</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[BAAAABAAAABCYWNrZ3JvdW5kQ29sb3IzDwAAgD8AAIA/AACAPwwAAABCb3JkZXJDb2xvcjMP
+AAAAAAAAAAAAAAAADwAAAEJvcmRlclNpemVQaXhlbAYAAAAAAAAAAAQAAABTaXplCgAAAABk
+AAAAAAAAAGQAAAA=]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">CanvasGroup</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">CanvasGroup</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX27F585FADA7C4F67AE741B133853FDA0">
+				<Properties>
+					<int name="Priority">3</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[BAAAABAAAABCYWNrZ3JvdW5kQ29sb3IzDwAAgD8AAIA/AACAPwwAAABCb3JkZXJDb2xvcjMP
+AAAAAAAAAAAAAAAADwAAAEJvcmRlclNpemVQaXhlbAYAAAAAAAAAAAQAAABTaXplCgAAAABk
+AAAAAAAAAGQAAAA=]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">Frame</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">Frame</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX2EF115040FF041D2A2A84A092CBBB878">
+				<Properties>
+					<int name="Priority">4</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[BwAAABAAAABCYWNrZ3JvdW5kQ29sb3IzDwAAgD8AAIA/AACAPwwAAABCb3JkZXJDb2xvcjMP
+AAAAAAAAAAAAAAAADwAAAEJvcmRlclNpemVQaXhlbAYAAAAAAAAAAAgAAABGb250RmFjZSGQ
+AQAsAAAAcmJ4YXNzZXQ6Ly9mb250cy9mYW1pbGllcy9Tb3VyY2VTYW5zUHJvLmpzb24qAAAA
+cmJ4YXNzZXQ6Ly9mb250cy9Tb3VyY2VTYW5zUHJvLVJlZ3VsYXIudHRmBAAAAFNpemUKAAAA
+AMgAAAAAAAAAMgAAAAoAAABUZXh0Q29sb3IzDwAAAAAAAAAAAAAAAAgAAABUZXh0U2l6ZQYA
+AAAAAAAsQA==]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">TextButton</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">TextButton</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX921365865429414EA532D63BB013E30C">
+				<Properties>
+					<int name="Priority">5</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[BAAAABAAAABCYWNrZ3JvdW5kQ29sb3IzDwAAgD8AAIA/AACAPwwAAABCb3JkZXJDb2xvcjMP
+AAAAAAAAAAAAAAAADwAAAEJvcmRlclNpemVQaXhlbAYAAAAAAAAAAAQAAABTaXplCgAAAABk
+AAAAAAAAAGQAAAA=]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">VideoFrame</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">VideoFrame</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX298E309B6C804302BD70FDA2CFFB9E0E">
+				<Properties>
+					<int name="Priority">6</int>
+					<BinaryString name="PropertiesSerialize">AQAAAAkAAABTb3J0T3JkZXIVCQAAAFNvcnRPcmRlcgIAAAA=</BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">UITableLayout</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">UITableLayout</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX22BADAF5D9AF44319DB53171B02DC43E">
+				<Properties>
+					<int name="Priority">7</int>
+					<BinaryString name="PropertiesSerialize">AQAAAAkAAABTb3J0T3JkZXIVCQAAAFNvcnRPcmRlcgIAAAA=</BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">UIGridLayout</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">UIGridLayout</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBXB7BDFD6396594B6B99955BE9201F64A7">
+				<Properties>
+					<int name="Priority">8</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[BwAAABAAAABCYWNrZ3JvdW5kQ29sb3IzDwAAgD8AAIA/AACAPwwAAABCb3JkZXJDb2xvcjMP
+AAAAAAAAAAAAAAAADwAAAEJvcmRlclNpemVQaXhlbAYAAAAAAAAAAAgAAABGb250RmFjZSGQ
+AQAsAAAAcmJ4YXNzZXQ6Ly9mb250cy9mYW1pbGllcy9Tb3VyY2VTYW5zUHJvLmpzb24qAAAA
+cmJ4YXNzZXQ6Ly9mb250cy9Tb3VyY2VTYW5zUHJvLVJlZ3VsYXIudHRmBAAAAFNpemUKAAAA
+AMgAAAAAAAAAMgAAAAoAAABUZXh0Q29sb3IzDwAAAAAAAAAAAAAAAAgAAABUZXh0U2l6ZQYA
+AAAAAAAsQA==]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">TextLabel</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">TextLabel</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBXEA5FBAED2B9E464F83C86A720F39C294">
+				<Properties>
+					<int name="Priority">9</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[BQAAABAAAABCYWNrZ3JvdW5kQ29sb3IzDwAAgD8AAIA/AACAPwwAAABCb3JkZXJDb2xvcjMP
+AAAAAAAAAAAAAAAADwAAAEJvcmRlclNpemVQaXhlbAYAAAAAAAAAAAUAAABJbWFnZQIuAAAA
+cmJ4YXNzZXQ6Ly90ZXh0dXJlcy91aS9HdWlJbWFnZVBsYWNlaG9sZGVyLnBuZwQAAABTaXpl
+CgAAAABkAAAAAAAAAGQAAAA=]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">ImageButton</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">ImageButton</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX327DFDCF364D4E25B614EFDB3303A128">
+				<Properties>
+					<int name="Priority">10</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[BwAAABAAAABCYWNrZ3JvdW5kQ29sb3IzDwAAgD8AAIA/AACAPwwAAABCb3JkZXJDb2xvcjMP
+AAAAAAAAAAAAAAAADwAAAEJvcmRlclNpemVQaXhlbAYAAAAAAAAAAAgAAABGb250RmFjZSGQ
+AQAsAAAAcmJ4YXNzZXQ6Ly9mb250cy9mYW1pbGllcy9Tb3VyY2VTYW5zUHJvLmpzb24qAAAA
+cmJ4YXNzZXQ6Ly9mb250cy9Tb3VyY2VTYW5zUHJvLVJlZ3VsYXIudHRmBAAAAFNpemUKAAAA
+AMgAAAAAAAAAMgAAAAoAAABUZXh0Q29sb3IzDwAAAAAAAAAAAAAAAAgAAABUZXh0U2l6ZQYA
+AAAAAAAsQA==]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">TextBox</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">TextBox</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX23F2174DC1CF4A8C88D188F88AFE5257">
+				<Properties>
+					<int name="Priority">11</int>
+					<BinaryString name="PropertiesSerialize">AQAAAAkAAABTb3J0T3JkZXIVCQAAAFNvcnRPcmRlcgIAAAA=</BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">UIPageLayout</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">UIPageLayout</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBXB4455032D9504E0B8313590CEFF9FB98">
+				<Properties>
+					<int name="Priority">12</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[BgAAAAYAAABBY3RpdmUDARAAAABCYWNrZ3JvdW5kQ29sb3IzDwAAgD8AAIA/AACAPwwAAABC
+b3JkZXJDb2xvcjMPAAAAAAAAAAAAAAAADwAAAEJvcmRlclNpemVQaXhlbAYAAAAAAAAAABQA
+AABTY3JvbGxCYXJJbWFnZUNvbG9yMw8AAAAAAAAAAAAAAAAEAAAAU2l6ZQoAAAAAZAAAAAAA
+AABkAAAA]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">ScrollingFrame</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">ScrollingFrame</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX7E386722ABCD4EF9A2CB391CCDC63702">
+				<Properties>
+					<int name="Priority">13</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[BQAAABAAAABCYWNrZ3JvdW5kQ29sb3IzDwAAgD8AAIA/AACAPwwAAABCb3JkZXJDb2xvcjMP
+AAAAAAAAAAAAAAAADwAAAEJvcmRlclNpemVQaXhlbAYAAAAAAAAAAAUAAABJbWFnZQIuAAAA
+cmJ4YXNzZXQ6Ly90ZXh0dXJlcy91aS9HdWlJbWFnZVBsYWNlaG9sZGVyLnBuZwQAAABTaXpl
+CgAAAABkAAAAAAAAAGQAAAA=]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">ImageLabel</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">ImageLabel</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+		</Item>
+		<Item class="Folder" referent="RBXC878AA689F2641188BB8171C301C9383">
+			<Properties>
+				<BinaryString name="AttributesSerialize">AQAAAA0AAABTdHlsZUNhdGVnb3J5AgYAAABUaGVtZXM=</BinaryString>
+				<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+				<bool name="DefinesCapabilities">false</bool>
+				<string name="Name">General</string>
+				<int64 name="SourceAssetId">-1</int64>
+				<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+			</Properties>
+			<Item class="StyleSheet" referent="RBX0AF301F3AD1B43F39595EDE63FFA48DF">
+				<Properties>
+					<BinaryString name="AttributesSerialize"><![CDATA[EAAAAA8AAABCYWNrZ3JvdW5kQ29sb3ICBwAAACRQdXJwbGUWAAAAQmFja2dyb3VuZFRyYW5z
+cGFyZW5jeQYAAAAAAADgPwkAAABCb2R5Q29sb3ICCwAAACRQdXJwbGVEYXJrEAAAAEJvZHlU
+cmFuc3BhcmVuY3kGzczMzMzM3D8LAAAAQm9yZGVyQ29sb3ICCgAAACRCbHVlTGlnaHQWAAAA
+RXF1aXBtZW50U2xvdEJvZHlDb2xvcgIKAAAAJEdyYXlMaWdodBsAAABFcXVpcG1lbnRTbG90
+Qm9keUhvdmVyQ29sb3ICBQAAACRHcmF5GAAAAEVxdWlwbWVudFNsb3RCb2R5UGFkZGluZwkA
+AAAABQAAABsAAABFcXVpcG1lbnRTbG90Qm9keVByZXNzQ29sb3ICCQAAACRHcmF5RGFyaxUA
+AABFcXVpcG1lbnRTbG90Qm9keVNpemUKAACAP+L///8AAIA/4v///yIAAABFcXVpcG1lbnRT
+bG90RnJhbWVJbWFnZVNsaWNlQ2VudGVyHAAAAAAAAAAAAAAAAAAAAAAhAAAARXF1aXBtZW50
+U2xvdEZyYW1lSW1hZ2VTbGljZVNjYWxlBgAAAAAAAAAABwAAAFByaW1hcnkCDQAAACRQdXJw
+bGVEYXJrZXIVAAAAU2xvdEZyYW1lVHJhbnNwYXJlbmN5BjMzMzMzM9M/DQAAAFN0eWxlQ2F0
+ZWdvcnkCBgAAAFRoZW1lcwkAAABUZXh0Q29sb3ICCgAAACRCbHVlTGlnaHQ=]]></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">SoloLeveling</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+				<Item class="StyleDerive" referent="RBX47435BB8311C4E98934B29F01445FA04">
+					<Properties>
+						<int name="Priority">0</int>
+						<Ref name="StyleSheet">RBXC64F1A9798A740CE8046E7D68FF4FED9</Ref>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<string name="Name">Derive from Tokens</string>
+						<int64 name="SourceAssetId">-1</int64>
+						<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					</Properties>
+				</Item>
+			</Item>
+		</Item>
+		<Item class="StyleSheet" referent="RBXC64F1A9798A740CE8046E7D68FF4FED9">
+			<Properties>
+				<BinaryString name="AttributesSerialize"><![CDATA[CAAAAAkAAABCbHVlTGlnaHQPurk5P8/OTj/p6Gg/BAAAAEdyYXkPubi4PrGwsD69vLw+CAAA
+AEdyYXlEYXJrD9HQUD7FxEQ+1dRUPgkAAABHcmF5TGlnaHQPoaAgP5qZGT+koyM/BgAAAFB1
+cnBsZQ+5uDg+AAAAAOfm5j4KAAAAUHVycGxlRGFyaw+QkBA+wcDAPdXUVD4MAAAAUHVycGxl
+RGFya2VyD9HQUD0AAAAAhYQEPg0AAABTdHlsZUNhdGVnb3J5AgYAAABUb2tlbnM=]]></BinaryString>
+				<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+				<bool name="DefinesCapabilities">false</bool>
+				<string name="Name">Tokens</string>
+				<int64 name="SourceAssetId">-1</int64>
+				<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+			</Properties>
+		</Item>
+		<Item class="StyleSheet" referent="RBX1B9FDC89E36349A09481E28AB7CC90F5">
+			<Properties>
+				<BinaryString name="AttributesSerialize"></BinaryString>
+				<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+				<bool name="DefinesCapabilities">false</bool>
+				<string name="Name">WorldLootInspectPanelStylesheet</string>
+				<int64 name="SourceAssetId">-1</int64>
+				<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+			</Properties>
+			<Item class="StyleDerive" referent="RBX49E1F40BF8434D6D9C060CBFAEFBBAF0">
+				<Properties>
+					<int name="Priority">0</int>
+					<Ref name="StyleSheet">RBX563A17B295F14586BAAA6CD210C0296F</Ref>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">Derive from BaseStyleSheet</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX6F9ECC6DCE9846849892D1E0C2D9D1EE">
+				<Properties>
+					<int name="Priority">1</int>
+					<BinaryString name="PropertiesSerialize">AAAAAA==</BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">.ListContainer</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">.ListContainer</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+				<Item class="StyleRule" referent="RBXBDD41144AA9D4D5299A97D385EB4FA45">
+					<Properties>
+						<int name="Priority">1</int>
+						<BinaryString name="PropertiesSerialize"><![CDATA[AwAAAAUAAABDb2xvcgIMAAAAJEJvcmRlckNvbG9yCQAAAFRoaWNrbmVzcwYAAAAAAAAMQAwA
+AABUcmFuc3BhcmVuY3kGAAAAAAAA4D8=]]></BinaryString>
+						<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+						<string name="Selector">::UIStroke</string>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<string name="Name">::UIStroke</string>
+						<int64 name="SourceAssetId">-1</int64>
+						<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					</Properties>
+				</Item>
+			</Item>
+			<Item class="StyleDerive" referent="RBX51492C09E1454A4D8FC69AD077C73187">
+				<Properties>
+					<int name="Priority">0</int>
+					<Ref name="StyleSheet">RBX0AF301F3AD1B43F39595EDE63FFA48DF</Ref>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">Derive from SoloLeveling</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleDerive" referent="RBXBD363DC60F26406EB766FC4039B20AAC">
+				<Properties>
+					<int name="Priority">0</int>
+					<Ref name="StyleSheet">RBXC64F1A9798A740CE8046E7D68FF4FED9</Ref>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">Derive from Tokens</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+			<Item class="StyleRule" referent="RBX33FCDAFA374C4DD9BAEF24E86A898D79">
+				<Properties>
+					<int name="Priority">2</int>
+					<BinaryString name="PropertiesSerialize"><![CDATA[AgAAABAAAABCYWNrZ3JvdW5kQ29sb3IzAgkAAAAkR3JheURhcmsWAAAAQmFja2dyb3VuZFRy
+YW5zcGFyZW5jeQaamZmZmZnpPw==]]></BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">.SelectionFrame</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">.SelectionFrame</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+				<Item class="StyleRule" referent="RBX99905EA89D8348B88867F81F9795436C">
+					<Properties>
+						<int name="Priority">2</int>
+						<BinaryString name="PropertiesSerialize">AQAAAAwAAABDb3JuZXJSYWRpdXMJAAAAAAoAAAA=</BinaryString>
+						<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+						<string name="Selector">::UICorner</string>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<string name="Name">::UICorner</string>
+						<int64 name="SourceAssetId">-1</int64>
+						<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					</Properties>
+				</Item>
+				<Item class="StyleRule" referent="RBXE89518D3427C478EAE3D990BB01D0CF7">
+					<Properties>
+						<int name="Priority">1</int>
+						<BinaryString name="PropertiesSerialize"><![CDATA[AwAAAAUAAABDb2xvcgIMAAAAJEJvcmRlckNvbG9yCQAAAFRoaWNrbmVzcwYAAAAAAAAUQAwA
+AABUcmFuc3BhcmVuY3kGAAAAAAAA4D8=]]></BinaryString>
+						<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+						<string name="Selector">::UIStroke</string>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<string name="Name">::UIStroke</string>
+						<int64 name="SourceAssetId">-1</int64>
+						<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+					</Properties>
+				</Item>
+			</Item>
+			<Item class="StyleRule" referent="RBX17C548121C1F4B21B4696112394AD2AF">
+				<Properties>
+					<int name="Priority">3</int>
+					<BinaryString name="PropertiesSerialize">AQAAAAoAAABUZXh0Q29sb3IzAgoAAAAkVGV4dENvbG9y</BinaryString>
+					<BinaryString name="PropertyTransitionsSerialize">AgAAAAAA</BinaryString>
+					<string name="Selector">.Text</string>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<string name="Name">.Text</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<SharedString name="Tags">yuZpQdnvvUBOTYh1jqZ2cA==</SharedString>
+				</Properties>
+			</Item>
+		</Item>
+	</Item>
+	<SharedStrings>
+		<SharedString md5="yuZpQdnvvUBOTYh1jqZ2cA=="></SharedString>
+	</SharedStrings>
+</roblox>

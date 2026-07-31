@@ -54,7 +54,8 @@ local UIMenuConfig = {
 	panels = {
 		SystemPanel = {
 			offset = Vector3.new(0, 0.2, 0),
-			playerSpaceOffset = Vector3.new(0.300, 1.000, 2.100),
+			-- Pushed back and raised: at 2.1 studs the panel's lower-left sat behind the character.
+			playerSpaceOffset = Vector3.new(0.300, 1.500, 3.400),
 			faceBlend = 0.35,
 			playerOffsetMode = "yaw",
 			maxRadius = 16.0,

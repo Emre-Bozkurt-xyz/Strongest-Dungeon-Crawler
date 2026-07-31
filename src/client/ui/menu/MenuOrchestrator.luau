@@ -7,14 +7,6 @@ local MenuInputBridge = require(script.Parent.MenuInputBridge)
 local MenuMotionBridge = require(script.Parent.MenuMotionBridge)
 local MenuRigRuntime = require(script.Parent.MenuRigRuntime)
 
-local SystemPanelPlugin = require(script.Parent.plugins.SystemPanelPlugin)
-local InventoryPanelPlugin = require(script.Parent.plugins.InventoryPanelPlugin)
-local EquipmentPanelPlugin = require(script.Parent.plugins.EquipmentPanelPlugin)
-local ItemInspectPanelPlugin = require(script.Parent.plugins.ItemInspectPanelPlugin)
-local StatusPreviewPanelPlugin = require(script.Parent.plugins.StatusPreviewPanelPlugin)
-local NotificationPanelPlugin = require(script.Parent.plugins.NotificationPanelPlugin)
-local QuestPanelPlugin = require(script.Parent.plugins.QuestPanelPlugin)
-local QuickActivationPanelPlugin = require(script.Parent.plugins.QuickActivationPanelPlugin)
 
 type MenuView = Types.MenuView
 type MenuState = Types.MenuState
@@ -37,15 +29,9 @@ local function ensureInit()
 	_store = MenuStateStore.new()
 	_registry = PanelPluginRegistry.new()
 
-	_registry:register(SystemPanelPlugin)
-	_registry:register(InventoryPanelPlugin)
-	_registry:register(EquipmentPanelPlugin)
-	_registry:register(ItemInspectPanelPlugin)
-	_registry:register(StatusPreviewPanelPlugin)
-	_registry:register(NotificationPanelPlugin)
-	_registry:register(QuestPanelPlugin)
-	_registry:register(QuickActivationPanelPlugin)
-
+	-- No plugins remain: every panel is React-driven and lives in PanelRegistry. The registry itself
+	-- is kept only until the converted panels are verified in Studio, then it and PanelPluginRegistry
+	-- go together (R16).
 	_registry:mountAll({
 		getState = function(): MenuState
 			return _store:getState()

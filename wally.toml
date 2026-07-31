@@ -5,4 +5,7 @@ registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 
 [dependencies]
-# no external dependencies
+# React 17 port. R4 in docs/tasks/ui-migration-plan.md assumes the React 17 hook surface --
+# useSyncExternalStore does not exist here, which is why store hooks use useState + useEffect.
+React = "jsdotlua/react@17.2.1"
+ReactRoblox = "jsdotlua/react-roblox@17.2.1"

@@ -43,11 +43,11 @@ local profile: Types.BasicAttackProfile = {
 			releaseMarker = "Release",
 		},
 	},
+	idleAnimation = "Wand_Idle",
 	-- Unused while a real wand is equipped; it is the fallback geometry for a weapon that resolves
 	-- here by class but declares no projectile. Kept short so a caster flailing a wand cannot
 	-- out-range a sword.
 	hitCone = { angle = 50, range = 4.5 },
-	idleAnimation = "Wand_Idle",
 }
 
 return profile

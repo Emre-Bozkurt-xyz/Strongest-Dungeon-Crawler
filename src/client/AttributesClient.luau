@@ -181,6 +181,36 @@ function AttributesClient.getFormattedAttributes(): AttributesData?
 	return current
 end
 
+-- Spends one attribute point, applying the server's snapshot response immediately rather than
+-- waiting for the next delta -- the same fast-path AttributesUIController used, relocated here so
+-- the wire format has one owner instead of being duplicated in every caller.
+function AttributesClient.requestSpendPoint(target: string): boolean
+	local now = os.clock()
+	local traceId = ("cli-%s-%.4f"):format(target, now)
+	local ok, responseOrError = pcall(function()
+		return dispatcherAny:request("AttributesSpendPoint", {
+			target = target,
+			trace = { id = traceId, clientSentTs = now },
+		}, {
+			qos = "HIGH",
+		})
+	end)
+	if not ok then
+		warn("AttributesClient: Failed to request spend point:", responseOrError)
+		return false
+	end
+	local res = responseOrError
+	if typeof(res) ~= "table" then
+		return false
+	end
+	local snap = res.snapshot
+	if not snap then
+		return false
+	end
+	snap.trace = snap.trace or { id = traceId, clientSentTs = now }
+	return AttributesClient.applySnapshot(snap)
+end
+
 -- Initial request after character loads
 local function onCharacterAdded(_char: Model)
 	task.delay(0.2, AttributesClient.requestAttributesData)

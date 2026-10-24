@@ -260,6 +260,12 @@ they are stored as percentage points.
   slope downward to the right and a far-right value lines up with the next row's label. Stat rows
   are kept short (250px) and alternate rows are banded so the eye can follow a row.
 
+**System panel — two tabs.** Raw stats on the first view were clutter. STATUS is the at-a-glance
+view: level/class/title, the vitals (scaled-up VitalsBlock), and the five attributes as cells, which
+are where points are spent (`+` only while points are available). STATS holds every number in
+groups: Pools (from the vitals), Recovery, Offense, and an attribute breakdown (total, base+bonus).
+Tabs sit in the title row drawn as panel titles; POINTS shows on both.
+
 **Equipment panel rebuilt** at `logicalWidth = 600`: title row with the equipped count, the
 paper-doll (same column structure and socket proportions), then a headed candidate grid sized like
 the inventory's. Empty sockets show a dim glyph of what belongs in them (`Slot.placeholderGlyph`).

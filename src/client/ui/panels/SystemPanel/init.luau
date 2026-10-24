@@ -1,10 +1,10 @@
 --!strict
--- Container for the system panel: reads player stats and attributes and hands a derived view model
--- to StatusView.
+-- Container for the system panel: reads player stats and attributes, owns which tab is showing, and
+-- hands a derived view model to StatusView.
 --
--- Nothing pushes this data in (R16) -- the old runtime subscribed StatsClient/AttributesClient itself
--- and walked bound nodes to write values in; this just reads both stores through hooks and rebuilds
--- the view model on every change.
+-- Nothing pushes this data in (R16) -- this reads both stores through hooks and rebuilds the view
+-- model on every change. The tab is presentation-local state, like the equipment panel's selected
+-- socket (R4).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -21,9 +21,12 @@ local function SystemPanel()
 	local stats = useStats()
 	local attributes = useAttributes()
 	local view = Selector.buildView(stats, attributes)
+	local tab, setTab = React.useState("status" :: StatusView.Tab)
 
-	return React.createElement(StatusView, {
+	return React.createElement(StatusView.render, {
 		view = view,
+		tab = tab,
+		onTab = setTab,
 		onSpend = AttributeActions.spendPoint,
 	})
 end

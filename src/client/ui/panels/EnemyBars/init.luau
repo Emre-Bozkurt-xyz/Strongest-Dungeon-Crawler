@@ -24,8 +24,9 @@ local e = React.createElement
 
 -- Studs above the enemy's root.
 local HEIGHT = 3.0
--- Pixels.
-local SIZE = Vector2.new(150, 28)
+-- Pixels. Sized for a glance at a moving target: the name and health have to read at once over any
+-- background, so they are a step larger and heavier than panel text, with a solid outline.
+local SIZE = Vector2.new(176, 36)
 -- Bars past this many, nearest first, step down in strength.
 local FULL_COUNT = 6
 local MIN_STRENGTH = 0.3
@@ -69,36 +70,36 @@ local function EnemyBar(props: { entry: EnemyHealthClient.Entry, placement: any 
 	}, {
 		Name = e("TextLabel", {
 			Text = entry.name,
-			Size = UDim2.new(1, -56, 0, 14),
+			Size = UDim2.new(1, -70, 0, 20),
 			BackgroundTransparency = 1,
-			FontFace = theme.face.display,
-			TextSize = theme.type.label,
-			TextColor3 = theme.color.textPrimary,
+			FontFace = theme.face.bodyBold,
+			TextSize = theme.type.title,
+			TextColor3 = theme.color.textHeading,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 		}, {
-			Outline = e("UIStroke", { Color = theme.color.surface, Thickness = 1.5, Transparency = 0.2 }),
+			Outline = e("UIStroke", { Color = theme.color.surface, Thickness = 2, Transparency = 0 }),
 		}),
 		Value = e("TextLabel", {
 			Text = value,
-			Size = UDim2.new(0, 56, 0, 14),
+			Size = UDim2.new(0, 70, 0, 20),
 			AnchorPoint = Vector2.new(1, 0),
 			Position = UDim2.fromScale(1, 0),
 			BackgroundTransparency = 1,
-			FontFace = theme.face.mono,
-			TextSize = theme.type.label,
-			TextColor3 = theme.color.textMuted,
+			FontFace = Font.new(theme.face.mono.Family, Enum.FontWeight.Bold),
+			TextSize = theme.type.body,
+			TextColor3 = theme.color.textPrimary,
 			TextXAlignment = Enum.TextXAlignment.Right,
 		}, {
-			Outline = e("UIStroke", { Color = theme.color.surface, Thickness = 1.5, Transparency = 0.2 }),
+			Outline = e("UIStroke", { Color = theme.color.surface, Thickness = 2, Transparency = 0 }),
 		}),
 		Gauge = e(SegmentedGauge, {
 			value = entry.ratio,
 			color = theme.color.danger,
 			segments = 16,
 			trail = true,
-			size = UDim2.new(1, 0, 0, 5),
-			position = UDim2.new(0, 0, 1, -6),
+			size = UDim2.new(1, 0, 0, 7),
+			position = UDim2.new(0, 0, 1, -8),
 		}),
 	})
 end

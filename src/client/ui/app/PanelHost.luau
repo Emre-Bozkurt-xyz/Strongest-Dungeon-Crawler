@@ -271,11 +271,14 @@ function PanelHost.setVisible(self: any, visible: boolean, delay: number?)
 	-- Input is gated on the way in before the transition starts, and on the way out immediately, so a
 	-- panel is never clickable while it is invisible or on its way to being so.
 	self._part.CanQuery = visible
+	local wgm = WorldGUIManager.getInstance()
+	-- A closing panel collapses where it stands; see WorldGUIManager:setPanelFrozen.
+	wgm:setPanelFrozen(self._entry.id, not visible)
 	if visible then
 		self._gui.Enabled = true
 		-- A hidden panel's last position is stale -- wherever it was parked, possibly across the
 		-- map -- so it appears where it belongs rather than flying in from there.
-		WorldGUIManager.getInstance():snapPanel(self._entry.id)
+		wgm:snapPanel(self._entry.id)
 	end
 
 	local timing = Themes.getDefault().transitions

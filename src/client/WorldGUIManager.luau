@@ -557,6 +557,9 @@ function WorldGUIManager:_updatePanelPosition(config: PanelConfig, deltaTime: nu
 		warn(`WorldGUIManager: Panel '{config.name}' is missing part or name`)
 		return
 	end
+	if (config :: any).frozen then
+		return
+	end
 
 	local targetCF = resolvePanelTargetCFrame(self, config)
 	if not targetCF then
@@ -583,6 +586,16 @@ end
 
 -- Jump straight to the target instead of lerping there, for a panel that is appearing and has no
 -- meaningful previous position to travel from.
+-- Holds a panel where it is, ignoring its target, until unfrozen. A closing panel is frozen: the
+-- moment it closes its target goes away (the menu stage stops placing it) and it would otherwise
+-- glide to its fallback spot by the player while it collapses.
+function WorldGUIManager:setPanelFrozen(panelName: string, frozen: boolean)
+	local cfg = self.panels[panelName]
+	if cfg then
+		(cfg :: any).frozen = frozen
+	end
+end
+
 function WorldGUIManager:snapPanel(panelName: string)
 	local cfg = self.panels[panelName]
 	if cfg then

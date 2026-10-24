@@ -20,6 +20,7 @@ local RunService = game:GetService("RunService")
 
 local SkillSlotContainer = require(script.Parent.Parent.panels.SkillSlotContainer)
 local VitalsHud = require(script.Parent.Parent.panels.VitalsHud)
+local LootLabels = require(script.Parent.Parent.panels.LootLabels)
 
 local entries: { ScreenEntry } = {
 	{
@@ -29,6 +30,10 @@ local entries: { ScreenEntry } = {
 	{
 		id = "VitalsHud",
 		component = VitalsHud,
+	},
+	{
+		id = "LootLabels",
+		component = LootLabels,
 	},
 }
 

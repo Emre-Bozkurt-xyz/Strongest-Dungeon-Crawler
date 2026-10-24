@@ -265,6 +265,21 @@ paper-doll (same column structure and socket proportions), then a headed candida
 the inventory's. Empty sockets show a dim glyph of what belongs in them (`Slot.placeholderGlyph`).
 All four menu panels are now on logical scale.
 
+**Loot labels — live** (decision 4). `panels/LootLabels` gives each drop in range a name plate --
+glyph and name in its rarity colour, stack count, and on the selected plate corner brackets and the
+pickup key -- as screen UI projected above the drop, so plates keep one size and draw over effects.
+Overlapping plates stack upward (the selected one placed first, the rest in distance order) with a
+hairline down to their drop. Past `WorldLootInspect.labels.limit` (5) the labels give way to the
+list panel. Selection, hover and pickup all go through LootClient, as the list does.
+
+- Dev: `ServerStorage.DevDrop:Fire(player, 3)` drops the first bag items in front of the player.
+- **A scale-sized child of an `AutomaticSize` frame feeds back into its size** -- the selected
+  plate's brackets stretched it across the screen. Chrome over an auto-sized element is a sibling
+  sized from its measured `AbsoluteSize`.
+- Still to do: the list panel is a world surface on the old canvas layout, and drops stack
+  vertically through it (the server spawns them in a column at one spot). It is the next candidate
+  for the same screen-space treatment.
+
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
 item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them

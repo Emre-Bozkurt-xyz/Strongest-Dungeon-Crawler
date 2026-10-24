@@ -193,9 +193,10 @@ local entries: { PanelEntry } = {
 			return if lead then lead.part else nil
 		end,
 		-- Driven by loot in range, not by menu state. LootClient already empties the list while a
-		-- menu is open, so the menu rule needs no restating here.
+		-- menu is open, so the menu rule needs no restating here. Up to the label limit each drop is
+		-- labelled where it lies instead (panels/LootLabels); this list is for a pile too big for that.
 		isVisible = function(_state)
-			return #LootClient.getSnapshot().entries > 0
+			return #LootClient.getSnapshot().entries > LootConfig.labels.limit
 		end,
 		watch = function(notify)
 			return LootClient.onChanged(notify)

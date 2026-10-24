@@ -87,6 +87,30 @@ function Dev.start(ctx)
 			statsManager.removeFromPool(playerId, pool :: any, -delta)
 		end
 	end)
+
+	-- Drops the first `count` bag items in front of the player, for checking the loot labels:
+	-- ServerStorage.DevDrop:Fire(player, 3).
+	local devDrop = Instance.new("BindableEvent")
+	devDrop.Name = "DevDrop"
+	devDrop.Parent = game:GetService("ServerStorage")
+	devDrop.Event:Connect(function(player: Player, count: number)
+		local registrar = require(script.Parent.Parent.Services.Registrar)
+		local inventoryService = require(script.Parent.Parent.Inventory.InventoryService)
+		local playerId = registrar.getPlayerId(player)
+		local inventory = playerId and inventoryService.getInventory(playerId)
+		if not playerId or not inventory then
+			warn("[DevDrop] No inventory for", player)
+			return
+		end
+		local dropped = 0
+		for slot = 1, inventory.capacity do
+			local uid = inventory.slots[slot]
+			if uid and dropped < count then
+				inventoryService.dropItem(playerId, uid)
+				dropped += 1
+			end
+		end
+	end)
 end
 
 function Dev.onPlayerReady(player: Player, character: Model)

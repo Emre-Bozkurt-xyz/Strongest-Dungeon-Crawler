@@ -42,9 +42,6 @@ local function build(id: string, label: string, p: Palette): ThemeTypes.Theme
 
 		gaugeFill = p.line,
 		gaugeTrack = p.deep,
-		vitalHealth = p.alert,
-		vitalMana = p.line,
-		vitalStamina = p.ok,
 
 		skillSlotSurface = p.void,
 		skillSlotStroke = p.lineDim,

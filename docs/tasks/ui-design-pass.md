@@ -226,21 +226,22 @@ Findings from the inspect rebuild:
 - **Set `logicalWidth` from a measurement**, not the intended size: read the surface's on-screen
   width from a screenshot at staging.
 
-**Vitals HUD — live.** The StatusPreview world panel is gone; `panels/VitalsHud` replaces it (decision 8).
+**Vitals HUD — live.** The StatusPreview world panel is gone; `panels/VitalsHud` shows the same
+hand-built status panel (icons, captions, current/max, radial stamina) as screen UI (decision 8).
 
-- Screen UI placed at the character's projected position (beside the HumanoidRootPart, along the
+- Placed to the character's right at its projected position (beside the HumanoidRootPart, along the
   camera's flattened right vector, eased), so it keeps one size, never turns with the camera, and
   draws over effects. Falls back to pinned when the camera is inside the character.
 - Fades in when any vital drops below full and out `lingerSeconds` after all are full; hidden while
-  the menu is open. HP leaves a trail chip; the screen edges pulse red under 30% HP.
+  the menu is open. The screen edges pulse red under 30% HP.
 - `VitalsHudConfig.anchor` is `"character"` or `"pinned"` (above the skill bar), toggled live by
   "Vitals" in the F6 tuner. Meant to become a player setting.
 - Dev: `ServerStorage.DevPool:Fire(player, "Health", -40)` moves a pool from MCP or the command bar.
 
 Findings:
 
-- **Siblings with equal ZIndex draw in no reliable order.** A backing fill and the content beside
-  it need explicit ZIndex, or the fill can land on top and dim everything.
+- **A first pass replaced the panel's composition with minimal bars, and was rejected.** Restyle and
+  re-place the hand-built panels; do not redesign their elements without showing options first.
 - **The skill bar is not centred**: it anchors at 0.5 but grows rightward with `AutomaticSize.X`.
   Visible now that the pinned readout is centred above it.
 

@@ -9,13 +9,15 @@ local VitalsHudConfig = {
 	-- "character" or "pinned".
 	anchor = "character",
 
+	-- Screen pixels; the height follows from the panel's designed proportions.
+	width = 360,
+
 	-- Following the character. The readout sits beside the HumanoidRootPart, offset along the
 	-- camera's right vector so it stays to one side of the character at any orbit angle. The root
 	-- does not bob with animations, so following it does not shake.
 	character = {
-		-- -1 is the character's screen-left: the over-the-shoulder camera puts the character left
-		-- of centre, so this keeps the readout out of the aim lane.
-		side = -1,
+		-- 1 is the character's screen-right, -1 its left.
+		side = 1,
 		-- Studs from the root, so the gap to the character scales with zoom. Clears the arms at the
 		-- closest third-person zoom.
 		out = 2.4,

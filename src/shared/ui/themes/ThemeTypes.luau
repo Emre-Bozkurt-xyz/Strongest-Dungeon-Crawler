@@ -28,11 +28,6 @@ export type ThemeColors = {
 	-- Gauges (health, mana, stamina, cast bars).
 	gaugeFill: Color3,
 	gaugeTrack: Color3,
-	-- Each vital's own fill on the HUD readout, where the bars sit stacked with no captions to tell
-	-- them apart at a glance.
-	vitalHealth: Color3,
-	vitalMana: Color3,
-	vitalStamina: Color3,
 
 	-- HUD skill bar. Deliberately outside the panel palette: the bar sits over open gameplay with no
 	-- surface behind it, so it reads against the world rather than against a panel.

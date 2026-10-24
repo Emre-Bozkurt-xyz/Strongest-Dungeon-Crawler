@@ -4,9 +4,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 local CollectionService = game:GetService("CollectionService")
+local HttpService = game:GetService("HttpService")
 
 local Registrar = require(ServerScriptService.Server.Services.Registrar)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
+local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 
 local LootDropService = {}
@@ -42,7 +44,7 @@ function LootDropService.spawnDrop(
 	itemId: string,
 	position: Vector3,
 	ownerEntityId: string?,
-	display: { displayName: string?, rarity: string?, stackSize: number? }?,
+	display: { displayName: string?, rarity: string?, stackSize: number?, meta: ItemTypes.ItemMeta? }?,
 	pickup: (string, string) -> boolean
 )
 	if dropsByUid[uid] then
@@ -74,6 +76,14 @@ function LootDropService.spawnDrop(
 	end
 	if display and type(display.stackSize) == "number" then
 		part:SetAttribute("ItemStackSize", display.stackSize)
+	end
+	-- The whole instance meta (affixes, rolls, charges), so the client can show a dropped item's
+	-- details before it is picked up, as it does for one in the bag.
+	if display and display.meta then
+		local ok, encoded = pcall(HttpService.JSONEncode, HttpService, display.meta)
+		if ok then
+			part:SetAttribute("ItemMeta", encoded)
+		end
 	end
 	part.Parent = getDropFolder()
 	CollectionService:AddTag(part, "LootDrop")

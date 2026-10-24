@@ -53,12 +53,18 @@ local function recomputeEquipmentDerived(entityId: string)
 	CombatLoadoutService.recompute(entityId)
 end
 
-local function buildDropDisplay(inst: ItemTypes.ItemInstance): { displayName: string?, rarity: string?, stackSize: number? }
+local function buildDropDisplay(inst: ItemTypes.ItemInstance): {
+	displayName: string?,
+	rarity: string?,
+	stackSize: number?,
+	meta: ItemTypes.ItemMeta?,
+}
 	local meta = inst.meta
 	return {
 		displayName = if meta and type(meta.displayName) == "string" then meta.displayName else nil,
 		rarity = if meta and type(meta.rarity) == "string" then meta.rarity else nil,
 		stackSize = inst.stackSize,
+		meta = meta,
 	}
 end
 

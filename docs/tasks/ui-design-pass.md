@@ -260,6 +260,20 @@ they are stored as percentage points.
   slope downward to the right and a far-right value lines up with the next row's label. Stat rows
   are kept short (250px) and alternate rows are banded so the eye can follow a row.
 
+**Loot — collapsed until focused.** Loot stays quiet until the player chooses to look at it.
+
+- **Collapsed** (default): each drop is a marker -- its glyph in its rarity colour on a small dark
+  disc. The rarest drop in range (above normal) is a size up with a ring of its colour; no names, so
+  a pile is not a wall of text. Only the target is named: the drop nearest the crosshair, which E
+  takes, so quick pickups mid-fight need nothing else.
+- **Focused** (precision focus held, Left Alt): the loot opens to the cursor -- a label per drop up
+  to the limit, else the list -- and the selected drop's details stand beside the stack (ItemCard,
+  read-only, the same card as the bag's inspect). Hover selects, click takes, the wheel steps.
+- Drops now carry their instance meta (affixes, rolls, charges) as an `ItemMeta` JSON attribute, so
+  a dropped item shows its full details before pickup. ItemCard takes an `item` directly and a
+  `readOnly` flag for this.
+- The card and list keep clear of the bottom of the screen, where the skill bar sits.
+
 **System panel — two tabs.** Raw stats on the first view were clutter. STATUS is the at-a-glance
 view: level/class/title, the vitals (scaled-up VitalsBlock), and the five attributes as cells, which
 are where points are spent (`+` only while points are available). STATS holds every number in

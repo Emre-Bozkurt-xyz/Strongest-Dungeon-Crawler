@@ -1,7 +1,8 @@
 --!strict
 -- Renders one item's details: icon well, title bar, scrolling info, action bar.
 --
--- Presentational and driven entirely by `uid`, so it has no opinion about *why* an item is being
+-- Presentational and driven entirely by `uid` -- or an `item` handed over directly, for one that is
+-- not in the bag, like a drop on the ground -- so it has no opinion about *why* an item is being
 -- shown. That is what makes it reusable as the R14 hover tooltip, which inspects an arbitrary item
 -- rather than the menu's inspect state. The container that knows about menu state is init.luau.
 --
@@ -35,6 +36,7 @@ local ItemActions = require(script.Parent.Parent.Parent.actions.ItemActions)
 local Selector = require(script.Parent.Parent.Parent.selectors.itemInspect)
 
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
+local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
 
 local e = React.createElement
@@ -42,6 +44,10 @@ local e = React.createElement
 export type Props = {
 	-- Which item to inspect. nil renders the empty state.
 	uid: string?,
+	-- An item that is not in the bag, shown as-is.
+	item: ItemTypes.ItemInstance?,
+	-- No action bar: the item is shown, not acted on (a drop is taken by clicking its label).
+	readOnly: boolean?,
 }
 
 local Section = StatList.Section
@@ -52,7 +58,7 @@ local function ItemCard(props: Props)
 	local inventory = useInventory()
 	local attributes = useAttributes()
 
-	local item = if props.uid then inventory.items[props.uid] else nil
+	local item = props.item or (if props.uid then inventory.items[props.uid] else nil)
 	local view = Selector.buildView(item, attributes)
 
 	if not view.found then
@@ -250,7 +256,7 @@ local function ItemCard(props: Props)
 			end
 		end)
 	end
-	if def and def.useAction and item then
+	if def and def.useAction and item and location then
 		addAction("Use", "Use", not locked and not flag("noUse"), function()
 			ItemActions.use(item.uid)
 		end)
@@ -321,7 +327,7 @@ local function ItemCard(props: Props)
 			corner = false,
 		}, sections),
 
-		Actions = if actionOrder > 0
+		Actions = if actionOrder > 0 and not props.readOnly
 			then e("Frame", {
 				LayoutOrder = 4,
 				Size = UDim2.new(1, 0, 0, 34),

@@ -5,10 +5,16 @@
 -- docs/tasks/ui-migration-plan.md). It owns the scan, the selection and the pickup key; the UI reads
 -- a snapshot through useNearbyLoot and reports pointer input back through LootActions.
 --
+-- Loot has two states. Collapsed (the default) the drops are only marked, and the target is the drop
+-- nearest the crosshair, which E takes. Focused (precision focus held) the drops open into labels the
+-- cursor can work: hovering selects, clicking takes, the wheel steps, and the selection is whatever the
+-- pointer last chose.
+--
 -- E is the only key it claims. Cycling the selection is the mouse wheel over the loot UI, not a key:
 -- loot is nearby during fights, and a key that changes meaning whenever a drop is in range would
 -- fight movement (the arrow keys did) and use up binds the game cannot spare.
 
+local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
@@ -23,6 +29,7 @@ local UISound = require(script.Parent.Parent.UISound)
 local ItemGlyphs = require(script.Parent.Parent.glyphs.ItemGlyphs)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
+local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 
 local LootClient = {}
 
@@ -32,6 +39,8 @@ export type LootEntry = {
 	displayName: string,
 	rarity: string?,
 	stackSize: number?,
+	-- The instance meta (affixes, rolls), for showing the drop's details before it is taken.
+	meta: ItemTypes.ItemMeta?,
 	part: BasePart,
 	distance: number,
 }
@@ -39,6 +48,8 @@ export type LootEntry = {
 export type Snapshot = {
 	-- Nearest first. Empty while the menu is open, so the panel hides with no rule of its own.
 	entries: { LootEntry },
+	-- Precision focus is held: the loot is open to the cursor.
+	focused: boolean,
 	selectedUid: string?,
 }
 
@@ -54,13 +65,33 @@ local player = Players.LocalPlayer
 local trackedDrops: { [BasePart]: TrackedDrop } = {}
 local nearbyEntries = {} :: { LootEntry }
 local selectedUid = nil :: string?
-local snapshot: Snapshot = { entries = {}, selectedUid = nil }
+local snapshot: Snapshot = { entries = {}, selectedUid = nil, focused = false }
 local snapshotSignature = ""
 local listeners: { [{}]: () -> () } = {}
 local scanAccumulator = 0
 local menuOpen = false
 local nextPickupAt = 0
 local initialized = false
+
+-- Decoded once per drop; the attribute does not change while it lies there.
+local metaCache: { [string]: ItemTypes.ItemMeta | false } = {}
+
+local function readMeta(part: BasePart, uid: string): ItemTypes.ItemMeta?
+	local cached = metaCache[uid]
+	if cached ~= nil then
+		return if cached then cached else nil
+	end
+	local raw = part:GetAttribute("ItemMeta")
+	local decoded: ItemTypes.ItemMeta | false = false
+	if type(raw) == "string" then
+		local ok, value = pcall(HttpService.JSONDecode, HttpService, raw)
+		if ok and type(value) == "table" then
+			decoded = value
+		end
+	end
+	metaCache[uid] = decoded
+	return if decoded then decoded else nil
+end
 
 local RARITY_RANK = {
 	normal = 1,
@@ -106,6 +137,7 @@ local function getDropEntry(part: BasePart, root: BasePart): LootEntry?
 		displayName = readStringAttribute(part, "ItemDisplayName") or readStringAttribute(part, "ItemName") or itemId,
 		rarity = readStringAttribute(part, "ItemRarity"),
 		stackSize = readNumberAttribute(part, "ItemStackSize"),
+		meta = readMeta(part, uid),
 		part = part,
 		distance = distance,
 	}
@@ -152,22 +184,28 @@ end
 
 -- Only what the panel draws. Distances change on every scan as the player moves, so including them
 -- would re-render the panel at the scan rate while showing exactly the same rows.
-local function signatureOf(entries: { LootEntry }, selected: string?): string
-	local parts = table.create(#entries + 1)
+local function signatureOf(entries: { LootEntry }, selected: string?, focused: boolean): string
+	local parts = table.create(#entries + 2)
 	for _, entry in ipairs(entries) do
 		table.insert(parts, `{entry.uid}:{entry.displayName}:{entry.rarity or ""}:{entry.stackSize or 1}`)
 	end
 	table.insert(parts, selected or "")
+	table.insert(parts, tostring(focused))
 	return table.concat(parts, "\n")
 end
 
+local function isFocused(): boolean
+	return InteractionStateController.allowsWorldPanelInteraction()
+end
+
 local function publish()
-	local signature = signatureOf(nearbyEntries, selectedUid)
+	local focused = isFocused()
+	local signature = signatureOf(nearbyEntries, selectedUid, focused)
 	if signature == snapshotSignature then
 		return
 	end
 	snapshotSignature = signature
-	snapshot = { entries = table.clone(nearbyEntries), selectedUid = selectedUid }
+	snapshot = { entries = table.clone(nearbyEntries), selectedUid = selectedUid, focused = focused }
 
 	-- No payload: subscribers re-read through getSnapshot, the same contract every store hook
 	-- follows (see "Never trust the payload" in the migration plan).
@@ -177,6 +215,27 @@ local function publish()
 			warn(`[LootClient] listener failed: {err}`)
 		end
 	end
+end
+
+local function targetUnderCrosshair(entries: { LootEntry }): string?
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return nil
+	end
+	local centre = camera.ViewportSize / 2
+	local best: string? = nil
+	local bestDistance = math.huge
+	for _, entry in ipairs(entries) do
+		local point = camera:WorldToViewportPoint(entry.part.Position)
+		if point.Z > 0 then
+			local offset = (Vector2.new(point.X, point.Y) - centre).Magnitude
+			if offset < bestDistance then
+				best = entry.uid
+				bestDistance = offset
+			end
+		end
+	end
+	return best
 end
 
 local function refreshNearbyLoot()
@@ -201,9 +260,13 @@ local function refreshNearbyLoot()
 	sortEntries(entries)
 	nearbyEntries = entries
 
-	-- Selection follows the item, not the row: a drop that moves up the list as the player walks
-	-- stays selected. Only when it leaves range does selection fall back to the nearest.
-	if not indexOf(selectedUid) then
+	if not isFocused() then
+		-- Collapsed, the target is what the player is looking at: the drop nearest the screen's
+		-- centre, or the nearest one if none is on screen.
+		selectedUid = targetUnderCrosshair(entries) or (if entries[1] then entries[1].uid else nil)
+	elseif not indexOf(selectedUid) then
+		-- Focused, selection follows the item, not the row: a drop that moves up the list as the
+		-- player walks stays selected. Only when it leaves range does it fall back to the nearest.
 		selectedUid = if entries[1] then entries[1].uid else nil
 	end
 
@@ -297,6 +360,10 @@ local function disconnectDrop(inst: Instance)
 	if not inst:IsA("BasePart") then
 		return
 	end
+	local uid = inst:GetAttribute("ItemUid")
+	if type(uid) == "string" then
+		metaCache[uid] = nil
+	end
 	local tracked = trackedDrops[inst]
 	if tracked and tracked.prompt then
 		tracked.prompt.Enabled = true
@@ -355,6 +422,10 @@ function LootClient.init()
 	initialized = true
 
 	menuOpen = MenuOrchestrator.isOpen()
+	-- Focus opening or closing changes how the loot is drawn and how the target is chosen.
+	InteractionStateController.onChanged(function()
+		refreshNearbyLoot()
+	end)
 	MenuOrchestrator.onChanged(function(_prev, next, _action)
 		menuOpen = next.modal.open
 		refreshNearbyLoot()

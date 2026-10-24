@@ -205,6 +205,20 @@ Findings while building it:
   lives one level above the frame React mounts into.
 - **Inventory rebuilt** at `logicalWidth = 768` on the theme type scale. The other panels are
   re-skinned through the shared primitives but keep their canvas-pixel layouts until rebuilt.
+- **Item inspect rebuilt** at `logicalWidth = 340` (measured: the card spans ~340 screen px at
+  staging). The icon well is a slot enlarged — small brackets and a rarity-lit floor — and values are
+  mono. "Inspect" in the F6 tuner opens it on the first bag item.
+
+Findings from the inspect rebuild:
+
+- **`UITextSizeConstraint.MaxTextSize` ignores UIScale.** The cap is in canvas pixels, so on a
+  logical-scale panel a cap of 12 became 8 logical px. Buttons on logical panels take a fixed
+  `textSize` instead of scaled text.
+- **Titillium reads small.** It is narrow with a short x-height: 16 screen px of it reads like ~11 px
+  of a typical UI face. Values moved to mono; if body text still feels small in play, raise
+  `type.body`/`type.small` in the builder rather than per panel.
+- **Set `logicalWidth` from a measurement**, not the intended size: read the surface's on-screen
+  width from a screenshot at staging.
 
 ## Open questions
 

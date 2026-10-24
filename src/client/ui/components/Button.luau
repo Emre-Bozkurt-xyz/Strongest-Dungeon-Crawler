@@ -21,6 +21,9 @@ export type Props = {
 	fill: boolean?,
 	-- Caps the scaled text, so a tall button does not get billboard-sized lettering.
 	maxTextSize: number?,
+	-- A fixed size instead of scaled text. Panels laid out in logical pixels need this: the cap above
+	-- is applied in canvas pixels and ignores the surface's UIScale.
+	textSize: number?,
 }
 
 local function lerp(a: number, b: number, t: number): number
@@ -47,9 +50,11 @@ local function Button(props: Props)
 			PaddingTop = UDim.new(0.18, 0),
 			PaddingBottom = UDim.new(0.18, 0),
 		}),
-		TextCap = React.createElement("UITextSizeConstraint", {
-			MaxTextSize = props.maxTextSize or 28,
-		}),
+		TextCap = if props.textSize
+			then nil
+			else React.createElement("UITextSizeConstraint", {
+				MaxTextSize = props.maxTextSize or 28,
+			}),
 		Scale = React.createElement("UIScale", {
 			Scale = glow:map(function(v: number)
 				return 1 + 0.04 * v
@@ -77,7 +82,8 @@ local function Button(props: Props)
 		AutoButtonColor = false,
 		Active = enabled,
 		FontFace = theme.face.display,
-		TextScaled = true,
+		TextScaled = props.textSize == nil,
+		TextSize = props.textSize,
 		TextColor3 = if not enabled
 			then theme.color.textDisabled
 			elseif primary then theme.color.textOnAccent

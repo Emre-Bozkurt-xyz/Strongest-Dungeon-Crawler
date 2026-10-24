@@ -19,6 +19,7 @@ local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
 local MenuRigRuntime = require(script.Parent.Parent.menu.MenuRigRuntime)
 local UIRuntime = require(script.Parent.Parent.app.UIRuntime)
 local DevFlags = require(script.Parent.DevFlags)
+local InventoryClient = require(script.Parent.Parent.Parent.Inventory.InventoryClient)
 
 local e = React.createElement
 
@@ -422,6 +423,7 @@ local function StageTuner()
 			FillDirection = Enum.FillDirection.Horizontal,
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			Padding = UDim.new(0, 6),
+			Wraps = true,
 		}),
 		CopyToAll = e(SmallButton, {
 			text = "Copy to all",
@@ -487,9 +489,31 @@ local function StageTuner()
 				end
 			end,
 		}),
+		-- Inspects the first bagged item, so the inspect card can be checked without a click on a world
+		-- panel.
+		Inspect = e(SmallButton, {
+			text = "Inspect",
+			width = 70,
+			layoutOrder = 6,
+			onActivated = function()
+				local inventory = InventoryClient.getInventory()
+				local uid = inventory and inventory.slots[1]
+				if not uid then
+					warn("[StageTuner] Nothing in the first bag slot to inspect")
+					return
+				end
+				if menu.modal.open then
+					MenuOrchestrator.setView("inventory")
+				else
+					MenuOrchestrator.open("inventory")
+				end
+				MenuOrchestrator.setInspect("inventory", { uid = uid })
+			end,
+		}),
 	}
 	children.Actions = e("Frame", {
 		Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
+		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
 		LayoutOrder = nextOrder(),
 	}, actions)

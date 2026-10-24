@@ -17,7 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 
-local Panel = require(script.Parent.Parent.Parent.components.Panel)
+local Brackets = require(script.Parent.Parent.Parent.components.Brackets)
 local PanelShell = require(script.Parent.Parent.Parent.components.PanelShell)
 local Header = require(script.Parent.Parent.Parent.components.Header)
 local Icon = require(script.Parent.Parent.Parent.components.Icon)
@@ -42,14 +42,12 @@ export type Props = {
 	uid: string?,
 }
 
--- Canvas pixels. The surface is 1.875 studs wide at 300 px/stud, so a row of 17px rendered at
--- roughly 9 screen pixels at normal viewing distance -- unreadable. These are sized for legibility
--- at arm's length from the panel, not for fitting the most rows.
-local ROW_HEIGHT = 42
-local ROW_GAP = 4
-local ROW_TEXT = 30
-local HEADING_HEIGHT = 32
-local HEADING_TEXT = 24
+-- Logical pixels (PanelRegistry gives this surface `logicalWidth`), close to screen pixels at
+-- staging. Rows hold the theme's `small` step so long labels ("Critical Chance") still fit beside
+-- their value in a 380px-wide card.
+local ROW_HEIGHT = 26
+local ROW_GAP = 2
+local HEADING_HEIGHT = 22
 local LABEL_WIDTH = 0.58
 
 -- A titled group. One real container rather than a Fragment, so the section has an Instance of its
@@ -60,6 +58,7 @@ local LABEL_WIDTH = 0.58
 -- makes the constraint circular -- Roblox resolves it inconsistently, which showed up as label and
 -- value columns drifting further apart the further down the list they were.
 local function Section(props: { title: string, layoutOrder: number, children: any })
+	local theme = ThemeContext.useTheme()
 	local children: { [string]: any } = {
 		Layout = e("UIListLayout", {
 			FillDirection = Enum.FillDirection.Vertical,
@@ -71,7 +70,8 @@ local function Section(props: { title: string, layoutOrder: number, children: an
 			role = "MutedText",
 			layoutOrder = 0,
 			size = UDim2.new(1, 0, 0, HEADING_HEIGHT),
-			textSize = HEADING_TEXT,
+			textSize = theme.type.small,
+			props = { FontFace = theme.face.display },
 		}),
 	}
 	local rowCount = 0
@@ -90,6 +90,7 @@ end
 -- A label/value row. `role` carries the semantics: an unmet requirement is RequirementUnmet, which
 -- is where the theme's danger colour enters (Guardrail 3 -- no colour literals here).
 local function Row(props: { label: string, value: string, role: any, layoutOrder: number })
+	local theme = ThemeContext.useTheme()
 	return e("Frame", {
 		LayoutOrder = props.layoutOrder,
 		Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
@@ -98,16 +99,19 @@ local function Row(props: { label: string, value: string, role: any, layoutOrder
 		Label = e(Text, {
 			text = props.label,
 			role = props.role,
-			size = UDim2.new(LABEL_WIDTH, 0, 1, 0),
-			textSize = ROW_TEXT,
+			size = UDim2.fromScale(LABEL_WIDTH, 1),
+			textSize = theme.type.body,
 		}),
 		Value = e(Text, {
 			text = props.value,
 			role = props.role,
-			size = UDim2.new(1 - LABEL_WIDTH, 0, 1, 0),
+			size = UDim2.fromScale(1 - LABEL_WIDTH, 1),
 			position = UDim2.fromScale(LABEL_WIDTH, 0),
 			alignX = Enum.TextXAlignment.Right,
-			textSize = ROW_TEXT,
+			textSize = theme.type.small,
+			-- Mono like every other ticking value; it also holds up at distance better than the
+			-- narrow body face.
+			props = { FontFace = theme.face.mono },
 		}),
 	})
 end
@@ -127,7 +131,7 @@ local function ItemCard(props: Props)
 				role = "MutedText",
 				alignX = Enum.TextXAlignment.Center,
 				size = UDim2.fromScale(1, 1),
-				textSize = ROW_TEXT,
+				textSize = theme.type.body,
 			}),
 		})
 	end
@@ -294,7 +298,9 @@ local function ItemCard(props: Props)
 			enabled = enabled,
 			onActivated = run,
 			layoutOrder = actionOrder,
-			size = UDim2.new(0, 110, 1, 0),
+			size = UDim2.new(0, 96, 1, 0),
+			variant = if actionOrder == 1 then "primary" else "secondary",
+			textSize = theme.type.small,
 		})
 	end
 
@@ -325,38 +331,71 @@ local function ItemCard(props: Props)
 	end
 
 	local pad = theme.metrics.paddingMd
+	local tint = (theme.rarity :: any)[view.rarity]
+	local hasIcon = view.icon ~= nil and view.icon ~= ""
 
-	return e(PanelShell, { gap = pad, padding = pad }, {
+	return e(PanelShell, { gap = 10, padding = pad }, {
 		-- The well spans the panel; the icon field inside it is a fixed square, so it is the same
-		-- size for every item regardless of the icon's native shape.
-		IconWell = e(Panel, {
-			role = "PanelBlock",
-			stroke = true,
-			layoutOrder = 1,
-			size = UDim2.new(1, 0, 0.22, 0),
-			padding = theme.metrics.paddingSm,
+		-- size for every item regardless of the icon's native shape. Rarity lights the well from
+		-- below, the same language as a slot, so the card reads as that slot enlarged.
+		IconWell = e("Frame", {
+			LayoutOrder = 1,
+			Size = UDim2.new(1, 0, 0, 120),
+			BackgroundColor3 = theme.color.surfaceRaised,
+			BackgroundTransparency = 0.4,
+			BorderSizePixel = 0,
 		}, {
-			Field = e(Icon, { image = view.icon }),
+			Brackets = e(Brackets, { size = "small", color = tint }),
+			Glow = if tint
+				then e("Frame", {
+					Size = UDim2.fromScale(1, 0.55),
+					AnchorPoint = Vector2.new(0, 1),
+					Position = UDim2.fromScale(0, 1),
+					BackgroundColor3 = tint,
+					BorderSizePixel = 0,
+				}, {
+					Fade = e("UIGradient", {
+						Rotation = -90,
+						Transparency = NumberSequence.new({
+							NumberSequenceKeypoint.new(0, 0.6),
+							NumberSequenceKeypoint.new(1, 1),
+						}),
+					}),
+				})
+				else nil,
+			Field = if hasIcon
+				then e(Icon, { image = view.icon, size = UDim2.fromScale(0.8, 0.8) })
+				else e("Frame", {
+					-- Stand-in until items have icons, as in Slot.
+					Size = UDim2.fromOffset(34, 34),
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					Position = UDim2.fromScale(0.5, 0.48),
+					Rotation = 45,
+					BackgroundColor3 = tint or theme.color.stroke,
+					BackgroundTransparency = 0.1,
+					BorderSizePixel = 0,
+				}),
 		}),
 
 		TitleBar = e(Header, {
 			title = view.displayName,
 			layoutOrder = 2,
-			color = (theme.rarity :: any)[view.rarity],
+			height = 0.07,
+			color = tint,
 		}),
 
 		Details = e(ScrollList, {
 			layoutOrder = 3,
 			fill = true,
-			stroke = true,
-			padding = pad,
-			gap = theme.metrics.paddingMd,
+			padding = 4,
+			gap = 12,
+			corner = false,
 		}, sections),
 
 		Actions = if actionOrder > 0
 			then e("Frame", {
 				LayoutOrder = 4,
-				Size = UDim2.new(1, 0, 0.08, 0),
+				Size = UDim2.new(1, 0, 0, 34),
 				BackgroundTransparency = 1,
 			}, actions)
 			else nil,

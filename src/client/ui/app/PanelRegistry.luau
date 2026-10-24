@@ -164,9 +164,16 @@ local entries: { PanelEntry } = {
 	{
 		id = "ItemInspectPanel",
 		component = ItemInspectPanel,
-		-- Studs from the Studio-authored part. 300 px/stud gives a 562x1002 canvas, enough for the
-		-- info rows to stay legible at this physical size.
-		surface = { width = 1.875, height = 3.34, thickness = 0.076, pixelsPerStud = 300, scale = MENU_PANEL_SCALE },
+		-- 340 logical pixels across is about one screen pixel each at 1080p staging; the 562px canvas
+		-- underneath keeps the text sharp.
+		surface = {
+			width = 1.875,
+			height = 3.34,
+			thickness = 0.076,
+			pixelsPerStud = 300,
+			scale = MENU_PANEL_SCALE,
+			logicalWidth = 340,
+		},
 		placement = menuRigPlacement(),
 		-- Hidden over the system view, which has no item context to inspect against.
 		isVisible = function(state)

@@ -1,5 +1,5 @@
 --!strict
--- Derives the WorldLootInspectPanel view model: a title and one row per nearby drop, nearest first.
+-- Derives the nearby-loot view model (panels/NearbyLoot): one row per drop in range, nearest first.
 --
 -- Rows stay in LootClient's order (distance, then rarity, then name), so this does no sorting of its
 -- own -- the keyboard's up/down walks the same order the panel draws.
@@ -26,7 +26,6 @@ export type RowView = {
 }
 
 export type LootListView = {
-	title: string,
 	-- Shown on the selected row, read from config so a rebind cannot leave the hint lying.
 	pickupKey: string,
 	rows: { RowView },
@@ -50,7 +49,6 @@ function Selector.buildView(snapshot: LootClient.Snapshot): LootListView
 	end
 
 	return {
-		title = if #rows > 1 then `LOOT ({#rows})` else "LOOT",
 		pickupKey = PICKUP_KEY,
 		rows = rows,
 	}

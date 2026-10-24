@@ -1,9 +1,9 @@
 --!strict
 -- LootClient: tracks nearby loot and the selected row, and handles pickup.
 --
--- The store behind WorldLootInspectPanel (R4 in docs/tasks/ui-migration-plan.md). It owns the scan,
--- the selection and the keyboard path; the panel reads a snapshot through useNearbyLoot and reports
--- pointer input back through LootActions. Where the panel sits and when it shows is PanelRegistry's.
+-- The store behind the nearby-loot plates and list (panels/NearbyLoot; R4 in
+-- docs/tasks/ui-migration-plan.md). It owns the scan, the selection and the keyboard path; the UI
+-- reads a snapshot through useNearbyLoot and reports pointer input back through LootActions.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

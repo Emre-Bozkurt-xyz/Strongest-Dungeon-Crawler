@@ -1,7 +1,6 @@
 --!strict
--- One drop's name plate: its glyph and name in the rarity colour, a stack count, and on the selected
--- plate corner brackets and the pickup key. A hairline runs down from the plate to the drop, so a
--- plate pushed up out of a pile still points at its item.
+-- One drop's name plate: its LootLine, with corner brackets while selected. A hairline runs down
+-- from the plate to the drop, so a plate pushed up out of a pile still points at its item.
 --
 -- Placement comes in as a binding the container writes every frame; nothing here re-renders to move.
 
@@ -10,9 +9,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local React = require(ReplicatedStorage.Packages.React)
 
 local Brackets = require(script.Parent.Parent.Parent.components.Brackets)
-local Glyph = require(script.Parent.Parent.Parent.components.Glyph)
 local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
 local Selector = require(script.Parent.Parent.Parent.selectors.lootList)
+local LootLine = require(script.Parent.LootLine)
 
 local e = React.createElement
 
@@ -41,73 +40,11 @@ local function LootPlate(props: Props)
 	local tint = (theme.rarity :: any)[row.rarity] or theme.color.textPrimary
 	local selected = row.selected
 
-	local content: { [string]: any } = {
-		Layout = e("UIListLayout", {
-			FillDirection = Enum.FillDirection.Horizontal,
-			VerticalAlignment = Enum.VerticalAlignment.Center,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			Padding = UDim.new(0, 6),
-		}),
-		Padding = e("UIPadding", {
-			PaddingLeft = UDim.new(0, 6),
-			PaddingRight = UDim.new(0, 8),
-		}),
-		Accent = e("Frame", {
-			Size = UDim2.fromOffset(2, 14),
-			LayoutOrder = 1,
-			BackgroundColor3 = tint,
-			BorderSizePixel = 0,
-		}),
-		GlyphCell = e("Frame", {
-			Size = UDim2.fromOffset(18, 18),
-			LayoutOrder = 2,
-			BackgroundTransparency = 1,
-		}, {
-			Glyph = e(Glyph, { glyph = row.glyph or "box", color = tint, thickness = 1.25 }),
-		}),
-		Name = e("TextLabel", {
-			Text = row.name,
-			Size = UDim2.fromOffset(0, HEIGHT),
-			AutomaticSize = Enum.AutomaticSize.X,
-			LayoutOrder = 3,
-			BackgroundTransparency = 1,
-			FontFace = theme.face.bodyBold,
-			TextSize = theme.type.body,
-			TextColor3 = tint,
-		}),
-	}
-	if row.count then
-		content.Count = e("TextLabel", {
-			Text = `x{row.count}`,
-			Size = UDim2.fromOffset(0, HEIGHT),
-			AutomaticSize = Enum.AutomaticSize.X,
-			LayoutOrder = 4,
-			BackgroundTransparency = 1,
-			FontFace = theme.face.mono,
-			TextSize = theme.type.label,
-			TextColor3 = theme.color.textMuted,
-		})
-	end
-	if selected then
-		content.Key = e("TextLabel", {
-			Text = props.pickupKey,
-			Size = UDim2.fromOffset(18, 18),
-			LayoutOrder = 5,
-			BackgroundColor3 = theme.color.accent,
-			BackgroundTransparency = 0.85,
-			BorderSizePixel = 0,
-			FontFace = theme.face.mono,
-			TextSize = theme.type.label,
-			TextColor3 = theme.color.accent,
-		}, {
-			Stroke = e("UIStroke", {
-				Color = theme.color.accent,
-				Thickness = 1,
-				Transparency = 0.3,
-				ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-			}),
-		})
-	end
+	local content = LootLine.children(row, props.pickupKey, HEIGHT, theme)
+	content.Padding = e("UIPadding", {
+		PaddingLeft = UDim.new(0, 6),
+		PaddingRight = UDim.new(0, 8),
+	})
 
 	local placement = props.placement
 	local function visible(p: Placement?): boolean

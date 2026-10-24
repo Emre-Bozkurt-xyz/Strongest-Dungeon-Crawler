@@ -78,10 +78,6 @@ end
 
 local EquipmentPanel = require(script.Parent.Parent.panels.EquipmentPanel)
 local InventoryPanel = require(script.Parent.Parent.panels.InventoryPanel)
-local WorldLootInspectPanel = require(script.Parent.Parent.panels.WorldLootInspectPanel)
-
-local LootClient = require(script.Parent.Parent.controllers.LootClient)
-local LootConfig = SharedConfig.WorldLootInspect
 
 local function isMenuOpen(state: MenuState): boolean
 	return state.modal.open
@@ -170,38 +166,6 @@ local entries: { PanelEntry } = {
 		isVisible = function(state)
 			return state.inspect ~= nil and isMenuOpen(state) and state.modal.view ~= "system"
 		end,
-	},
-	{
-		id = "WorldLootInspectPanel",
-		component = WorldLootInspectPanel,
-		-- Studs and density from the Studio-authored part: an 822x1150 canvas. LootList derives its
-		-- row height from these, so change both together.
-		surface = { width = 2.056, height = 2.874, thickness = 0.076, pixelsPerStud = 400 },
-		-- Anchored above the nearest drop, facing the camera rather than the player, so it reads
-		-- from wherever the player approaches it.
-		placement = {
-			group = LootConfig.groupName,
-			faceCamera = true,
-			faceMode = "camera",
-			followMode = "target",
-			offset = LootConfig.panel.offset,
-			maxRadius = LootConfig.panel.maxRadius,
-			lerpSpeed = LootConfig.panel.lerpSpeed,
-		},
-		followTarget = function()
-			local lead = LootClient.getSnapshot().entries[1]
-			return if lead then lead.part else nil
-		end,
-		-- Driven by loot in range, not by menu state. LootClient already empties the list while a
-		-- menu is open, so the menu rule needs no restating here. Up to the label limit each drop is
-		-- labelled where it lies instead (panels/LootLabels); this list is for a pile too big for that.
-		isVisible = function(_state)
-			return #LootClient.getSnapshot().entries > LootConfig.labels.limit
-		end,
-		watch = function(notify)
-			return LootClient.onChanged(notify)
-		end,
-		fadeDuration = 0.15,
 	},
 }
 

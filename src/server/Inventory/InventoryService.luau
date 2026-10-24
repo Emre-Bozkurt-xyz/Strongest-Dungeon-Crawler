@@ -1,6 +1,7 @@
 --!strict
 -- InventoryService: server authoritative inventory + equipment state.
 
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
@@ -79,12 +80,20 @@ local function resolveDropSpawnPosition(entityId: string): Vector3
 		flatForward = flatForward.Unit
 	end
 
-	local horizontalTarget = root.Position + flatForward * LOOT_SERVER_CONFIG.dropForwardDistance
+	-- Scattered around the point ahead, so several drops spread into a pile rather than one spot.
+	local angle = math.random() * 2 * math.pi
+	local radius = math.sqrt(math.random()) * LOOT_SERVER_CONFIG.dropScatterRadius
+	local scatter = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+	local horizontalTarget = root.Position + flatForward * LOOT_SERVER_CONFIG.dropForwardDistance + scatter
 	local probeOrigin = horizontalTarget + Vector3.new(0, LOOT_SERVER_CONFIG.dropGroundProbeHeight, 0)
 
+	-- Existing drops are excluded, or each new one lands on top of the last and they stack into a
+	-- column.
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { entity }
+	local ignore: { Instance } = CollectionService:GetTagged("LootDrop")
+	table.insert(ignore, entity)
+	params.FilterDescendantsInstances = ignore
 
 	local hit = Workspace:Raycast(
 		probeOrigin,

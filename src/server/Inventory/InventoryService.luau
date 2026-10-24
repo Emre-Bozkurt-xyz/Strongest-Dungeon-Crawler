@@ -136,31 +136,32 @@ local function spawnDrop(uid: string, position: Vector3, ownerEntityId: string?)
 	)
 end
 
-function InventoryService.pickupDrop(uid: string, entityId: string): boolean
+-- The reason travels back to the client, which tells the player why nothing happened.
+function InventoryService.pickupDrop(uid: string, entityId: string): (boolean, string?)
 	local drop = LootDropService.get(uid)
 	if not drop then
-		return false
+		return false, "drop_gone"
 	end
 	local inst = ItemInstances.get(uid)
 	if not inst then
 		LootDropService.cleanup(uid)
-		return false
+		return false, "drop_gone"
 	end
 	local ownerEntityId = drop:GetAttribute("OwnerEntityId")
 	local claimExpiresAt = drop:GetAttribute("ClaimExpiresAt")
 	if type(ownerEntityId) == "string" and ownerEntityId ~= entityId then
 		if type(claimExpiresAt) == "number" and os.clock() < claimExpiresAt then
-			return false
+			return false, "drop_claimed"
 		end
 	end
 	if not canPickupDrop(entityId, drop) then
-		return false
+		return false, "too_far"
 	end
-	local ok = InventoryService.addExistingItem(entityId, uid)
+	local ok, err = InventoryService.addExistingItem(entityId, uid)
 	if ok then
 		LootDropService.cleanup(uid)
 	end
-	return ok
+	return ok, err
 end
 
 local function findEmptySlot(inv: ItemTypes.InventoryState): number?

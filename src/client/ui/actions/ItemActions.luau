@@ -67,8 +67,9 @@ function ItemActions.drop(uid: string)
 end
 
 -- `uid` is the dropped item's, read off the LootDrop part. Range is enforced server-side.
-function ItemActions.pickup(uid: string)
-	InventoryClient.requestAction({
+-- Yields for the server's answer, so the caller can say what happened.
+function ItemActions.pickup(uid: string): { ok: boolean, error: string? }?
+	return InventoryClient.requestAction({
 		action = "pickup",
 		uid = uid,
 	})

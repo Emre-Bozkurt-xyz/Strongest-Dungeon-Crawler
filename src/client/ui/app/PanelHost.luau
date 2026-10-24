@@ -13,16 +13,15 @@
 -- live at the first hide. Instead the React tree is mounted inside a CanvasGroup that React never
 -- touches, and the host's own transition drives it -- a few properties, one owner.
 --
--- A panel switches on rather than fading in: a line of light draws out from its centre, splits in
--- two, and the pair open outward revealing the panel between them, then dim away. Closing runs it
--- backward, faster: the band collapses to the line and the line shrinks to nothing. Fixed durations eased to a hard stop (theme.transitions, shared/ui/Ease), because a fade or a
--- spring's settling tail is what made panels feel floaty.
+-- A panel switches on rather than fading in (shared/ui/SwitchOn, timed by theme.transitions): this
+-- host draws those frames onto a clip band and two light lines.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Ease = require(ReplicatedStorage.Shared.ui.Ease)
+local SwitchOn = require(ReplicatedStorage.Shared.ui.SwitchOn)
 local Themes = require(ReplicatedStorage.Shared.ui.themes)
 local WorldGUIManager = require(script.Parent.Parent.Parent.WorldGUIManager)
 local mountPanel = require(script.Parent.mountPanel)
@@ -127,7 +126,8 @@ local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): Su
 		line.BackgroundTransparency = 1
 		line.BorderSizePixel = 0
 		line.ZIndex = 10
-		line.Parent = group
+		-- Outside the CanvasGroup: the group is still transparent while the line draws out.
+		line.Parent = gui
 		table.insert(lines, line)
 	end
 
@@ -242,16 +242,16 @@ function PanelHost.isVisible(self: any): boolean
 	return self._visible
 end
 
--- Band height, line length (both 0..1) and line transparency for one frame.
-function PanelHost._drawBand(self: any, band: number, lineLength: number, lineTransparency: number)
-	local height = math.max(band, MIN_BAND)
-	self._band = band
+function PanelHost._draw(self: any, frame: SwitchOn.Frame)
+	local height = math.max(frame.band, MIN_BAND)
+	self._band = frame.band
 	self._clip.Size = UDim2.fromScale(1, height)
+	self._group.GroupTransparency = frame.transparency
 	for index, line in ipairs(self._lines) do
 		local edge = if index == 1 then -0.5 else 0.5
 		line.Position = UDim2.fromScale(0.5, 0.5 + edge * height)
-		line.Size = UDim2.new(lineLength, 0, 0, LINE_THICKNESS)
-		line.BackgroundTransparency = lineTransparency
+		line.Size = UDim2.new(frame.lineLength, 0, 0, LINE_THICKNESS)
+		line.BackgroundTransparency = frame.lineTransparency
 	end
 end
 
@@ -279,8 +279,7 @@ function PanelHost.setVisible(self: any, visible: boolean, delay: number?)
 
 	local timing = Themes.getDefault().transitions
 	local from = self._band
-	-- A reversal mid-way covers only the distance left, at the same pace.
-	local duration = if visible then timing.reveal * (1 - from) else timing.conceal * from
+	local duration = SwitchOn.duration(visible, from, timing)
 	local hold = if visible then delay or 0 else 0
 	local started = os.clock()
 
@@ -302,32 +301,15 @@ function PanelHost.setVisible(self: any, visible: boolean, delay: number?)
 			return
 		end
 		local t = if duration > 0 then Ease.clamp01(elapsed / duration) else 1
-		if visible then
-			-- First quarter: the line draws out across the panel. Then the band throws open and
-			-- brakes onto full height, the content coming up with it; the lines dim out once it is
-			-- nearly open. A reversal that starts with the band already open skips the line.
-			local lineIn = if from > 0 then 1 else Ease.quartOut(Ease.clamp01(t / 0.25))
-			local open = if from > 0 then t else Ease.clamp01((t - 0.25) / 0.75)
-			self:_drawBand(from + (1 - from) * Ease.expoOut(open), lineIn, Ease.clamp01((t - 0.65) / 0.35))
-			self._group.GroupTransparency = 1 - Ease.clamp01((t - 0.2) / 0.2)
-		else
-			-- The band collapses slowly then snaps to the line, the content cutting out with it, and
-			-- the line shrinks to nothing in the last fifth.
-			self:_drawBand(from * (1 - Ease.quartIn(Ease.clamp01(t / 0.8))), 1 - Ease.quartIn(Ease.clamp01((t - 0.8) / 0.2)), 0)
-			self._group.GroupTransparency = Ease.clamp01((t - 0.6) / 0.2)
-		end
+		self:_draw(if t >= 1 and visible then SwitchOn.OPEN else SwitchOn.frame(visible, t, from))
 		if t >= 1 then
-			if visible then
-				self:_drawBand(1, 1, 1)
-			end
 			finish()
 		end
 	end
 
 	-- Closed until its delayed start, rather than showing the whole panel for the wait.
 	if visible and from == 0 then
-		self:_drawBand(0, 0, 1)
-		self._group.GroupTransparency = 1
+		self:_draw(SwitchOn.CLOSED)
 	end
 	self._transition = RunService.Heartbeat:Connect(step)
 	step()

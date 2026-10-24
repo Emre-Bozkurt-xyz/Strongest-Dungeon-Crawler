@@ -21,6 +21,7 @@ local RunService = game:GetService("RunService")
 local SkillSlotContainer = require(script.Parent.Parent.panels.SkillSlotContainer)
 local VitalsHud = require(script.Parent.Parent.panels.VitalsHud)
 local NearbyLoot = require(script.Parent.Parent.panels.NearbyLoot)
+local Notifications = require(script.Parent.Parent.panels.Notifications)
 
 local entries: { ScreenEntry } = {
 	{
@@ -34,6 +35,11 @@ local entries: { ScreenEntry } = {
 	{
 		id = "NearbyLoot",
 		component = NearbyLoot,
+	},
+	{
+		id = "Notifications",
+		component = Notifications,
+		zIndex = 50,
 	},
 }
 

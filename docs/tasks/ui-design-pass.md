@@ -299,6 +299,16 @@ and readouts only, and `settle` lost its overshoot.
 - PanelHost owns this: a clip band inside the CanvasGroup with the full-size canvas centred in it, so
   the panel is revealed in place rather than squashed, and two scan-line frames at its edges.
 
+**System notifications — live.** `controllers/NotificationClient` is a short-lived queue anything can
+push to (`tag`, `tone`, optional item `rarity`/`glyph`/`count`, and a `key` that merges repeats into
+one notice counting up). `panels/Notifications` stacks them at the top centre, each switching on and
+off like a panel (`components/SwitchOn`, sharing `shared/ui/SwitchOn` with PanelHost); a closing
+notice shrinks its slot so the stack closes up. Pickups notify `ITEM ACQUIRED`, and the server now
+returns why a pickup failed, so `INVENTORY FULL` and `CLAIMED` tell the player too.
+
+- **Light lines must sit outside the CanvasGroup.** The group is still transparent while the line
+  draws, so the first version of the switch-on never showed its line phase.
+
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
 item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them

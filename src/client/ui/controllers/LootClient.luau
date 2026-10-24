@@ -18,6 +18,9 @@ local UserInputService = game:GetService("UserInputService")
 local InteractionStateController = require(script.Parent.Parent.Parent.input.InteractionStateController)
 local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
 local ItemActions = require(script.Parent.Parent.actions.ItemActions)
+local NotificationClient = require(script.Parent.NotificationClient)
+local ItemGlyphs = require(script.Parent.Parent.glyphs.ItemGlyphs)
+local Registry = require(ReplicatedStorage.Shared.items.Registry)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 
 local LootClient = {}
@@ -214,12 +217,50 @@ local function selectUid(uid: string)
 	publish()
 end
 
+-- What the player is told when a pickup fails. Reasons not listed (the drop already gone, out of
+-- reach by the time the request landed) pass silently: there is nothing for the player to act on.
+local PICKUP_FAILURES: { [string]: { tag: string, text: string, tone: NotificationClient.Tone } } = {
+	inventory_full = { tag = "INVENTORY FULL", text = "Make room to pick this up", tone = "error" },
+	drop_claimed = { tag = "CLAIMED", text = "This drop belongs to another player", tone = "warning" },
+}
+
 local function pickupUid(uid: string)
-	if os.clock() < nextPickupAt or not indexOf(uid) then
+	local index = indexOf(uid)
+	if os.clock() < nextPickupAt or not index then
 		return
 	end
 	nextPickupAt = os.clock() + PICKUP_COOLDOWN
-	ItemActions.pickup(uid)
+	local entry = nearbyEntries[index :: number]
+
+	-- The request yields for the server; this can be reached from a React event handler, which must
+	-- not yield.
+	task.spawn(function()
+		local response = ItemActions.pickup(uid)
+		if not response then
+			return
+		end
+		if response.ok then
+			NotificationClient.push({
+				tag = "ITEM ACQUIRED",
+				text = entry.displayName,
+				rarity = entry.rarity or "normal",
+				glyph = ItemGlyphs.forDef(Registry.get(entry.itemId)),
+				count = entry.stackSize or 1,
+				-- Merges repeat pickups of the same thing into one notice counting up.
+				key = `pickup:{entry.itemId}:{entry.displayName}`,
+			})
+			return
+		end
+		local failure = response.error and PICKUP_FAILURES[response.error]
+		if failure then
+			NotificationClient.push({
+				tag = failure.tag,
+				text = failure.text,
+				tone = failure.tone,
+				key = `pickup-failed:{response.error}`,
+			})
+		end
+	end)
 end
 
 local function changeSelection(direction: number)

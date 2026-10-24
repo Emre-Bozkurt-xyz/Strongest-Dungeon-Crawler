@@ -12,7 +12,6 @@ local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
 local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
 local EquipmentSlotSchema = require(ReplicatedStorage.Shared.ui.EquipmentSlotSchema)
-local Rarity = require(script.Parent.rarity)
 
 local Selector = {}
 
@@ -22,7 +21,7 @@ export type SlotView = {
 	slot: EquipSlot,
 	uid: string?,
 	icon: string?,
-	tint: Color3?,
+	rarity: string?,
 	count: number?,
 }
 
@@ -32,7 +31,7 @@ export type CandidateView = {
 	slotIndex: number,
 	uid: string,
 	icon: string?,
-	tint: Color3?,
+	rarity: string?,
 	count: number?,
 	-- Which socket clicking this candidate equips into: the selected slot when the item accepts it,
 	-- else its first compatible slot.
@@ -44,11 +43,13 @@ export type EquipmentView = {
 	candidates: { CandidateView },
 }
 
-local function itemRarity(item: ItemTypes.ItemInstance, def: ItemTypes.ItemDef?): string?
+-- Every item has a rarity for display; one that declares none is "normal", so a filled slot never
+-- renders as empty.
+local function itemRarity(item: ItemTypes.ItemInstance, def: ItemTypes.ItemDef?): string
 	if item.meta and type(item.meta.rarity) == "string" then
 		return item.meta.rarity
 	end
-	return def and def.rarity
+	return def and def.rarity or "normal"
 end
 
 local function compatibleSlots(def: ItemTypes.ItemDef): { EquipSlot }
@@ -98,7 +99,7 @@ function Selector.buildView(
 			slot = slotId,
 			uid = uid,
 			icon = if def then def.icon else nil,
-			tint = Rarity.tint(if item then itemRarity(item, def) else nil),
+			rarity = if item then itemRarity(item, def) else nil,
 			count = if item and item.stackSize > 1 then item.stackSize else nil,
 		})
 	end
@@ -117,7 +118,7 @@ function Selector.buildView(
 						slotIndex = slotIndex,
 						uid = item.uid,
 						icon = def.icon,
-						tint = Rarity.tint(itemRarity(item, def)),
+						rarity = itemRarity(item, def),
 						count = if item.stackSize > 1 then item.stackSize else nil,
 						targetSlot = target,
 					})

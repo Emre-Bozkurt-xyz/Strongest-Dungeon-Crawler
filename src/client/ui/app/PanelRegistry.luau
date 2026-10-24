@@ -26,6 +26,9 @@ export type SurfaceConfig = {
 	-- World-size multiplier. The part shrinks or grows and pixelsPerStud scales inversely, so the
 	-- canvas resolution -- and every pixel constant a panel derives from it -- is unchanged.
 	scale: number?,
+	-- Optional. Lay the panel out in this many logical pixels across instead of canvas pixels; see
+	-- PanelHost. Set so one logical pixel is about one screen pixel at 1080p staging.
+	logicalWidth: number?,
 }
 
 -- How WorldGUIManager should place the panel. Passed through to `registerPanel` untouched, so the
@@ -111,8 +114,16 @@ local entries: { PanelEntry } = {
 	{
 		id = "InventoryPanel",
 		component = InventoryPanel,
-		-- Studs from the Studio-authored part; same width as SystemPanel, so the same px/stud.
-		surface = { width = 6.478, height = 3.549, thickness = 0.076, pixelsPerStud = 200, scale = MENU_PANEL_SCALE },
+		-- 768 logical pixels across is about one screen pixel each at 1080p staging; the 1296px canvas
+		-- underneath keeps the text sharp.
+		surface = {
+			width = 6.478,
+			height = 3.549,
+			thickness = 0.076,
+			pixelsPerStud = 200,
+			scale = MENU_PANEL_SCALE,
+			logicalWidth = 768,
+		},
 		placement = menuRigPlacement(),
 		isVisible = function(state)
 			return isMenuOpen(state) and state.modal.view == "inventory"

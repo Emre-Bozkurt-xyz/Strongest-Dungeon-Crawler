@@ -9,7 +9,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 local LootClient = require(script.Parent.Parent.controllers.LootClient)
-local Rarity = require(script.Parent.rarity)
 
 local Selector = {}
 
@@ -18,7 +17,7 @@ export type RowView = {
 	uid: string,
 	name: string,
 	icon: string?,
-	tint: Color3?,
+	rarity: string,
 	count: number?,
 	selected: boolean,
 }
@@ -40,7 +39,7 @@ function Selector.buildView(snapshot: LootClient.Snapshot): LootListView
 			uid = entry.uid,
 			name = entry.displayName,
 			icon = if def and def.icon and def.icon ~= "" then def.icon else nil,
-			tint = Rarity.tint(entry.rarity or "normal"),
+			rarity = entry.rarity or "normal",
 			count = if entry.stackSize and entry.stackSize > 1 then entry.stackSize else nil,
 			selected = entry.uid == snapshot.selectedUid,
 		})

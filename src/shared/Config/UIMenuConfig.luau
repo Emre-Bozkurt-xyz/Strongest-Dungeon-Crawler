@@ -60,16 +60,16 @@ local UIMenuConfig = {
 			-- Panel squarely in front of the character at chest height, facing it. The camera stands off
 			-- the right shoulder and turns back in to look across the character at the panel.
 			system = {
-				panel = { ahead = 3.5, right = 0.15, up = 1.2, faceCamera = 0.1, turn = -6, tilt = -0.5 },
+				panel = { ahead = 3.5, right = 0.15, up = 1.2, faceCamera = 0.2, turn = -2, tilt = -0.5 },
 				camera = { right = 3.2, up = 2.4, back = 2.05, yaw = -24.5, pitch = -9.5, fov = 55 },
 			} :: ViewStage,
 			inventory = {
-				panel = { ahead = 3.5, right = 0.15, up = 1.2, faceCamera = 0.1, turn = -6, tilt = -0.5 },
+				panel = { ahead = 3.5, right = 0.15, up = 1.2, faceCamera = 0.2, turn = -2, tilt = -0.5 },
 				camera = { right = 3.2, up = 2.4, back = 2.05, yaw = -24.5, pitch = -9.5, fov = 55 },
 			} :: ViewStage,
 			-- The paper doll is a tall panel; raised and set back so its lower rows clear the shoulder.
 			equipment = {
-				panel = { ahead = 4.0, right = 0.15, up = 1.6, faceCamera = 0.1, turn = -6, tilt = -0.5 },
+				panel = { ahead = 4.0, right = 0.15, up = 1.6, faceCamera = 0.2, turn = -2, tilt = -0.5 },
 				camera = { right = 3.2, up = 2.4, back = 2.05, yaw = -24.5, pitch = -9.5, fov = 55 },
 			} :: ViewStage,
 		},

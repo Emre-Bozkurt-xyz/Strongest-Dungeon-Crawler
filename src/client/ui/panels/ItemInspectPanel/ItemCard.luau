@@ -31,7 +31,6 @@ local useAttributes = require(script.Parent.Parent.Parent.hooks.useAttributes)
 
 local ItemActions = require(script.Parent.Parent.Parent.actions.ItemActions)
 local Selector = require(script.Parent.Parent.Parent.selectors.itemInspect)
-local Rarity = require(script.Parent.Parent.Parent.selectors.rarity)
 
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
 local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
@@ -343,7 +342,7 @@ local function ItemCard(props: Props)
 		TitleBar = e(Header, {
 			title = view.displayName,
 			layoutOrder = 2,
-			color = Rarity.tint(view.rarity),
+			color = (theme.rarity :: any)[view.rarity],
 		}),
 
 		Details = e(ScrollList, {

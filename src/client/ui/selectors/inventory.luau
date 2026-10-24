@@ -14,7 +14,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
-local Rarity = require(script.Parent.rarity)
 
 local Selector = {}
 
@@ -30,7 +29,7 @@ export type SlotView = {
 	slotIndex: number,
 	uid: string,
 	icon: string?,
-	tint: Color3?,
+	rarity: string?,
 	count: number?,
 }
 
@@ -41,11 +40,13 @@ export type InventoryGridView = {
 	slots: { SlotView },
 }
 
-local function itemRarity(item: ItemTypes.ItemInstance, def: ItemTypes.ItemDef?): string?
+-- Every item has a rarity for display; one that declares none is "normal", so a filled slot never
+-- renders as empty.
+local function itemRarity(item: ItemTypes.ItemInstance, def: ItemTypes.ItemDef?): string
 	if item.meta and type(item.meta.rarity) == "string" then
 		return item.meta.rarity
 	end
-	return def and def.rarity
+	return def and def.rarity or "normal"
 end
 
 function Selector.matchesCategory(def: ItemTypes.ItemDef, category: Category): boolean
@@ -85,7 +86,7 @@ function Selector.buildView(
 			slotIndex = slotIndex,
 			uid = uid,
 			icon = def.icon,
-			tint = Rarity.tint(rarity),
+			rarity = rarity,
 			count = if item.stackSize > 1 then item.stackSize else nil,
 		})
 	end

@@ -1,14 +1,14 @@
 --!strict
 -- Title over a scrolling list of nearby drops.
 --
--- A single AmbientPanel (R7) rather than PanelShell's backdrop+body: this surface shows during play,
--- next to loot on the ground, so it competes with the world behind it rather than a dimmed backdrop.
+-- The same PanelFrame chrome as the menus, filled at the AmbientPanel weight (R7): this surface shows
+-- during play, next to loot on the ground, so it competes with the world rather than a dimmed backdrop.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 
-local Panel = require(script.Parent.Parent.Parent.components.Panel)
+local PanelFrame = require(script.Parent.Parent.Parent.components.PanelFrame)
 local Header = require(script.Parent.Parent.Parent.components.Header)
 local ScrollList = require(script.Parent.Parent.Parent.components.ScrollList)
 local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
@@ -55,16 +55,12 @@ local function LootList(props: Props)
 		})
 	end
 
-	return e(Panel, {
-		role = "AmbientPanel",
-		stroke = true,
+	-- Over live gameplay, so heavier than a menu panel (R7), but the same chrome.
+	return e(PanelFrame, {
+		fillTransparency = theme.styles.AmbientPanel.BackgroundTransparency,
 		padding = metrics.paddingLg,
+		gap = metrics.paddingMd,
 	}, {
-		Layout = e("UIListLayout", {
-			FillDirection = Enum.FillDirection.Vertical,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			Padding = UDim.new(0, metrics.paddingMd),
-		}),
 		Title = e(Header, { title = props.view.title, layoutOrder = 1, height = HEADER_HEIGHT }),
 		List = e(ScrollList, {
 			layoutOrder = 2,

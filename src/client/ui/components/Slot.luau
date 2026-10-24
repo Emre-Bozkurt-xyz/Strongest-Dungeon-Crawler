@@ -1,32 +1,34 @@
 --!strict
--- One item slot: rarity-tinted square, inset icon, stack count, gloss overlay, click target.
+-- One item slot: a dark well, corner ticks, rarity as a lit floor, an icon, a stack count, and a
+-- click target.
 --
--- Ported from ItemSlotTemplate in docs/ui/InventoryPanel.rbxmx. The layering is load-bearing --
--- rarity tint on the outer square, a darker inset behind the icon, and a diagonal gloss on top --
--- so a slot reads as a physical object rather than a coloured box.
+-- Rarity is light rising from the slot's floor rather than a coloured box, so a full grid stays calm
+-- and the rare items still catch the eye. It is passed as a key and resolved through the theme, so a
+-- skin decides what each rarity looks like.
 --
 -- Presentational: it takes what to show and reports clicks. It does not know about inventory state,
--- which is what lets the equipment panel reuse it for slots that hold a fixed kind of item.
+-- which is what lets the equipment panel reuse it for sockets that hold a fixed kind of item.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
+local useSpring = require(script.Parent.Parent.hooks.useSpring)
+local Brackets = require(script.Parent.Brackets)
 
 local e = React.createElement
 
 export type Props = {
 	icon: string?,
-	-- Tints the slot frame. Callers map rarity to a colour; the slot has no rarity vocabulary.
-	tint: Color3?,
+	-- "normal" | "magic" | "rare" | "unique", or nil for an empty slot.
+	rarity: string?,
 	-- Shown bottom-right when above 1.
 	count: number?,
 	selected: boolean?,
-	-- "item" is an inventory slot: dark, filled, light outline. "socket" is an equipment paper-doll
-	-- cut-out: pale face behind a heavy dark outline, no inset or gloss.
+	-- "item" is an inventory slot. "socket" is an equipment paper-doll cut-out: dimmer, with the
+	-- placeholder silhouette showing what belongs there while it is empty.
 	variant: ("item" | "socket")?,
-	-- Dimmed silhouette shown while the slot is empty, hinting what belongs in it. Empty string or
-	-- nil renders nothing, which is correct for sockets that accept anything.
+	-- Dimmed silhouette shown while the slot is empty. Empty string or nil renders nothing.
 	placeholderIcon: string?,
 	layoutOrder: number?,
 	size: UDim2?,
@@ -41,79 +43,102 @@ export type Props = {
 local function Slot(props: Props)
 	local theme = ThemeContext.useTheme()
 	local hovered, setHovered = React.useState(false)
+	local lit = hovered or props.selected == true
+	local lift = useSpring(if lit then 1 else 0, theme.motion.snap)
 
 	local socket = props.variant == "socket"
-	local lit = hovered or props.selected == true
-	local frame = ThemeContext.useStyle(
-		if socket then (if lit then "SocketHovered" else "Socket") elseif lit then "SlotHovered" else "Slot"
-	)
-	local inset = ThemeContext.useStyle("SlotInset")
+	local tint = if props.rarity then (theme.rarity :: any)[props.rarity] else nil
+	local hasIcon = props.icon ~= nil and props.icon ~= ""
 
-	local frameProps: { [string]: any } = table.clone(frame)
-	frameProps.Size = props.size or UDim2.fromScale(1, 1)
-	frameProps.Position = props.position
-	frameProps.AnchorPoint = props.anchorPoint
-	frameProps.LayoutOrder = props.layoutOrder
-	if props.tint then
-		frameProps.BackgroundColor3 = props.tint
-	end
-
-	local insetChildren: { [string]: any } = {
-		Corner = e("UICorner", { CornerRadius = UDim.new(0, theme.metrics.radiusControl) }),
+	local well: { [string]: any } = {
+		Outline = e("UIStroke", {
+			Color = if lit then theme.color.stroke else theme.color.socketStroke,
+			Thickness = if props.selected then theme.metrics.strokeThick else theme.metrics.strokeThin,
+			Transparency = if lit then 0 elseif socket then 0.5 else 0.35,
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		}),
+		Ticks = e(Brackets, {
+			size = "small",
+			color = if lit then theme.color.strokeStrong else theme.color.stroke,
+			edgeTransparency = 1,
+		}),
+		Scale = e("UIScale", {
+			Scale = lift:map(function(v: number)
+				return 1 + 0.06 * v
+			end),
+		}),
 	}
-	-- A socket is a cut-out in the panel, so it takes neither the darker inset nor the sheen -- both
-	-- read as "something is in here" and every empty socket would look filled.
-	if not socket then
-		insetChildren.Gloss = e("Frame", {
-			Size = UDim2.fromScale(1, 1),
-			BackgroundColor3 = theme.color.slotSurface,
+
+	if tint then
+		well.Glow = e("Frame", {
+			Size = UDim2.fromScale(1, 0.6),
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.fromScale(0, 1),
+			BackgroundColor3 = tint,
 			BorderSizePixel = 0,
-			ZIndex = 10,
 		}, {
-			Corner = e("UICorner", { CornerRadius = UDim.new(0, theme.metrics.radiusControl) }),
-			Gradient = e("UIGradient", {
-				Rotation = -36,
+			Fade = e("UIGradient", {
+				Rotation = -90,
 				Transparency = NumberSequence.new({
-					NumberSequenceKeypoint.new(0, 0.4375),
-					NumberSequenceKeypoint.new(0.4159, 0.8),
+					NumberSequenceKeypoint.new(0, 0.55),
 					NumberSequenceKeypoint.new(1, 1),
 				}),
 			}),
 		})
+		well.Floor = e("Frame", {
+			Size = UDim2.new(1, 0, 0, 2),
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.fromScale(0, 1),
+			BackgroundColor3 = tint,
+			BorderSizePixel = 0,
+		})
 	end
 
-	if props.icon and props.icon ~= "" then
-		insetChildren.Icon = e("ImageLabel", {
+	if hasIcon then
+		well.Icon = e("ImageLabel", {
 			Image = props.icon,
-			Size = UDim2.fromScale(0.85, 0.85),
+			Size = UDim2.fromScale(0.72, 0.72),
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.48),
 			BackgroundTransparency = 1,
 			ScaleType = Enum.ScaleType.Fit,
 			ZIndex = 5,
 		})
+	elseif tint then
+		-- Stand-in until items have icons: a lit diamond in the item's rarity, so a filled slot never
+		-- reads as empty.
+		well.Glyph = e("Frame", {
+			Size = UDim2.fromScale(0.3, 0.3),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.45),
+			Rotation = 45,
+			BackgroundColor3 = tint,
+			BackgroundTransparency = 0.15,
+			BorderSizePixel = 0,
+			ZIndex = 5,
+		})
 	elseif props.placeholderIcon and props.placeholderIcon ~= "" then
-		insetChildren.Placeholder = e("ImageLabel", {
+		well.Placeholder = e("ImageLabel", {
 			Image = props.placeholderIcon,
-			Size = UDim2.fromScale(0.62, 0.62),
+			Size = UDim2.fromScale(0.58, 0.58),
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.fromScale(0.5, 0.5),
 			BackgroundTransparency = 1,
-			ImageColor3 = theme.color.textDisabled,
-			ImageTransparency = 0.45,
+			ImageColor3 = theme.color.stroke,
+			ImageTransparency = 0.7,
 			ScaleType = Enum.ScaleType.Fit,
 			ZIndex = 5,
 		})
 	end
 
 	if props.count and props.count > 1 then
-		insetChildren.Count = e("TextLabel", {
+		well.Count = e("TextLabel", {
 			Text = tostring(props.count),
-			Size = UDim2.fromScale(0.4, 0.28),
+			Size = UDim2.fromScale(0.5, 0.3),
 			AnchorPoint = Vector2.new(1, 1),
-			Position = UDim2.fromScale(1, 1),
+			Position = UDim2.new(1, -3, 1, -3),
 			BackgroundTransparency = 1,
-			Font = theme.font.action,
+			FontFace = theme.face.mono,
 			TextColor3 = theme.color.textPrimary,
 			TextScaled = true,
 			TextXAlignment = Enum.TextXAlignment.Right,
@@ -121,49 +146,32 @@ local function Slot(props: Props)
 		})
 	end
 
-	return e("Frame", frameProps, {
-		Corner = e("UICorner", { CornerRadius = UDim.new(0, theme.metrics.radiusControl) }),
-		Ratio = if props.aspectRatio
-			then e("UIAspectRatioConstraint", {
-				AspectRatio = props.aspectRatio,
-				DominantAxis = Enum.DominantAxis.Width,
-			})
-			else nil,
-		-- The socket's heavy dark outline is the shape that reads on the panel, so it stays opaque
-		-- and only brightens on selection; an item slot's hairline does the opposite.
-		Stroke = e("UIStroke", {
-			Color = if socket
-				then (if props.selected then theme.color.strokeStrong else theme.color.socketStroke)
-				elseif props.selected then theme.color.strokeStrong
-				else theme.color.stroke,
-			Thickness = if socket
-				then theme.metrics.strokePanel
-				elseif props.selected then theme.metrics.strokeThick
-				else theme.metrics.strokeThin,
-			Transparency = if socket then 0 elseif lit then 0.2 else 0.6,
-		}),
-		Inset = e("Frame", (function()
-			local merged: { [string]: any } = if socket then { BackgroundTransparency = 1 } else table.clone(inset)
-			merged.Size = UDim2.fromScale(if socket then 1 else 0.85, if socket then 1 else 0.85)
-			merged.AnchorPoint = Vector2.new(0.5, 0.5)
-			merged.Position = UDim2.fromScale(0.5, 0.5)
-			return merged
-		end)(), insetChildren),
-		-- Full-bleed hit target above the visuals so the gloss cannot swallow clicks.
-		Button = e("TextButton", {
-			Text = "",
-			Size = UDim2.fromScale(1, 1),
-			BackgroundTransparency = 1,
-			ZIndex = 30,
-			[React.Event.Activated] = props.onActivated,
-			[React.Event.MouseEnter] = function()
-				setHovered(true)
-			end,
-			[React.Event.MouseLeave] = function()
-				setHovered(false)
-			end,
-		}),
-	})
+	if props.aspectRatio then
+		well.Ratio = e("UIAspectRatioConstraint", {
+			AspectRatio = props.aspectRatio,
+			DominantAxis = Enum.DominantAxis.Width,
+		})
+	end
+
+	-- The well itself is the hit target: hover and click on any part of the slot.
+	return e("TextButton", {
+		Text = "",
+		AutoButtonColor = false,
+		Size = props.size or UDim2.fromScale(1, 1),
+		Position = props.position,
+		AnchorPoint = props.anchorPoint,
+		LayoutOrder = props.layoutOrder,
+		BackgroundColor3 = theme.color.slotSurface,
+		BackgroundTransparency = if socket then 0.5 elseif lit then 0.05 else 0.25,
+		BorderSizePixel = 0,
+		[React.Event.Activated] = props.onActivated,
+		[React.Event.MouseEnter] = function()
+			setHovered(true)
+		end,
+		[React.Event.MouseLeave] = function()
+			setHovered(false)
+		end,
+	}, well)
 end
 
 return Slot

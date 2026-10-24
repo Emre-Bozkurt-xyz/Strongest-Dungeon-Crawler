@@ -72,6 +72,54 @@ export type ThemeMetrics = {
 	paddingLg: number,
 }
 
+-- Font faces for components that set `FontFace` directly. `ThemeFonts` above stays for the roles
+-- and components still written against `Enum.Font`.
+export type ThemeFaces = {
+	-- Short uppercase titles and labels.
+	display: Font,
+	body: Font,
+	bodyBold: Font,
+	-- Numbers that tick, so digits do not jitter as values change.
+	mono: Font,
+}
+
+-- Type scale in logical pixels: sizes as the player sees them, for surfaces authored at screen scale
+-- (see `scale` on a PanelRegistry surface).
+export type ThemeTypeScale = {
+	label: number,
+	small: number,
+	body: number,
+	title: number,
+	display: number,
+}
+
+-- Item rarity colours. Part of the theme because a skin may restyle them, though a rarity must always
+-- read as itself whatever the skin.
+export type ThemeRarity = {
+	normal: Color3,
+	magic: Color3,
+	rare: Color3,
+	unique: Color3,
+}
+
+export type BracketSpec = {
+	length: number,
+	thickness: number,
+}
+
+-- Panel chrome: the frame drawn around content. This is what a skin restyles most, so it is data the
+-- chrome components read rather than values baked into them.
+export type ThemeChrome = {
+	-- Corners of a whole panel, and of small framed things (cards, slots).
+	panelBracket: BracketSpec,
+	bracket: BracketSpec,
+	-- The hairline joining the corners.
+	edgeTransparency: number,
+	-- Panel fill at the top, and how much more transparent it gets toward the bottom.
+	fillTransparency: number,
+	fillFade: number,
+}
+
 -- A spring: `frequency` in Hz (how fast it moves), `damping` as a ratio (1 settles without
 -- overshoot, below 1 overshoots). Springs rather than durations because a spring retargeted mid-move
 -- carries its velocity, where a tween restarts and visibly hitches.
@@ -132,6 +180,10 @@ export type Theme = {
 	color: ThemeColors,
 	metrics: ThemeMetrics,
 	font: ThemeFonts,
+	face: ThemeFaces,
+	type: ThemeTypeScale,
+	rarity: ThemeRarity,
+	chrome: ThemeChrome,
 	motion: ThemeMotion,
 	styles: { [StyleRole]: StyleProps },
 }

@@ -126,7 +126,7 @@ local function EquipmentView(props: Props)
 		return e(Slot, {
 			variant = "socket",
 			icon = slotView.icon,
-			tint = slotView.tint,
+			rarity = slotView.rarity,
 			count = slotView.count,
 			selected = props.selectedSlot == slotView.slot,
 			placeholderIcon = shape.placeholderIcon,
@@ -146,7 +146,7 @@ local function EquipmentView(props: Props)
 	for index, candidate in ipairs(props.view.candidates) do
 		candidates[candidate.key] = e(Slot, {
 			icon = candidate.icon,
-			tint = candidate.tint,
+			rarity = candidate.rarity,
 			count = candidate.count,
 			layoutOrder = index,
 			onActivated = function()

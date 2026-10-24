@@ -46,13 +46,13 @@ local function LootRow(props: Props)
 	}, {
 		Outline = e("UIStroke", {
 			Color = if selected then theme.color.strokeStrong else theme.color.stroke,
-			Thickness = if selected then theme.metrics.strokePanel else theme.metrics.strokeThin,
+			Thickness = if selected then theme.metrics.strokeThick else theme.metrics.strokeThin,
 			Transparency = if selected then 0.1 else 0.6,
 		}),
 
 		Slot = e(Slot, {
 			icon = row.icon,
-			tint = row.tint,
+			rarity = row.rarity,
 			count = row.count,
 			selected = selected,
 			size = UDim2.fromOffset(iconSize, iconSize),
@@ -75,7 +75,7 @@ local function LootRow(props: Props)
 				role = "BodyText",
 				size = UDim2.fromScale(1, 0.45),
 				layoutOrder = 1,
-				props = if row.tint then { TextColor3 = row.tint } else nil,
+				props = { TextColor3 = (theme.rarity :: any)[row.rarity] },
 			}),
 			Hint = if selected
 				then e(Text, {

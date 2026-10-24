@@ -10,7 +10,7 @@ export type SpringSpec = ThemeTypes.SpringSpec
 
 local Themes = {}
 
-local DEFAULT_THEME_ID = "SoloLeveling"
+local DEFAULT_THEME_ID = "System"
 
 local byId: { [string]: Theme } = {}
 local orderedIds: { string } = {}
@@ -87,6 +87,12 @@ local REQUIRED_FONTS = { "heading", "body", "action" }
 
 local REQUIRED_MOTION = { "snap", "settle", "drift" }
 
+local REQUIRED_FACES = { "display", "body", "bodyBold", "mono" }
+
+local REQUIRED_TYPE = { "label", "small", "body", "title", "display" }
+
+local REQUIRED_RARITY = { "normal", "magic", "rare", "unique" }
+
 local function register(theme: Theme, sourceName: string)
 	assert(type(theme.id) == "string" and theme.id ~= "", `Theme at '{sourceName}' is missing an id`)
 	assert(byId[theme.id] == nil, `Duplicate theme id '{theme.id}'`)
@@ -109,6 +115,25 @@ local function register(theme: Theme, sourceName: string)
 			`Theme '{theme.id}' is missing font '{fontName}'`
 		)
 	end
+	for _, faceName in ipairs(REQUIRED_FACES) do
+		assert(typeof((theme.face :: any)[faceName]) == "Font", `Theme '{theme.id}' is missing face '{faceName}'`)
+	end
+	for _, step in ipairs(REQUIRED_TYPE) do
+		assert(type((theme.type :: any)[step]) == "number", `Theme '{theme.id}' is missing type step '{step}'`)
+	end
+	for _, rarity in ipairs(REQUIRED_RARITY) do
+		assert(typeof((theme.rarity :: any)[rarity]) == "Color3", `Theme '{theme.id}' is missing rarity '{rarity}'`)
+	end
+	local chrome = theme.chrome :: any
+	assert(
+		type(chrome) == "table"
+			and type(chrome.panelBracket) == "table"
+			and type(chrome.bracket) == "table"
+			and type(chrome.edgeTransparency) == "number"
+			and type(chrome.fillTransparency) == "number"
+			and type(chrome.fillFade) == "number",
+		`Theme '{theme.id}' has an incomplete chrome block`
+	)
 	for _, presetName in ipairs(REQUIRED_MOTION) do
 		local preset = (theme.motion :: any)[presetName]
 		assert(
@@ -125,7 +150,7 @@ local function register(theme: Theme, sourceName: string)
 end
 
 for _, child in ipairs(script:GetChildren()) do
-	if child:IsA("ModuleScript") and child.Name ~= "ThemeTypes" then
+	if child:IsA("ModuleScript") and child.Name ~= "ThemeTypes" and child.Name ~= "ThemeBuilder" then
 		register(require(child) :: Theme, child:GetFullName())
 	end
 end

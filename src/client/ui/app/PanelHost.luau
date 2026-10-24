@@ -50,7 +50,7 @@ local function buildPart(entry: PanelRegistry.PanelEntry): BasePart
 	return part
 end
 
-local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): (SurfaceGui, CanvasGroup)
+local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): (SurfaceGui, CanvasGroup, GuiObject)
 	local gui = Instance.new("SurfaceGui")
 	gui.Name = "Surface"
 	gui.Face = Enum.NormalId.Front
@@ -72,7 +72,33 @@ local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): (S
 	group.GroupTransparency = 1
 	group.Parent = gui
 
-	return gui, group
+	-- A surface declaring a logical width is authored in that many pixels across, scaled up to fill
+	-- the real canvas. The canvas keeps its resolution, so text stays sharp, while the panel lays out in
+	-- units close to screen pixels at staging and the theme's type scale means what it says.
+	local logicalWidth = entry.surface.logicalWidth
+	if not logicalWidth then
+		return gui, group, group
+	end
+	local factor = (entry.surface.width * (entry.surface.pixelsPerStud or 100)) / logicalWidth
+	local logical = Instance.new("Frame")
+	logical.Name = "Logical"
+	logical.Size = UDim2.fromScale(1 / factor, 1 / factor)
+	logical.BackgroundTransparency = 1
+	logical.BorderSizePixel = 0
+	logical.Parent = group
+	local uiScale = Instance.new("UIScale")
+	uiScale.Scale = factor
+	uiScale.Parent = logical
+	-- React clears its container's children on first render, which would take the UIScale with them,
+	-- so React mounts one level down.
+	local root = Instance.new("Frame")
+	root.Name = "Root"
+	root.Size = UDim2.fromScale(1, 1)
+	root.BackgroundTransparency = 1
+	root.BorderSizePixel = 0
+	root.Parent = logical
+
+	return gui, group, root
 end
 
 function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
@@ -86,7 +112,7 @@ function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
 	self._followTarget = nil :: BasePart?
 
 	local part = buildPart(entry)
-	local gui, group = buildSurface(entry, part)
+	local gui, group, mountRoot = buildSurface(entry, part)
 	self._part = part
 	self._gui = gui
 	self._group = group
@@ -119,7 +145,7 @@ function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
 
 	-- The part and the WGM registration exist by now, so a failed mount has to undo them. Leaving
 	-- them behind would let the next attempt register a second part under the same panel id.
-	local ok, mountedOrErr = pcall(mountPanel, group, nil)
+	local ok, mountedOrErr = pcall(mountPanel, mountRoot, nil)
 	if not ok then
 		wgm:unregisterPanel(entry.id)
 		part:Destroy()

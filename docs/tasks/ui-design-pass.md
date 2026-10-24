@@ -190,6 +190,22 @@ Findings while building it:
 - **F7 arrives with `gameProcessed = true`** (a core binding claims it), so dev keys that use it must
   guard on `GetFocusedTextBox()` instead.
 
+**System theme — live (2026-10-25).** The style tile was approved and is now the default theme.
+
+- `themes/ThemeBuilder` turns a small palette into a full theme; `System` (cyan) is the default and
+  `SystemViolet` (the old purple) is the first alternate skin, proving a palette alone makes one. The
+  contract gained `face` (Font objects), `type` (logical-pixel scale), `rarity`, and `chrome`
+  (bracket specs, edge and fill transparency), all validated at startup.
+- Chrome is now a component: `components/Brackets` and `components/PanelFrame`. `PanelShell`,
+  `Header`, `Slot`, `Button` and `Tabs` were restyled in place, so every panel took the System look
+  at once. Selectors emit rarity *keys*; components resolve them through `theme.rarity`.
+- **Pixel density, solved generally.** A surface may declare `logicalWidth`: PanelHost keeps the full
+  canvas (sharp text) and scales a root frame so the panel is authored in logical pixels close to
+  screen pixels at staging. React clears its container's children on first render, so the UIScale
+  lives one level above the frame React mounts into.
+- **Inventory rebuilt** at `logicalWidth = 768` on the theme type scale. The other panels are
+  re-skinned through the shared primitives but keep their canvas-pixel layouts until rebuilt.
+
 ## Open questions
 
 1. StatusPreview: diegetic band, screen-space HUD, or show-on-change? The Fisch reference leans

@@ -25,6 +25,7 @@ PanelHost.__index = PanelHost
 
 export type PanelHostType = {
 	setVisible: (self: PanelHostType, visible: boolean) -> (),
+	setFollowTarget: (self: PanelHostType, target: BasePart?) -> (),
 	render: (self: PanelHostType, element: any) -> (),
 	destroy: (self: PanelHostType) -> (),
 }
@@ -79,6 +80,7 @@ function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
 	self._visible = false
 	self._destroyed = false
 	self._tween = nil :: Tween?
+	self._followTarget = nil :: BasePart?
 
 	local part = buildPart(entry)
 	local gui, group = buildSurface(entry, part)
@@ -109,6 +111,7 @@ function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
 		playerSpaceOffset = placement.playerSpaceOffset,
 		playerOffsetMode = placement.playerOffsetMode,
 		maxRadius = placement.maxRadius,
+		lerpSpeed = placement.lerpSpeed,
 	})
 
 	-- The part and the WGM registration exist by now, so a failed mount has to undo them. Leaving
@@ -169,6 +172,26 @@ function PanelHost.setVisible(self: any, visible: boolean)
 	end
 
 	tween:Play()
+end
+
+-- For a panel whose anchor changes at runtime, e.g. the nearest loot drop. nil clears it, which
+-- leaves the panel where it is: WorldGUIManager holds position when a target panel has no target.
+function PanelHost.setFollowTarget(self: any, target: BasePart?)
+	if self._destroyed or self._followTarget == target then
+		return
+	end
+	local appearing = self._followTarget == nil
+	self._followTarget = target
+
+	local wgm = WorldGUIManager.getInstance()
+	wgm:setPanelFollowTarget(self._entry.id, target)
+
+	-- Snap rather than lerp when a target appears from nothing. The panel's last position belongs to
+	-- whatever it followed before, possibly across the map, and it would fly in from there. Moving
+	-- between two live targets still lerps. Re-applying the follow mode is WorldGUIManager's snap.
+	if target and appearing then
+		wgm:setPanelFollowMode(self._entry.id, (self._entry.placement.followMode or "target") :: any)
+	end
 end
 
 function PanelHost.destroy(self: any)

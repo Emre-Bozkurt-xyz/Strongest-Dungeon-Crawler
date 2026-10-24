@@ -13,11 +13,9 @@
 -- once by the container (useGlobalCooldown, useCastBlocked) and passed down as props, rather than one
 -- redundant Heartbeat connection per slot for an identical shared value.
 --
--- Two simplifications versus SkillSlotUI, both recorded in the panel's capability checklist rather
--- than silently dropped: the GCD wash shows whenever the GCD is running, even on a slot whose own
--- cooldown already outlasts it (the old runtime suppressed that redundant case); and there is no
--- MIN_VISUAL_DURATION filter on sub-0.33s combo-step cooldowns, because useSkillCooldown exposes only
--- a 0..1 ratio, not the raw duration such a filter needs.
+-- Two deliberate simplifications: the GCD wash shows whenever the GCD is running, even on a slot
+-- whose own cooldown already outlasts it; and sub-0.33s combo-step cooldowns are not filtered out,
+-- because useSkillCooldown exposes only a 0..1 ratio, not the raw duration such a filter needs.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -51,6 +49,11 @@ local function SkillSlotButton(props: Props)
 	local cooldownProgress = useSkillCooldown(props.skill)
 	local remaining = useSkillRemaining(props.skill)
 
+	-- Every "you cannot use this" visual is suppressed while the skill is running. A combo commits its
+	-- cooldown on the first step, so without this the slot shows a countdown while the player is still
+	-- swinging -- which is what the cooldown genuinely says, and exactly the wrong thing to show.
+	local active = props.active == true
+
 	local joined = React.joinBindings({
 		cooldown = cooldownProgress,
 		gcd = props.gcdProgress,
@@ -60,11 +63,6 @@ local function SkillSlotButton(props: Props)
 		local locked = not active and (v.cooldown > 0 or v.gcd > 0)
 		return if locked then theme.color.iconCooldownTint else theme.color.iconReadyTint
 	end)
-
-	-- Every "you cannot use this" visual is suppressed while the skill is running. A combo commits its
-	-- cooldown on the first step, so without this the slot shows a countdown while the player is still
-	-- swinging -- which is what the cooldown genuinely says, and exactly the wrong thing to show.
-	local active = props.active == true
 
 	local radialVisible = cooldownProgress:map(function(p)
 		return not active and p > 0

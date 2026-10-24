@@ -2,10 +2,9 @@
 -- Imperative motion that belongs to the menu as a whole rather than to any one panel: the world-GUI
 -- group's entry yaw, and the camera pose the menu is viewed from.
 --
--- The camera half used to live in SystemPanelRuntime, which made it look panel-owned. It never was:
--- it keys off `modal.open` and looks at MenuRigRuntime's focus point, so it applies to every menu
--- view. It moved here when SystemPanel became a React panel, because React must not reach above the
--- SurfaceGui (R3) and a panel component is the wrong owner for a camera.
+-- The camera is not panel-owned: it keys off `modal.open` and looks at MenuRigRuntime's focus point,
+-- so it applies to every menu view. React must not reach above the SurfaceGui (R3), and a panel
+-- component is the wrong owner for a camera anyway.
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -21,7 +20,7 @@ local CameraConfig = SharedConfig.Camera
 
 local MenuMotionBridge = {}
 
--- SystemPanelRuntime used to push this itself; it no longer runs, so this bridge owns it.
+-- Nothing else sets the menu camera; this bridge is its only owner.
 local OWNS_MENU_CAMERA = true
 
 local cameraModId: any = nil

@@ -237,7 +237,7 @@ function CameraController:setMode(mode: Mode)
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
 		CharacterFacingController.getInstance():setCameraMode(mode)
-		-- Panel follow modes are owned by UI runtimes (SystemPanelRuntime/StatusPreview/etc).
+		-- Panel follow modes are owned by the UI layer (PanelRegistry placement), not the camera.
 		self:_stopUpdateLoop()
 		if self._inputConn then
 			self._inputConn:Disconnect()
@@ -271,7 +271,7 @@ function CameraController:setMode(mode: Mode)
 	end
 	CharacterFacingController.getInstance():setCameraMode(mode)
 	CharacterFacingController.getInstance():applyCameraYaw(self._yaw)
-	-- Panel follow modes are owned by UI runtimes (SystemPanelRuntime/StatusPreview/etc).
+	-- Panel follow modes are owned by the UI layer (PanelRegistry placement), not the camera.
 	self:_stopUpdateLoop()
 	-- Mouse delta -> yaw/pitch
 	if self._inputConn then

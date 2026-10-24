@@ -7,9 +7,9 @@
 -- level than this (see the init.luau trap in docs/tasks/ui-migration-plan.md).
 --
 -- Screen-space (registered in ScreenRegistry), not a world panel: there is no visibility predicate
--- and no surface to create or fade. It always renders; an empty profile just renders an empty bar,
--- matching SkillSlotUI's old behaviour of only ever drawing filled slots. Takes no props, per the
--- container convention every other panel in this codebase follows.
+-- and no surface to create or fade. It always renders and only ever draws filled slots, so an empty
+-- profile renders an empty bar. Takes no props, per the container convention every other panel in
+-- this codebase follows.
 
 local React = require(game:GetService("ReplicatedStorage").Packages.React)
 

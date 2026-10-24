@@ -97,8 +97,7 @@ function Selector.buildSlots(filled: { SkillSlots.FilledSlot }): { SlotView }
 	return views
 end
 
--- Ported from SkillSlotUI.formatTime verbatim -- same three bands (minutes, whole seconds, one
--- decimal under 10s) so the last-second countdown reads the same as it always has.
+-- Three bands: minutes, whole seconds, then one decimal under 10s so the last seconds read precisely.
 function Selector.formatTime(remaining: number): string
 	if remaining <= 0 then
 		return ""

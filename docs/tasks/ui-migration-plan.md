@@ -565,10 +565,10 @@ Only attempted if the spike succeeds. Each step is independently useful, so this
 
 ### Phase R7 — Retire the old layer
 Mostly bookkeeping if R12 is followed — each panel's old code dies with its conversion.
-- [ ] Delete `PanelBinder`, `PanelTemplateResolver`, `PanelTemplateSchema` (R5)
-- [ ] Delete the Studio-authored trees and `Design`
-- [ ] Delete `docs/ui/*.rbxmx` (R12)
-- [ ] Confirm nothing under `StarterGui` is pre-placed (R9)
+- [x] Delete `PanelBinder`, `PanelTemplateResolver`, `PanelTemplateSchema` (R5)
+- [x] Delete the Studio-authored trees and `Design`
+- [x] Delete `docs/ui/*.rbxmx` (R12) — the `*OTS.png` screenshots are kept as reference
+- [x] Confirm nothing under `StarterGui` is pre-placed (R9)
 
 ## Guardrails
 
@@ -662,6 +662,11 @@ end,
 `isVisible` then reads that source directly and ignores its `state` argument. Only that entry is
 re-evaluated when the source fires.
 
+If the panel anchors to something in the world that changes — the nearest loot drop — use
+`followMode = "target"` in its placement and add a `followTarget` that returns the part. It is re-read
+whenever visibility is, before the fade, and `PanelHost` snaps rather than lerps when a target appears
+from nothing. `WorldLootInspectPanel` is the worked example.
+
 A **screen-space element** goes in `app/ScreenRegistry.luau` instead, which is just `{ id, component,
 zIndex? }`. There is no host, no placement and no fade: everything renders into the one persistent
 `ScreenRoot` tree and decides for itself whether to draw. That asymmetry is deliberate — a world
@@ -728,6 +733,11 @@ container must rotate something *other* than the clipped child — for the radia
 rotating the `UIGradient` rather than the Frame it sits on. The symptom is partial: the effect looks
 correct wherever the unclipped content happens to coincide with its clip, and breaks everywhere else,
 which reads like a maths error rather than a clipping one. See `RadialGauge`.
+
+*Possibly stale:* Roblox made `ClipsDescendants` clip rotated children by default on 2026-09-24
+(the `StarterGui.ClipsDescendantsSupportsRotation` opt-out goes away in November 2026). Rotating the
+gradient still works either way, so `RadialGauge` needs no change, but re-check before relying on this
+trap for new work.
 
 **Never trust the payload a store's change signal hands you — re-read the store.** Several client
 stores publish through a `BindableEvent`, and BindableEvents deep-copy their arguments across the
@@ -817,17 +827,26 @@ agents adding roles independently is a guaranteed conflict. Building them centra
 makes R2 delegation safe.
 
 **Converted so far:** `ItemInspectPanel`, `SystemPanel`, `StatusPreviewPanel`, `EquipmentPanel`,
-`InventoryPanel`, `SkillSlotContainer`. Every menu panel is React-driven and the plugin layer has no
-plugins left — `PanelPluginRegistry`, `PanelPluginTypes`, `InventoryPanelPlugin`,
-`EquipmentPanelPlugin`, `InventoryMenuRuntime`, `EquipmentMenuRuntime`, `EquipmentPanelRuntime`,
-`SlotVisuals`, `PanelBinder`, `PanelTemplateResolver` and `SkillSlotUI` are all inert and awaiting a
-deletion sweep once the last conversions are verified.
+`InventoryPanel`, `SkillSlotContainer`, `WorldLootInspectPanel`. **R7 is done:** the plugin layer,
+every old runtime, `SkillSlotUI`, the Studio-authored trees, `Design`, `StarterGui.HUD` and the
+`.rbxmx` exports are deleted. `PanelPluginTypes` survives as `menu/MenuTypes`, minus the plugin types.
+The exports remain in git history (`tools/dump-rbxmx.ps1` still reads them from a checkout).
 
 `SkillSlotContainer` is the first `ScreenRegistry` entry, so the screen-space path
 (`ScreenRoot`/`HudRoot`/`ScreenRuntime`) is now exercised.
 
-**Remaining:** `WorldLootInspectPanel` — the only unconverted panel, and the first user of
-`PanelEntry.watch`, which has still never run.
+**`WorldLootInspectPanel`: converted, verified in Studio** (render, keyboard selection, prompt
+suppression, hide on empty) with synthetic `LootDrop` parts. Not yet exercised: Alt-held pointer
+hover/click, and a real pickup round-trip. It is the first user of `PanelEntry.watch` and the new
+`followTarget`. `LootClient` is now its store (`getSnapshot`/`onChanged`), publishing only when a drawn
+field changes — distance is excluded, or the panel would re-render at the scan rate while the player
+walks. Capability notes: the `WorldLootInspect.*` DevTuning subscription is dropped (nothing registers
+those paths); `maxVisibleRows` now actually sizes rows; the pickup hint is new. Rarity tints moved to
+`selectors/rarity` (four copies existed).
+
+**Remaining:** the migration itself is complete. Next is a dedicated design pass — every panel is a
+functional port, not a finished design (R12) — iterating against live Studio captures over MCP.
+Phases R5/R6 (pointer spike, interaction rework) follow it.
 
 **Deliberately staying imperative:** `OverheadHPBar` and `DamageLabel`. Both are per-entity/per-hit
 `BillboardGui`s, a third mounting model that neither `PanelHost` nor `ScreenRegistry` covers, and

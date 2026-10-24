@@ -1,22 +1,21 @@
 --!strict
 -- Every world panel, declared in one place.
 --
--- Replaces the eight PanelPlugin modules (R16). A plugin existed to push state into an imperative
--- runtime; React components pull, so what is left per panel is data: which component renders it,
--- and a predicate over menu state saying when it should be visible.
+-- React components pull their own state (R16), so what is left per panel is data: which component
+-- renders it, where it is placed, and a predicate saying when it should be visible.
 --
 -- `id` must match the ids `MenuRigRuntime.MENU_PANEL_IDS` and `SharedConfig.UIMenu.panels` already
 -- use, since placement is looked up by id.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local PanelPluginTypes = require(script.Parent.Parent.menu.PanelPluginTypes)
+local MenuTypes = require(script.Parent.Parent.menu.MenuTypes)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 
 local UIMenuConfig = SharedConfig.UIMenu
 local WorldGUIConfig = SharedConfig.WorldGUI
 
-export type MenuState = PanelPluginTypes.MenuState
+export type MenuState = MenuTypes.MenuState
 
 export type SurfaceConfig = {
 	-- Panel size in studs. The SurfaceGui's pixel resolution follows from pixelsPerStud.
@@ -40,6 +39,7 @@ export type Placement = {
 	playerSpaceOffset: Vector3?,
 	playerOffsetMode: string?,
 	maxRadius: number?,
+	lerpSpeed: number?,
 }
 
 export type PanelEntry = {
@@ -56,6 +56,9 @@ export type PanelEntry = {
 	-- Optional. Called with a callback that re-evaluates visibility; returns an unsubscribe. Panels
 	-- driven purely by menu state do not need it -- the runtime already re-evaluates on every change.
 	watch: ((notify: () -> ()) -> () -> ())?,
+	-- Optional, for `followMode = "target"`: the part to anchor to, re-read whenever visibility is.
+	-- A target that moves between things in the world is placement, so it stays out of React (R3).
+	followTarget: (() -> BasePart?)?,
 	-- Seconds for the show/hide fade.
 	fadeDuration: number?,
 }
@@ -65,6 +68,10 @@ local SystemPanel = require(script.Parent.Parent.panels.SystemPanel)
 local StatusPreviewPanel = require(script.Parent.Parent.panels.StatusPreviewPanel)
 local EquipmentPanel = require(script.Parent.Parent.panels.EquipmentPanel)
 local InventoryPanel = require(script.Parent.Parent.panels.InventoryPanel)
+local WorldLootInspectPanel = require(script.Parent.Parent.panels.WorldLootInspectPanel)
+
+local LootClient = require(script.Parent.Parent.controllers.LootClient)
+local LootConfig = SharedConfig.WorldLootInspect
 
 local function isMenuOpen(state: MenuState): boolean
 	return state.modal.open
@@ -147,10 +154,41 @@ local entries: { PanelEntry } = {
 		-- info rows to stay legible at this physical size.
 		surface = { width = 1.875, height = 3.34, thickness = 0.076, pixelsPerStud = 300 },
 		placement = menuRigPlacement("ItemInspectPanel"),
-		-- Matches the old ItemInspectPanelPlugin.shouldShowInspect exactly.
+		-- Hidden over the system view, which has no item context to inspect against.
 		isVisible = function(state)
 			return state.inspect ~= nil and isMenuOpen(state) and state.modal.view ~= "system"
 		end,
+	},
+	{
+		id = "WorldLootInspectPanel",
+		component = WorldLootInspectPanel,
+		-- Studs and density from the Studio-authored part: an 822x1150 canvas. LootList derives its
+		-- row height from these, so change both together.
+		surface = { width = 2.056, height = 2.874, thickness = 0.076, pixelsPerStud = 400 },
+		-- Anchored above the nearest drop, facing the camera rather than the player, so it reads
+		-- from wherever the player approaches it.
+		placement = {
+			group = LootConfig.groupName,
+			faceCamera = true,
+			faceMode = "camera",
+			followMode = "target",
+			offset = LootConfig.panel.offset,
+			maxRadius = LootConfig.panel.maxRadius,
+			lerpSpeed = LootConfig.panel.lerpSpeed,
+		},
+		followTarget = function()
+			local lead = LootClient.getSnapshot().entries[1]
+			return if lead then lead.part else nil
+		end,
+		-- Driven by loot in range, not by menu state. LootClient already empties the list while a
+		-- menu is open, so the menu rule needs no restating here.
+		isVisible = function(_state)
+			return #LootClient.getSnapshot().entries > 0
+		end,
+		watch = function(notify)
+			return LootClient.onChanged(notify)
+		end,
+		fadeDuration = 0.15,
 	},
 }
 

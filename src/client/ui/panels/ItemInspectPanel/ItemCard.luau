@@ -31,6 +31,7 @@ local useAttributes = require(script.Parent.Parent.Parent.hooks.useAttributes)
 
 local ItemActions = require(script.Parent.Parent.Parent.actions.ItemActions)
 local Selector = require(script.Parent.Parent.Parent.selectors.itemInspect)
+local Rarity = require(script.Parent.Parent.Parent.selectors.rarity)
 
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
 local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
@@ -40,13 +41,6 @@ local e = React.createElement
 export type Props = {
 	-- Which item to inspect. nil renders the empty state.
 	uid: string?,
-}
-
-local RARITY_COLORS: { [string]: Color3 } = {
-	normal = Color3.fromRGB(190, 190, 190),
-	magic = Color3.fromRGB(120, 160, 255),
-	rare = Color3.fromRGB(240, 210, 110),
-	unique = Color3.fromRGB(230, 140, 70),
 }
 
 -- Canvas pixels. The surface is 1.875 studs wide at 300 px/stud, so a row of 17px rendered at
@@ -349,7 +343,7 @@ local function ItemCard(props: Props)
 		TitleBar = e(Header, {
 			title = view.displayName,
 			layoutOrder = 2,
-			color = RARITY_COLORS[view.rarity],
+			color = Rarity.tint(view.rarity),
 		}),
 
 		Details = e(ScrollList, {

@@ -6,10 +6,9 @@
 -- `panels` and Parent.Parent is `ui`. EquipmentView, being a child, needs one more level than this.
 --
 -- Which socket is selected is state this panel owns outright rather than reading from a store (R4
--- allows this as a deliberate, recorded exception): it is presentation-local, nothing outside this
--- panel needs it, and the old runtime (EquipmentPanelRuntime._selectedSlotId) kept it exactly the
--- same way. Selecting a socket still dispatches through MenuOrchestrator so ItemInspectPanel reacts
--- with no extra wiring, matching InventoryPanelPlugin's SET_INSPECT shape.
+-- allows this as a deliberate, recorded exception): it is presentation-local and nothing outside
+-- this panel needs it. Selecting a socket still dispatches through MenuOrchestrator so
+-- ItemInspectPanel reacts with no extra wiring, the same SET_INSPECT shape InventoryPanel uses.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -30,8 +29,8 @@ local function EquipmentPanel()
 	local view = Selector.buildView(inventory.inventory, inventory.equipment, inventory.items, selectedSlot)
 
 	-- Clicking a socket selects it and inspects whatever it holds; clicking an empty one clears the
-	-- inspect panel, but only if equipment was the thing showing there (mirrors
-	-- EquipmentPanelPlugin.bindInspectSelection exactly -- it left another source's inspect alone).
+	-- inspect panel, but only if equipment was the thing showing there -- another source's inspect
+	-- is left alone.
 	local function onSlotActivated(slot: Selector.EquipSlot, uid: string?)
 		setSelectedSlot(slot)
 		if uid then
@@ -46,7 +45,7 @@ local function EquipmentPanel()
 
 	-- Clicking a candidate equips it immediately (no carry, no confirm step -- R15 keeps the old
 	-- click-to-act model) and selects the socket it landed in, so the paper-doll highlight follows
-	-- the item the way EquipmentPanelRuntime's uid-tracked selection used to.
+	-- the item.
 	local function onCandidateActivated(candidate: Selector.CandidateView)
 		setSelectedSlot(candidate.targetSlot)
 		MenuOrchestrator.setInspect("equipment", { uid = candidate.uid })

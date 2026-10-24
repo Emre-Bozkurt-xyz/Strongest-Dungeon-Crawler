@@ -1,7 +1,7 @@
 --!strict
 
 local MenuReducer = require(script.Parent.MenuReducer)
-local Types = require(script.Parent.PanelPluginTypes)
+local Types = require(script.Parent.MenuTypes)
 
 type MenuState = Types.MenuState
 type MenuAction = Types.MenuAction

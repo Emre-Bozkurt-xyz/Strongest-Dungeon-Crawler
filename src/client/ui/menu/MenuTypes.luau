@@ -1,6 +1,6 @@
 --!strict
+-- Menu state shape, shared by the store, its reducer, the orchestrator and PanelRegistry predicates.
 
-export type MenuTier = "modal" | "context" | "transient"
 export type MenuView = "system" | "inventory" | "equipment"
 export type InspectSource = "inventory" | "equipment"
 
@@ -31,21 +31,6 @@ export type MenuAction = {
 	panelId: string?,
 	visible: boolean?,
 	transient: any?,
-}
-
-export type PanelPluginHost = {
-	getState: () -> MenuState,
-	dispatch: (action: MenuAction) -> (),
-	publish: (event: any) -> (),
-}
-
-export type PanelPlugin = {
-	id: string,
-	tier: MenuTier,
-	mount: (host: PanelPluginHost) -> (),
-	onStateChanged: (prev: MenuState, next: MenuState) -> (),
-	onData: (event: any) -> (),
-	unmount: () -> (),
 }
 
 return {}

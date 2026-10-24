@@ -3,7 +3,7 @@
 -- React binding -- shared across every slot on the bar the same way GCD is, since a blocked cast
 -- blocks all of them, not one skill.
 --
--- Ported from SkillSlotUI's blockedCastSources map: StatusEffectBlocking events name an effectId and
+-- StatusEffectBlocking events name an effectId and
 -- either open or close a window on it, and several effects can overlap (several stuns landing at
 -- once), so what is shown is however long the longest-lived one still has. There is no guaranteed
 -- "cleared" message for an effect that merely expires, which is why this runs a Heartbeat sweep

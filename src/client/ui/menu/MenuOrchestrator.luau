@@ -1,8 +1,7 @@
 --!strict
 
-local Types = require(script.Parent.PanelPluginTypes)
+local Types = require(script.Parent.MenuTypes)
 local MenuStateStore = require(script.Parent.MenuStateStore)
-local PanelPluginRegistry = require(script.Parent.PanelPluginRegistry)
 local MenuInputBridge = require(script.Parent.MenuInputBridge)
 local MenuMotionBridge = require(script.Parent.MenuMotionBridge)
 local MenuRigRuntime = require(script.Parent.MenuRigRuntime)
@@ -15,7 +14,6 @@ type InspectSource = Types.InspectSource
 local MenuOrchestrator = {}
 
 local _store = nil
-local _registry = nil
 local _disconnect = nil
 local _initialized = false
 
@@ -27,28 +25,13 @@ local function ensureInit()
 	end
 
 	_store = MenuStateStore.new()
-	_registry = PanelPluginRegistry.new()
 
-	-- No plugins remain: every panel is React-driven and lives in PanelRegistry. The registry itself
-	-- is kept only until the converted panels are verified in Studio, then it and PanelPluginRegistry
-	-- go together (R16).
-	_registry:mountAll({
-		getState = function(): MenuState
-			return _store:getState()
-		end,
-		dispatch = function(action)
-			_store:dispatch(action)
-		end,
-		publish = function(event)
-			_registry:broadcast(event)
-		end,
-	})
-
+	-- Panels are not driven from here: UIRuntime subscribes through onChanged and owns their
+	-- visibility. This subscription is only for the imperative input, camera and rig layers.
 	_disconnect = _store:subscribe(function(prev, next, _action)
 		MenuInputBridge.apply(next.modal.open)
 		MenuMotionBridge.onModalStateChanged(prev.modal.open, next.modal.open)
 		MenuRigRuntime.get():applyMenuState(next)
-		_registry:onStateChanged(prev, next)
 	end)
 
 	_initialized = true
@@ -117,22 +100,18 @@ end
 
 function MenuOrchestrator.setInspect(source: InspectSource, payload: any)
 	dispatch({ type = "SET_INSPECT", source = source, payload = payload })
-	_registry:broadcast({ type = "inspect_set", source = source, payload = payload })
 end
 
 function MenuOrchestrator.clearInspect()
 	dispatch({ type = "CLEAR_INSPECT" })
-	_registry:broadcast({ type = "inspect_clear" })
 end
 
 function MenuOrchestrator.enqueueTransient(payload: any)
 	dispatch({ type = "ENQUEUE_TRANSIENT", transient = payload })
-	_registry:broadcast({ type = "transient_enqueue", payload = payload })
 end
 
 function MenuOrchestrator.dequeueTransient()
 	dispatch({ type = "DEQUEUE_TRANSIENT" })
-	_registry:broadcast({ type = "transient_dequeue" })
 end
 
 function MenuOrchestrator.isOpen(): boolean
@@ -161,10 +140,6 @@ function MenuOrchestrator.destroy()
 		_disconnect()
 		_disconnect = nil
 	end
-	if _registry then
-		_registry:unmountAll()
-	end
-	_registry = nil
 	_store = nil
 	MenuMotionBridge.clearEntryBasis()
 	MenuInputBridge.apply(false)

@@ -1,8 +1,7 @@
 --!strict
 -- Drives world panels: keeps a host per registered panel and tells each whether it should be visible.
 --
--- Replaces PanelPluginRegistry and the per-panel plugin lifecycle (R16). A plugin's job was to push
--- state into a runtime; components pull it themselves, so all that remains is visibility.
+-- Components pull their own state (R16), so all that is left to drive from outside is visibility.
 --
 -- Most panels' visibility is a function of menu state, so the menu store drives re-evaluation. A
 -- panel that depends on something else -- nearby loot, a controller -- supplies a `watch` that
@@ -47,6 +46,12 @@ local function applyEntry(entry: PanelRegistry.PanelEntry, state: any)
 		end
 		host = created
 		hosts[entry.id] = host
+	end
+
+	-- Before visibility, so a panel fading in is already at its new anchor.
+	local followTarget = entry.followTarget
+	if followTarget then
+		host:setFollowTarget(followTarget())
 	end
 
 	-- A render error must not strand the host. Visibility used to be set only after a successful

@@ -1,5 +1,9 @@
 --!strict
--- LootClient: tracks nearby loot, drives WorldLootInspectPanel, and handles selected-row pickup.
+-- LootClient: tracks nearby loot and the selected row, and handles pickup.
+--
+-- The store behind WorldLootInspectPanel (R4 in docs/tasks/ui-migration-plan.md). It owns the scan,
+-- the selection and the keyboard path; the panel reads a snapshot through useNearbyLoot and reports
+-- pointer input back through LootActions. Where the panel sits and when it shows is PanelRegistry's.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7,15 +11,28 @@ local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
-local InventoryClient = require(script.Parent.Parent.Parent.Inventory.InventoryClient)
 local InteractionStateController = require(script.Parent.Parent.Parent.input.InteractionStateController)
 local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
-local WorldLootInspectRuntime = require(script.Parent.Parent.runtime.WorldLootInspectRuntime)
+local ItemActions = require(script.Parent.Parent.actions.ItemActions)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 
 local LootClient = {}
 
-type LootEntry = WorldLootInspectRuntime.LootEntry
+export type LootEntry = {
+	uid: string,
+	itemId: string,
+	displayName: string,
+	rarity: string?,
+	stackSize: number?,
+	part: BasePart,
+	distance: number,
+}
+
+export type Snapshot = {
+	-- Nearest first. Empty while the menu is open, so the panel hides with no rule of its own.
+	entries: { LootEntry },
+	selectedUid: string?,
+}
 
 type TrackedDrop = {
 	part: BasePart,
@@ -23,20 +40,18 @@ type TrackedDrop = {
 }
 
 local CONFIG = SharedConfig.WorldLootInspect
+local PICKUP_COOLDOWN = 0.15
 local player = Players.LocalPlayer
 
 local trackedDrops: { [BasePart]: TrackedDrop } = {}
 local nearbyEntries = {} :: { LootEntry }
 local selectedUid = nil :: string?
-local selectedIndex = 1
-local runtime = nil :: any
-local heartbeatConnection = nil :: RBXScriptConnection?
-local inputBeganConnection = nil :: RBXScriptConnection?
-local menuConnection = nil :: (() -> ())?
+local snapshot: Snapshot = { entries = {}, selectedUid = nil }
+local snapshotSignature = ""
+local listeners: { [{}]: () -> () } = {}
 local scanAccumulator = 0
 local menuOpen = false
 local nextPickupAt = 0
-local nextRuntimeRetryAt = 0
 local initialized = false
 
 local RARITY_RANK = {
@@ -105,123 +120,69 @@ local function sortEntries(entries: { LootEntry })
 	end)
 end
 
-local function syncPromptEnabled(prompt: ProximityPrompt?, enabled: boolean)
-	if not prompt then
-		return
-	end
-	pcall(function()
-		prompt.Enabled = enabled
-	end)
-end
-
-local function syncAllPrompts()
-	local enablePrompt = runtime == nil and not (CONFIG.hideWhenMenuOpen and menuOpen)
-	for _, tracked in pairs(trackedDrops) do
-		syncPromptEnabled(tracked.prompt, enablePrompt)
+-- The panel replaces the per-drop prompts, so they stay off while LootClient tracks a drop. A drop's
+-- prompt can be created after its tag lands, so this is re-applied on every scan rather than once.
+local function suppressPrompt(tracked: TrackedDrop)
+	local prompt = tracked.prompt or tracked.part:FindFirstChildWhichIsA("ProximityPrompt", true)
+	tracked.prompt = prompt
+	if prompt and prompt.Enabled then
+		prompt.Enabled = false
 	end
 end
 
-local function ensureRuntime()
-	if runtime then
-		return runtime
-	end
-	if os.clock() < nextRuntimeRetryAt then
+local function indexOf(uid: string?): number?
+	if not uid then
 		return nil
 	end
-	nextRuntimeRetryAt = os.clock() + 2
-	runtime = WorldLootInspectRuntime.tryInit()
-	if runtime then
-		syncAllPrompts()
+	for index, entry in ipairs(nearbyEntries) do
+		if entry.uid == uid then
+			return index
+		end
 	end
-	return runtime
+	return nil
 end
 
-local function pickupEntry(index: number)
-	if os.clock() < nextPickupAt then
+-- Only what the panel draws. Distances change on every scan as the player moves, so including them
+-- would re-render the panel at the scan rate while showing exactly the same rows.
+local function signatureOf(entries: { LootEntry }, selected: string?): string
+	local parts = table.create(#entries + 1)
+	for _, entry in ipairs(entries) do
+		table.insert(parts, `{entry.uid}:{entry.displayName}:{entry.rarity or ""}:{entry.stackSize or 1}`)
+	end
+	table.insert(parts, selected or "")
+	return table.concat(parts, "\n")
+end
+
+local function publish()
+	local signature = signatureOf(nearbyEntries, selectedUid)
+	if signature == snapshotSignature then
 		return
 	end
-	local entry = nearbyEntries[index]
-	if not entry then
-		return
-	end
-	selectedIndex = index
-	selectedUid = entry.uid
-	nextPickupAt = os.clock() + 0.15
-	InventoryClient.requestAction({
-		action = "pickup",
-		uid = entry.uid,
-	})
-end
+	snapshotSignature = signature
+	snapshot = { entries = table.clone(nearbyEntries), selectedUid = selectedUid }
 
-local function selectEntry(index: number): boolean
-	local entry = nearbyEntries[index]
-	if not entry then
-		return false
+	-- No payload: subscribers re-read through getSnapshot, the same contract every store hook
+	-- follows (see "Never trust the payload" in the migration plan).
+	for _, listener in pairs(listeners) do
+		local ok, err = pcall(listener)
+		if not ok then
+			warn(`[LootClient] listener failed: {err}`)
+		end
 	end
-	if selectedUid == entry.uid and selectedIndex == index then
-		return false
-	end
-	selectedIndex = index
-	selectedUid = entry.uid
-	return true
-end
-
-local function getRuntimeCallbacks()
-	return {
-		onSelect = function(index: number, _entry: LootEntry)
-			if not InteractionStateController.allowsWorldPanelInteraction() then
-				return
-			end
-			if selectEntry(index) then
-				local inst = ensureRuntime()
-				if inst then
-					inst:setSelectedIndex(selectedIndex)
-				end
-			end
-		end,
-		onPickup = function(index: number, _entry: LootEntry)
-			if not InteractionStateController.allowsWorldPanelInteraction() then
-				return
-			end
-			if selectEntry(index) then
-				local inst = ensureRuntime()
-				if inst then
-					inst:setSelectedIndex(selectedIndex)
-				end
-			end
-			pickupEntry(index)
-		end,
-	}
-end
-
-local function syncRuntime()
-	local inst = ensureRuntime()
-	if not inst then
-		return
-	end
-	inst:setEntries(nearbyEntries, selectedIndex, getRuntimeCallbacks())
 end
 
 local function refreshNearbyLoot()
-	local inst = runtime
-	syncAllPrompts()
-	local root = getPlayerRoot()
-	if not root or (CONFIG.hideWhenMenuOpen and menuOpen) then
-		nearbyEntries = {}
-		selectedUid = nil
-		selectedIndex = 1
-		if inst then
-			inst:clear()
-		end
-		return
-	end
-
 	local entries: { LootEntry } = {}
+	local root = getPlayerRoot()
+	local hidden = CONFIG.hideWhenMenuOpen and menuOpen
+
 	for part, tracked in pairs(trackedDrops) do
 		if not part.Parent then
 			trackedDrops[part] = nil
-		else
-			tracked.prompt = part:FindFirstChildWhichIsA("ProximityPrompt", true)
+			continue
+		end
+		suppressPrompt(tracked)
+		if root and not hidden then
 			local entry = getDropEntry(part, root)
 			if entry then
 				table.insert(entries, entry)
@@ -232,31 +193,29 @@ local function refreshNearbyLoot()
 	sortEntries(entries)
 	nearbyEntries = entries
 
-	if #nearbyEntries == 0 then
-		selectedUid = nil
-		selectedIndex = 1
-		if inst then
-			inst:clear()
-		end
+	-- Selection follows the item, not the row: a drop that moves up the list as the player walks
+	-- stays selected. Only when it leaves range does selection fall back to the nearest.
+	if not indexOf(selectedUid) then
+		selectedUid = if entries[1] then entries[1].uid else nil
+	end
+
+	publish()
+end
+
+local function selectUid(uid: string)
+	if not indexOf(uid) or selectedUid == uid then
 		return
 	end
+	selectedUid = uid
+	publish()
+end
 
-	local matchedIndex = nil :: number?
-	if selectedUid then
-		for index, entry in ipairs(nearbyEntries) do
-			if entry.uid == selectedUid then
-				matchedIndex = index
-				break
-			end
-		end
+local function pickupUid(uid: string)
+	if os.clock() < nextPickupAt or not indexOf(uid) then
+		return
 	end
-	selectedIndex = matchedIndex or 1
-	selectedUid = nearbyEntries[selectedIndex].uid
-
-	inst = inst or ensureRuntime()
-	if inst then
-		syncRuntime()
-	end
+	nextPickupAt = os.clock() + PICKUP_COOLDOWN
+	ItemActions.pickup(uid)
 end
 
 local function changeSelection(direction: number)
@@ -265,7 +224,7 @@ local function changeSelection(direction: number)
 		return
 	end
 
-	local nextIndex = selectedIndex + direction
+	local nextIndex = (indexOf(selectedUid) or 1) + direction
 	if CONFIG.selectionWrap then
 		if nextIndex < 1 then
 			nextIndex = count
@@ -276,30 +235,16 @@ local function changeSelection(direction: number)
 		nextIndex = math.clamp(nextIndex, 1, count)
 	end
 
-	selectedIndex = nextIndex
-	selectedUid = nearbyEntries[selectedIndex].uid
-	local inst = ensureRuntime()
-	if inst then
-		inst:setSelectedIndex(selectedIndex)
-	end
-end
-
-local function pickupSelected()
-	pickupEntry(selectedIndex)
+	selectUid(nearbyEntries[nextIndex].uid)
 end
 
 local function connectDrop(inst: Instance)
 	if not inst:IsA("BasePart") then
 		return
 	end
-	local prompt = inst:FindFirstChildWhichIsA("ProximityPrompt", true)
-	trackedDrops[inst] = {
-		part = inst,
-		prompt = prompt,
-	}
-	if runtime then
-		syncPromptEnabled(prompt, false)
-	end
+	local tracked: TrackedDrop = { part = inst, prompt = nil }
+	trackedDrops[inst] = tracked
+	suppressPrompt(tracked)
 end
 
 local function disconnectDrop(inst: Instance)
@@ -307,10 +252,40 @@ local function disconnectDrop(inst: Instance)
 		return
 	end
 	local tracked = trackedDrops[inst]
-	if tracked then
-		syncPromptEnabled(tracked.prompt, true)
+	if tracked and tracked.prompt then
+		tracked.prompt.Enabled = true
 	end
 	trackedDrops[inst] = nil
+end
+
+function LootClient.getSnapshot(): Snapshot
+	return snapshot
+end
+
+-- Returns an unsubscribe, matching the `() -> ()` contract the UI hooks and PanelEntry.watch expect.
+function LootClient.onChanged(callback: () -> ()): () -> ()
+	local token = {}
+	listeners[token] = callback
+	return function()
+		listeners[token] = nil
+	end
+end
+
+-- Pointer input. Gated because the cursor only reaches a world panel while precision focus is held;
+-- otherwise it is locked to screen centre and would select whichever row it happens to rest over.
+function LootClient.selectFromPanel(uid: string)
+	if not InteractionStateController.allowsWorldPanelInteraction() then
+		return
+	end
+	selectUid(uid)
+end
+
+function LootClient.pickupFromPanel(uid: string)
+	if not InteractionStateController.allowsWorldPanelInteraction() then
+		return
+	end
+	selectUid(uid)
+	pickupUid(uid)
 end
 
 function LootClient.init()
@@ -320,7 +295,7 @@ function LootClient.init()
 	initialized = true
 
 	menuOpen = MenuOrchestrator.isOpen()
-	menuConnection = MenuOrchestrator.onChanged(function(_prev, next, _action)
+	MenuOrchestrator.onChanged(function(_prev, next, _action)
 		menuOpen = next.modal.open
 		refreshNearbyLoot()
 	end)
@@ -331,7 +306,7 @@ function LootClient.init()
 	CollectionService:GetInstanceAddedSignal("LootDrop"):Connect(connectDrop)
 	CollectionService:GetInstanceRemovedSignal("LootDrop"):Connect(disconnectDrop)
 
-	heartbeatConnection = RunService.Heartbeat:Connect(function(deltaTime: number)
+	RunService.Heartbeat:Connect(function(deltaTime: number)
 		scanAccumulator += deltaTime
 		if scanAccumulator < CONFIG.scanInterval then
 			return
@@ -340,12 +315,14 @@ function LootClient.init()
 		refreshNearbyLoot()
 	end)
 
-	inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed or (CONFIG.hideWhenMenuOpen and menuOpen) then
 			return
 		end
 		if input.KeyCode == CONFIG.interaction.pickupKey then
-			pickupSelected()
+			if selectedUid then
+				pickupUid(selectedUid)
+			end
 			return
 		end
 		if input.KeyCode == Enum.KeyCode.Up then

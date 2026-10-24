@@ -6,11 +6,9 @@
 -- `panels` and Parent.Parent is `ui`. InventoryView, being a child, needs one more level than this.
 --
 -- Category and selection are both presentation-local state (R4's recorded exception -- the same call
--- EquipmentPanel made for its selected socket): nothing outside this panel needs either, and the old
--- runtime (InventoryMenuRuntime.selectedCategory/selectedUid) kept them exactly the same way. Picking
--- a slot still dispatches through MenuOrchestrator so ItemInspectPanel reacts with no extra wiring --
--- the same SET_INSPECT/CLEAR_INSPECT shape InventoryPanelPlugin.bindInspectSelection used, clearing
--- only when the inspect panel is currently showing something this panel put there.
+-- EquipmentPanel made for its selected socket): nothing outside this panel needs either. Picking a
+-- slot still dispatches through MenuOrchestrator so ItemInspectPanel reacts with no extra wiring,
+-- clearing only when the inspect panel is currently showing something this panel put there.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -42,8 +40,7 @@ local function InventoryPanel()
 
 	local view = Selector.buildView(inventory.inventory, inventory.items, activeCategory)
 
-	-- Mirrors InventoryMenuRuntime:refresh's guard: a selection that no longer resolves to a visible
-	-- slot -- dropped, consumed, or filtered out by a tab switch -- stops being selected, and clears
+	-- A selection that no longer resolves to a visible slot -- dropped, consumed, or filtered out by a tab switch -- stops being selected, and clears
 	-- the inspect panel if it was the thing showing there.
 	React.useEffect(function()
 		if not selectedUid then

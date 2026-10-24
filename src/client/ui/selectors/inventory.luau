@@ -7,13 +7,14 @@
 -- player actually has, so the grid grows with the inventory and a filter visibly narrows it.
 -- `capacity` is still reported for a fullness readout, but it no longer drives how many cells exist.
 --
--- The filter rule itself is InventoryMenuRuntime._filterCategory unchanged: "all" bypasses the
--- check, every other category is a straight equality against the item's def.category.
+-- The filter rule: "all" bypasses the check, every other category is a straight equality against
+-- the item's def.category.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
+local Rarity = require(script.Parent.rarity)
 
 local Selector = {}
 
@@ -38,15 +39,6 @@ export type InventoryGridView = {
 	-- How many slots are occupied overall, ignoring the active category, for a "23 / 40" readout.
 	used: number,
 	slots: { SlotView },
-}
-
--- Not sourced from the theme (Guardrail 3 is about UI chrome, not item data): rarity is a fixed
--- four-value item property, the same table ItemCard.luau and the equipment selector already carry.
-local RARITY_TINTS: { [string]: Color3 } = {
-	normal = Color3.fromRGB(190, 190, 190),
-	magic = Color3.fromRGB(120, 160, 255),
-	rare = Color3.fromRGB(240, 210, 110),
-	unique = Color3.fromRGB(230, 140, 70),
 }
 
 local function itemRarity(item: ItemTypes.ItemInstance, def: ItemTypes.ItemDef?): string?
@@ -93,7 +85,7 @@ function Selector.buildView(
 			slotIndex = slotIndex,
 			uid = uid,
 			icon = def.icon,
-			tint = if rarity then RARITY_TINTS[rarity] else nil,
+			tint = Rarity.tint(rarity),
 			count = if item.stackSize > 1 then item.stackSize else nil,
 		})
 	end

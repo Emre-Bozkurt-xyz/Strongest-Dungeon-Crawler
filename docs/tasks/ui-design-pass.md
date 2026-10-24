@@ -332,6 +332,16 @@ states dim. A cooldown ending plays one pulse (`hooks/useReadyPulse`): a flash a
 - `DamageNumberSpawn` attachments flank the character about 3.7 studs out by design, so numbers
   appear beside a target rather than over it.
 
+**UI sound — live.** `ui/UISound` plays named cues from `Config/UISoundConfig` through a "UI" sound
+group, one-shot via PlayLocalSound, dropping repeats within 50ms so a burst of panels or a cursor
+sweep makes one sound. Every cue is from Roblox's own UI library (licensed for any experience):
+
+- hover (slots, buttons, attribute rows; loot selection changes rather than plate hover, since plates
+  can slide under a locked cursor), confirm (clicks), open/close (panels, timed to the switch-on),
+  notify, error (failed pickups), ready (a skill off cooldown, quiet and high), and pickups pitched up
+  by rarity so a rare drop sounds like one.
+- Ids, volumes and pitches are config; swapping a sound is one line.
+
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
 item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them

@@ -19,6 +19,7 @@ local InteractionStateController = require(script.Parent.Parent.Parent.input.Int
 local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
 local ItemActions = require(script.Parent.Parent.actions.ItemActions)
 local NotificationClient = require(script.Parent.NotificationClient)
+local UISound = require(script.Parent.Parent.UISound)
 local ItemGlyphs = require(script.Parent.Parent.glyphs.ItemGlyphs)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
@@ -318,9 +319,14 @@ end
 
 -- Pointer input. Gated because the cursor only reaches a world panel while precision focus is held;
 -- otherwise it is locked to screen centre and would select whichever row it happens to rest over.
+-- The pointer and wheel paths tick when they move the selection. The plates themselves do not tick on
+-- hover: they can slide under a locked cursor, which would tick at random.
 function LootClient.selectFromPanel(uid: string)
 	if not InteractionStateController.allowsWorldPanelInteraction() then
 		return
+	end
+	if uid ~= selectedUid then
+		UISound.play("hover")
 	end
 	selectUid(uid)
 end
@@ -330,6 +336,7 @@ function LootClient.cycleFromPanel(direction: number)
 	if not InteractionStateController.allowsWorldPanelInteraction() then
 		return
 	end
+	UISound.play("hover")
 	changeSelection(direction)
 end
 

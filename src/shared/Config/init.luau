@@ -9,6 +9,7 @@ return {
 	WorldLootInspect = require(script.WorldLootInspectConfig),
 	VitalsHud = require(script.VitalsHudConfig),
 	Notifications = require(script.NotificationsConfig),
+	UISound = require(script.UISoundConfig),
 	-- Combat config removed in Phase B: the unarmed base now lives in the unarmed_basic
 	-- BasicAttackProfile (src/shared/skills/BasicAttackProfiles/unarmed_basic.luau). See D6 in
 	-- docs/tasks/equipment-item-architecture.md.

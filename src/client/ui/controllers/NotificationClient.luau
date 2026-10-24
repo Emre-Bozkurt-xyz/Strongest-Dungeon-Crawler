@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
+local UISound = require(script.Parent.Parent.UISound)
 
 local CONFIG = SharedConfig.Notifications
 
@@ -78,8 +79,21 @@ local function watchExpiry()
 	end)
 end
 
+-- A notice's sound: errors and warnings their own, an item its rarity's pickup stinger, anything
+-- else the plain stinger. A merged repeat plays again, so a run of pickups is heard as a run.
+local function playFor(spec: NoticeSpec)
+	if spec.tone == "error" or spec.tone == "warning" then
+		UISound.play("error")
+	elseif spec.rarity then
+		UISound.pickup(spec.rarity)
+	else
+		UISound.play("notify")
+	end
+end
+
 function NotificationClient.push(spec: NoticeSpec)
 	local now = os.clock()
+	playFor(spec)
 	if spec.key then
 		for index, notice in ipairs(notices) do
 			if notice.key == spec.key then

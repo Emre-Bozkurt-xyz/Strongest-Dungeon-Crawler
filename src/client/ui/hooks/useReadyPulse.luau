@@ -10,6 +10,7 @@ local RunService = game:GetService("RunService")
 
 local React = require(ReplicatedStorage.Packages.React)
 local Ease = require(ReplicatedStorage.Shared.ui.Ease)
+local UISound = require(script.Parent.Parent.UISound)
 
 -- Seconds.
 local DURATION = 0.32
@@ -24,6 +25,7 @@ local function useReadyPulse(cooldown: any): any
 			local cooling = cooldown:getValue() > 0
 			if wasCooling and not cooling then
 				started = os.clock()
+				UISound.play("ready")
 			end
 			wasCooling = cooling
 			if started then

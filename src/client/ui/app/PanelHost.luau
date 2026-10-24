@@ -24,6 +24,7 @@ local Ease = require(ReplicatedStorage.Shared.ui.Ease)
 local SwitchOn = require(ReplicatedStorage.Shared.ui.SwitchOn)
 local Themes = require(ReplicatedStorage.Shared.ui.themes)
 local WorldGUIManager = require(script.Parent.Parent.Parent.WorldGUIManager)
+local UISound = require(script.Parent.Parent.UISound)
 local mountPanel = require(script.Parent.mountPanel)
 local PanelRegistry = require(script.Parent.PanelRegistry)
 
@@ -282,6 +283,18 @@ function PanelHost.setVisible(self: any, visible: boolean, delay: number?)
 	local duration = SwitchOn.duration(visible, from, timing)
 	local hold = if visible then delay or 0 else 0
 	local started = os.clock()
+
+	-- Timed to the transition itself, so a delayed opening sounds when it starts. Several panels
+	-- changing together make one sound (UISound drops repeats).
+	if hold > 0 then
+		task.delay(hold, function()
+			if self._visible and not self._destroyed then
+				UISound.play("open")
+			end
+		end)
+	else
+		UISound.play(if visible then "open" else "close")
+	end
 
 	local function finish()
 		if self._transition then

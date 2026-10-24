@@ -16,6 +16,7 @@ local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
 local useSpring = require(script.Parent.Parent.hooks.useSpring)
 local Brackets = require(script.Parent.Brackets)
 local Glyph = require(script.Parent.Glyph)
+local UISound = require(script.Parent.Parent.UISound)
 
 local e = React.createElement
 
@@ -174,9 +175,15 @@ local function Slot(props: Props)
 		BackgroundColor3 = theme.color.slotSurface,
 		BackgroundTransparency = if socket then 0.5 elseif lit then 0.05 else 0.25,
 		BorderSizePixel = 0,
-		[React.Event.Activated] = props.onActivated,
+		[React.Event.Activated] = function()
+			if props.onActivated then
+				UISound.play("confirm")
+				props.onActivated()
+			end
+		end,
 		[React.Event.MouseEnter] = function()
 			setHovered(true)
+			UISound.play("hover")
 		end,
 		[React.Event.MouseLeave] = function()
 			setHovered(false)

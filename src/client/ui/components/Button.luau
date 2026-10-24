@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
+local UISound = require(script.Parent.Parent.UISound)
 local useSpring = require(script.Parent.Parent.hooks.useSpring)
 
 export type Props = {
@@ -89,9 +90,17 @@ local function Button(props: Props)
 			elseif primary then theme.color.textOnAccent
 			else theme.color.textPrimary,
 
-		[React.Event.Activated] = if enabled then props.onActivated else nil,
+		[React.Event.Activated] = function()
+			if enabled and props.onActivated then
+				UISound.play("confirm")
+				props.onActivated()
+			end
+		end,
 		[React.Event.MouseEnter] = function()
 			setHovered(true)
+			if enabled then
+				UISound.play("hover")
+			end
 		end,
 		[React.Event.MouseLeave] = function()
 			setHovered(false)

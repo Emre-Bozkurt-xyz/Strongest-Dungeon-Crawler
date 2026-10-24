@@ -27,6 +27,7 @@ local StatList = require(script.Parent.Parent.Parent.components.StatList)
 local VitalsBlock = require(script.Parent.Parent.Parent.components.VitalsBlock)
 local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
 local useSpring = require(script.Parent.Parent.Parent.hooks.useSpring)
+local UISound = require(script.Parent.Parent.Parent.UISound)
 
 local Selector = require(script.Parent.Parent.Parent.selectors.systemStatus)
 
@@ -178,11 +179,15 @@ local function AttributeRow(props: {
 		Active = props.enabled,
 		[React.Event.Activated] = function()
 			if props.enabled then
+				UISound.play("confirm")
 				props.onSpend(row.id)
 			end
 		end,
 		[React.Event.MouseEnter] = function()
 			setHovered(true)
+			if props.enabled then
+				UISound.play("hover")
+			end
 		end,
 		[React.Event.MouseLeave] = function()
 			setHovered(false)

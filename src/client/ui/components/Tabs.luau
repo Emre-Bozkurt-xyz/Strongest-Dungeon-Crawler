@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
+local UISound = require(script.Parent.Parent.UISound)
 local Text = require(script.Parent.Text)
 
 local e = React.createElement
@@ -58,6 +59,7 @@ local function Tabs(props: Props)
 			BackgroundTransparency = 1,
 			[React.Event.Activated] = function()
 				if props.onSelect then
+					UISound.play("confirm")
 					props.onSelect(tab.id)
 				end
 			end,

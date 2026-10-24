@@ -71,7 +71,7 @@ local function VitalGauge(props: Props)
 				Position = UDim2.fromScale(0.5, 0.04),
 				AnchorPoint = Vector2.new(0.5, 0),
 				BackgroundTransparency = 1,
-				ImageColor3 = theme.color.gaugeTrack,
+				ImageColor3 = theme.color.textPrimary,
 				ScaleType = Enum.ScaleType.Fit,
 			}),
 			Caption = e(Text, {

@@ -45,9 +45,9 @@ local function Gauge(props: Props)
 	}, {
 		Corner = e("UICorner", { CornerRadius = UDim.new(1, 0) }),
 		Stroke = e("UIStroke", {
-			Color = theme.color.gaugeTrack,
+			Color = theme.color.stroke,
 			Thickness = props.strokeThickness or theme.metrics.strokeThin,
-			Transparency = 0,
+			Transparency = 0.5,
 		}),
 		Padding = e("UIPadding", {
 			PaddingTop = UDim.new(0, 1),

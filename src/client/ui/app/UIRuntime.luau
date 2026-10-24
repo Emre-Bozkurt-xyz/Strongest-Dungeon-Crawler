@@ -10,8 +10,8 @@
 -- or not, and that is imperative.
 --
 -- Hosts are created lazily on first show and then kept alive. Destroying on close would fight the
--- fade-out, which needs the surface to outlive the animation. A hidden host renders nil, so its
--- React subtree drops while the surface and root persist.
+-- fade-out, which needs the surface to outlive the animation. Once a hide has finished fading, the
+-- host drops its React subtree while the surface and root persist.
 
 local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
 local MenuRigRuntime = require(script.Parent.Parent.menu.MenuRigRuntime)
@@ -61,16 +61,19 @@ local function applyEntry(entry: PanelRegistry.PanelEntry, state: any)
 		host:setFollowTarget(followTarget())
 	end
 
-	-- A render error must not strand the host. Visibility used to be set only after a successful
-	-- render, so one throw left `_visible` false forever and the panel never faded back in -- the
-	-- failure looked like "the panel stopped existing" rather than an error.
+	-- `visible` reaches the component so a panel on its way out can hold its last state through the
+	-- fade (the host keeps rendering until the fade completes).
+	--
+	-- A render error must not strand the host: it is hidden rather than left half-shown, and the next
+	-- state change tries again. Unguarded, one throw left the panel looking like it had stopped
+	-- existing rather than like an error.
 	local ok, err = pcall(function()
-		(host :: any):render(if visible then React.createElement(entry.component) else nil)
+		host:present(React.createElement(entry.component, { visible = visible }), visible)
 	end)
 	if not ok then
 		warn(`[UIRuntime] {entry.id} render failed: {err}`)
+		host:setVisible(false)
 	end
-	;(host :: any):setVisible(visible and ok)
 end
 
 local function applyState(state: any)

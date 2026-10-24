@@ -68,6 +68,12 @@ export type PanelEntry = {
 
 local ItemInspectPanel = require(script.Parent.Parent.panels.ItemInspectPanel)
 local SystemPanel = require(script.Parent.Parent.panels.SystemPanel)
+
+-- Studio only: F7 swaps the style tile in for the System panel's content (ui/dev/StyleTile).
+if game:GetService("RunService"):IsStudio() then
+	SystemPanel = require(script.Parent.Parent.dev.StyleTile).withStyleTile(SystemPanel)
+end
+
 local StatusPreviewPanel = require(script.Parent.Parent.panels.StatusPreviewPanel)
 local EquipmentPanel = require(script.Parent.Parent.panels.EquipmentPanel)
 local InventoryPanel = require(script.Parent.Parent.panels.InventoryPanel)

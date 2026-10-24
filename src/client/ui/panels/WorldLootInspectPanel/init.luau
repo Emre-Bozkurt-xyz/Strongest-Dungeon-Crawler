@@ -13,12 +13,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local React = require(ReplicatedStorage.Packages.React)
 
 local useNearbyLoot = require(script.Parent.Parent.hooks.useNearbyLoot)
+local useHeldWhileHidden = require(script.Parent.Parent.hooks.useHeldWhileHidden)
 local LootActions = require(script.Parent.Parent.actions.LootActions)
 local Selector = require(script.Parent.Parent.selectors.lootList)
 local LootList = require(script.LootList)
 
-local function WorldLootInspectPanel()
-	local snapshot = useNearbyLoot()
+local function WorldLootInspectPanel(props: { visible: boolean? })
+	-- An empty list is what hides this panel, so without holding it would fade out with no rows.
+	local snapshot = useHeldWhileHidden(useNearbyLoot(), props.visible)
 
 	return React.createElement(LootList, {
 		view = Selector.buildView(snapshot),

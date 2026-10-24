@@ -6,6 +6,7 @@ local ThemeTypes = require(script.ThemeTypes)
 
 export type Theme = ThemeTypes.Theme
 export type StyleRole = ThemeTypes.StyleRole
+export type SpringSpec = ThemeTypes.SpringSpec
 
 local Themes = {}
 
@@ -84,6 +85,8 @@ local REQUIRED_METRICS = {
 
 local REQUIRED_FONTS = { "heading", "body", "action" }
 
+local REQUIRED_MOTION = { "snap", "settle", "drift" }
+
 local function register(theme: Theme, sourceName: string)
 	assert(type(theme.id) == "string" and theme.id ~= "", `Theme at '{sourceName}' is missing an id`)
 	assert(byId[theme.id] == nil, `Duplicate theme id '{theme.id}'`)
@@ -104,6 +107,13 @@ local function register(theme: Theme, sourceName: string)
 		assert(
 			typeof((theme.font :: any)[fontName]) == "EnumItem",
 			`Theme '{theme.id}' is missing font '{fontName}'`
+		)
+	end
+	for _, presetName in ipairs(REQUIRED_MOTION) do
+		local preset = (theme.motion :: any)[presetName]
+		assert(
+			type(preset) == "table" and type(preset.frequency) == "number" and type(preset.damping) == "number",
+			`Theme '{theme.id}' is missing motion preset '{presetName}'`
 		)
 	end
 	for _, role in ipairs(REQUIRED_ROLES) do

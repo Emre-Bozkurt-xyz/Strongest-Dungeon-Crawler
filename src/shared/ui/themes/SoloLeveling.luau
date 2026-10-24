@@ -198,12 +198,19 @@ local styles: { [ThemeTypes.StyleRole]: ThemeTypes.StyleProps } = {
 	},
 }
 
+local motion: ThemeTypes.ThemeMotion = {
+	snap = { frequency = 6, damping = 1 },
+	settle = { frequency = 3.5, damping = 0.75 },
+	drift = { frequency = 1.2, damping = 1 },
+}
+
 local theme: ThemeTypes.Theme = {
 	id = "SoloLeveling",
 	label = "Solo Leveling",
 	color = color,
 	metrics = metrics,
 	font = font,
+	motion = motion,
 	styles = styles,
 }
 

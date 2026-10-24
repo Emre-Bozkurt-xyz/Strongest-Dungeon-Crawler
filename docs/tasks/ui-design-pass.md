@@ -151,6 +151,36 @@ into the state. This is what makes MCP iteration fast instead of fiddly.
    restraint, not for the world panels.
 6. **Menu camera: per view** (menu-staging D1(c)), to be revisited after playtesting.
 
+## Progress
+
+**Engineering prerequisites — done.**
+
+- **Exit animations.** `PanelHost.present(element, visible)` keeps a hiding panel rendered until its
+  fade completes, then drops the subtree. Components receive `visible`; `useHeldWhileHidden` holds the
+  last shown value through the exit (used by loot and item inspect, whose data is what disappears).
+- **Motion primitive: in-house springs, not a library.** `hooks/useSpring(target, spec, from?)` returns
+  a binding (no re-render per frame), keeps velocity when retargeted, only connects Heartbeat while
+  moving, and returns `snapTo` for replaying an entrance. Presets live in the theme
+  (`theme.motion.snap/settle/drift`, validated at startup like colours), so a skin can carry its own
+  feel. Ripple was the alternative; the hook is ~100 lines and avoids a dependency.
+
+**Style tile v2 — awaiting direction feedback.** `ui/dev/StyleTile.luau`, shown in place of the
+System panel's content by F7 or "Tile" in the F6 tuner. Palette, type, chrome (corner brackets,
+header rule), slots with rarity-lit floors, buttons, segmented gauges, and a looping materialise.
+
+Findings while building it:
+
+- **Pixel density is the first foundation problem.** At current staging the System panel's 1296px
+  canvas spans ~775 screen pixels, so one canvas pixel is ~0.6 screen pixels and 13px text renders
+  near 8px. The tile is authored in logical pixels at 1/1.5 scale and scaled up, so its sizes are what
+  the player sees. The real panels need the same treatment (or a lower `pixelsPerStud`) before any
+  type scale means anything.
+- **Fonts.** Built-in families that fit: Michroma (display), Titillium Web (body, has weights),
+  Roboto Mono (numbers), Sarpanch/Zekton as alternates. Use `Font.fromEnum`; guessed family JSON
+  paths fail to load.
+- **F7 arrives with `gameProcessed = true`** (a core binding claims it), so dev keys that use it must
+  guard on `GetFocusedTextBox()` instead.
+
 ## Open questions
 
 1. StatusPreview: diegetic band, screen-space HUD, or show-on-change? The Fisch reference leans

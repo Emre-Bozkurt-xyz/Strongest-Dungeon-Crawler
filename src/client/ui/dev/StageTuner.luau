@@ -18,6 +18,7 @@ local useMenuState = require(script.Parent.Parent.hooks.useMenuState)
 local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
 local MenuRigRuntime = require(script.Parent.Parent.menu.MenuRigRuntime)
 local UIRuntime = require(script.Parent.Parent.app.UIRuntime)
+local DevFlags = require(script.Parent.DevFlags)
 
 local e = React.createElement
 
@@ -423,8 +424,8 @@ local function StageTuner()
 			Padding = UDim.new(0, 6),
 		}),
 		CopyToAll = e(SmallButton, {
-			text = "Copy to all views",
-			width = 130,
+			text = "Copy to all",
+			width = 100,
 			layoutOrder = 1,
 			onActivated = function()
 				for _, view in ipairs(VIEWS) do
@@ -466,6 +467,24 @@ local function StageTuner()
 				local text = exportStage()
 				setExported(text)
 				print("[StageTuner] Paste over UIMenuConfig.stage:\n" .. text)
+			end,
+		}),
+		-- The style tile renders on the System panel, so turning it on also opens that view.
+		StyleTile = e(SmallButton, {
+			text = "Tile",
+			width = 60,
+			layoutOrder = 5,
+			onActivated = function()
+				local showing = not DevFlags.get("styleTile")
+				DevFlags.set("styleTile", showing)
+				if showing then
+					setEditing("system")
+					if menu.modal.open then
+						MenuOrchestrator.setView("system")
+					else
+						MenuOrchestrator.open("system")
+					end
+				end
 			end,
 		}),
 	}

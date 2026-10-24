@@ -27,7 +27,7 @@ export type PanelHostType = {
 	setVisible: (self: PanelHostType, visible: boolean) -> (),
 	setFollowTarget: (self: PanelHostType, target: BasePart?) -> (),
 	setScale: (self: PanelHostType, scale: number) -> (),
-	render: (self: PanelHostType, element: any) -> (),
+	present: (self: PanelHostType, element: any, visible: boolean) -> (),
 	destroy: (self: PanelHostType) -> (),
 }
 
@@ -82,6 +82,7 @@ function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
 	self._visible = false
 	self._destroyed = false
 	self._tween = nil :: Tween?
+	self._hasContent = false
 	self._followTarget = nil :: BasePart?
 
 	local part = buildPart(entry)
@@ -129,11 +130,19 @@ function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
 	return self :: any
 end
 
-function PanelHost.render(self: any, element: any)
+-- Shows or hides the panel with `element` as its content. A panel on its way out keeps rendering
+-- until its fade completes -- the element it is handed carries `visible = false`, so the content can
+-- hold its last state or play an exit of its own -- and only then is the subtree dropped. Dropping it
+-- at the start of the fade would fade out an empty surface.
+function PanelHost.present(self: any, element: any, visible: boolean)
 	if self._destroyed then
 		return
 	end
-	self._mounted.render(element)
+	if visible or self._hasContent then
+		self._mounted.render(element)
+		self._hasContent = true
+	end
+	self:setVisible(visible)
 end
 
 function PanelHost.setVisible(self: any, visible: boolean)
@@ -172,6 +181,8 @@ function PanelHost.setVisible(self: any, visible: boolean)
 		tween.Completed:Connect(function(state: Enum.PlaybackState)
 			if state == Enum.PlaybackState.Completed and not self._visible and not self._destroyed then
 				self._gui.Enabled = false
+				self._mounted.render(nil)
+				self._hasContent = false
 			end
 		end)
 	end

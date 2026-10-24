@@ -72,6 +72,24 @@ export type ThemeMetrics = {
 	paddingLg: number,
 }
 
+-- A spring: `frequency` in Hz (how fast it moves), `damping` as a ratio (1 settles without
+-- overshoot, below 1 overshoots). Springs rather than durations because a spring retargeted mid-move
+-- carries its velocity, where a tween restarts and visibly hitches.
+export type SpringSpec = {
+	frequency: number,
+	damping: number,
+}
+
+-- Named motion presets. Every animation picks one, so the feel of the whole UI is tuned here.
+export type ThemeMotion = {
+	-- Hover, press, selection: immediate response, no overshoot.
+	snap: SpringSpec,
+	-- Panels and cards arriving or leaving: quick with a slight overshoot.
+	settle: SpringSpec,
+	-- Ambient movement and value readouts: slow and soft.
+	drift: SpringSpec,
+}
+
 export type ThemeFonts = {
 	heading: Enum.Font,
 	body: Enum.Font,
@@ -114,6 +132,7 @@ export type Theme = {
 	color: ThemeColors,
 	metrics: ThemeMetrics,
 	font: ThemeFonts,
+	motion: ThemeMotion,
 	styles: { [StyleRole]: StyleProps },
 }
 

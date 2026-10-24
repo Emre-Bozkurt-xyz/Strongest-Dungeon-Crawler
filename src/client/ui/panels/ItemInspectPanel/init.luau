@@ -12,16 +12,18 @@ local React = require(ReplicatedStorage.Packages.React)
 -- `script` here IS the ItemInspectPanel module (init.luau collapses into its folder), so Parent is
 -- `panels` and Parent.Parent is `ui`. ItemCard, being a child, needs one more level than this.
 local useMenuState = require(script.Parent.Parent.hooks.useMenuState)
+local useHeldWhileHidden = require(script.Parent.Parent.hooks.useHeldWhileHidden)
 local ItemCard = require(script.ItemCard)
 
-local function ItemInspectPanel()
+local function ItemInspectPanel(props: { visible: boolean? })
 	local state = useMenuState()
 
 	local inspect = state and state.inspect
 	local payload = inspect and inspect.payload
 	local uid = if type(payload) == "table" and type(payload.uid) == "string" then payload.uid else nil
 
-	return React.createElement(ItemCard, { uid = uid })
+	-- Deselecting is what hides this panel, so without holding it would fade out the empty state.
+	return React.createElement(ItemCard, { uid = useHeldWhileHidden(uid, props.visible) })
 end
 
 return ItemInspectPanel

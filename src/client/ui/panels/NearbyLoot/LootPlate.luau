@@ -30,6 +30,7 @@ export type Props = {
 	onSize: (uid: string, size: Vector2) -> (),
 	onHovered: (uid: string) -> (),
 	onActivated: (uid: string) -> (),
+	onScrolled: (direction: number) -> (),
 }
 
 local HEIGHT = 28
@@ -96,6 +97,12 @@ local function LootPlate(props: Props)
 			end,
 			[React.Event.Activated] = function()
 				props.onActivated(row.uid)
+			end,
+			[React.Event.InputChanged] = function(_rbx: GuiObject, input: InputObject)
+				local direction = LootLine.wheelDirection(input)
+				if direction then
+					props.onScrolled(direction)
+				end
 			end,
 		}, {
 			Content = e("Frame", {

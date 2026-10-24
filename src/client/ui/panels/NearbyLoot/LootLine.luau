@@ -16,6 +16,14 @@ local e = React.createElement
 
 local LootLine = {}
 
+-- Wheel up (positive Z) steps to the previous, nearer drop; down to the next.
+function LootLine.wheelDirection(input: InputObject): number?
+	if input.UserInputType ~= Enum.UserInputType.MouseWheel or input.Position.Z == 0 then
+		return nil
+	end
+	return if input.Position.Z > 0 then -1 else 1
+end
+
 function LootLine.children(row: Selector.RowView, pickupKey: string, height: number, theme: any): { [string]: any }
 	local tint = (theme.rarity :: any)[row.rarity] or theme.color.textPrimary
 

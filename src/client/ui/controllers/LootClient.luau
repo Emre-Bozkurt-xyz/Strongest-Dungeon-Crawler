@@ -2,8 +2,12 @@
 -- LootClient: tracks nearby loot and the selected row, and handles pickup.
 --
 -- The store behind the nearby-loot plates and list (panels/NearbyLoot; R4 in
--- docs/tasks/ui-migration-plan.md). It owns the scan, the selection and the keyboard path; the UI
--- reads a snapshot through useNearbyLoot and reports pointer input back through LootActions.
+-- docs/tasks/ui-migration-plan.md). It owns the scan, the selection and the pickup key; the UI reads
+-- a snapshot through useNearbyLoot and reports pointer input back through LootActions.
+--
+-- E is the only key it claims. Cycling the selection is the mouse wheel over the loot UI, not a key:
+-- loot is nearby during fights, and a key that changes meaning whenever a drop is in range would
+-- fight movement (the arrow keys did) and use up binds the game cannot spare.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -280,6 +284,14 @@ function LootClient.selectFromPanel(uid: string)
 	selectUid(uid)
 end
 
+-- Mouse wheel over a plate or row: +1 is the next drop (further away), -1 the previous.
+function LootClient.cycleFromPanel(direction: number)
+	if not InteractionStateController.allowsWorldPanelInteraction() then
+		return
+	end
+	changeSelection(direction)
+end
+
 function LootClient.pickupFromPanel(uid: string)
 	if not InteractionStateController.allowsWorldPanelInteraction() then
 		return
@@ -319,18 +331,8 @@ function LootClient.init()
 		if gameProcessed or (CONFIG.hideWhenMenuOpen and menuOpen) then
 			return
 		end
-		if input.KeyCode == CONFIG.interaction.pickupKey then
-			if selectedUid then
-				pickupUid(selectedUid)
-			end
-			return
-		end
-		if input.KeyCode == Enum.KeyCode.Up then
-			changeSelection(-1)
-			return
-		end
-		if input.KeyCode == Enum.KeyCode.Down then
-			changeSelection(1)
+		if input.KeyCode == CONFIG.interaction.pickupKey and selectedUid then
+			pickupUid(selectedUid)
 		end
 	end)
 

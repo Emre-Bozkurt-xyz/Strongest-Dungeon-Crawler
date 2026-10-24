@@ -4,11 +4,11 @@
 -- the nearest drop, so a late-game heap reads at a glance.
 --
 -- Both are screen UI placed at projected drop positions, like the vitals readout: they keep one size
--- at any distance and draw over effects. Plates that would overlap are stacked upward, the selected
--- one (placed first) and then the nearest keeping their natural spots.
+-- at any distance and draw over effects. Plates that would overlap are stacked upward, nearer drops
+-- keeping their natural spots.
 --
--- Selection, hover and pickup all go through LootClient, so the keyboard's up/down and E agree with
--- whichever plate or row the pointer last touched.
+-- Selection, hover, the wheel and pickup all go through LootClient, so E always takes whichever
+-- plate or row the pointer last touched or the wheel last moved to.
 --
 -- `script` here IS the NearbyLoot module (init.luau collapses into its folder), so Parent is `panels`
 -- and Parent.Parent is `ui`.
@@ -47,8 +47,7 @@ end
 local LIST_MARGIN = 16
 
 type Placed = { centre: Vector2, size: Vector2 }
--- `rank` is the drop's place in LootClient's nearest-first order.
-type Drop = { uid: string, part: BasePart, rank: number }
+type Drop = { uid: string, part: BasePart }
 
 local function overlaps(centre: Vector2, size: Vector2, other: Placed, gap: number): boolean
 	return math.abs(centre.X - other.centre.X) < (size.X + other.size.X) / 2 + gap
@@ -141,15 +140,13 @@ local function NearbyLoot()
 	local listPosition, setListPosition = React.useBinding(UDim2.new())
 	-- Read by the render-step loop, so they live in refs and the loop never restarts on a scan.
 	local drops = React.useRef({} :: { Drop })
-	local selected = React.useRef(nil :: string?)
 	local sizes = React.useRef({} :: { [string]: Vector2 })
 
 	local ordered = {}
-	for rank, entry in ipairs(snapshot.entries) do
-		table.insert(ordered, { uid = entry.uid, part = entry.part, rank = rank })
+	for _, entry in ipairs(snapshot.entries) do
+		table.insert(ordered, { uid = entry.uid, part = entry.part })
 	end
 	drops.current = ordered
-	selected.current = snapshot.selectedUid
 
 	React.useEffect(function()
 		if mode == "none" then
@@ -177,17 +174,10 @@ local function NearbyLoot()
 				return
 			end
 
-			-- The selected plate is placed first so stacking never shoves it off its own drop; the rest
-			-- keep distance order, which must be total or plates would swap places between frames.
-			local order = table.clone(current)
-			table.sort(order, function(a: Drop, b: Drop)
-				local aSelected, bSelected = a.uid == selected.current, b.uid == selected.current
-				if aSelected ~= bSelected then
-					return aSelected
-				end
-				return a.rank < b.rank
-			end)
-			setLayout(placePlates(camera, order, sizes.current :: { [string]: Vector2 }, smoothed, alpha))
+			-- Distance order only. Placing the selected plate first would rearrange the stack whenever
+			-- the wheel moved the selection, sliding a different plate under the cursor, whose hover
+			-- would then take the selection back.
+			setLayout(placePlates(camera, current, sizes.current :: { [string]: Vector2 }, smoothed, alpha))
 		end)
 
 		return function()
@@ -206,6 +196,7 @@ local function NearbyLoot()
 			position = listPosition,
 			onHovered = LootActions.select,
 			onActivated = LootActions.pickup,
+			onScrolled = LootActions.cycle,
 		})
 	end
 
@@ -222,6 +213,7 @@ local function NearbyLoot()
 			end,
 			onHovered = LootActions.select,
 			onActivated = LootActions.pickup,
+			onScrolled = LootActions.cycle,
 		})
 	end
 	return e(React.Fragment, nil, plates)

@@ -268,8 +268,7 @@ All four menu panels are now on logical scale.
 **Loot labels — live** (decision 4). `panels/NearbyLoot` gives each drop in range a name plate --
 glyph and name in its rarity colour, stack count, and on the selected plate corner brackets and the
 pickup key -- as screen UI projected above the drop, so plates keep one size and draw over effects.
-Overlapping plates stack upward (the selected one placed first, the rest in distance order) with a
-hairline down to their drop. Past `WorldLootInspect.labels.limit` (5) the pile collapses into a
+Overlapping plates stack upward in distance order with a hairline down to their drop. Past `WorldLootInspect.labels.limit` (5) the pile collapses into a
 list over the nearest drop -- the same screen-space treatment, rows drawn with the plates'
 `LootLine`, scrolling past `maxVisibleRows` with the selection kept in view. The old world list
 panel (WorldLootInspectPanel) is gone. Selection, hover and pickup go through LootClient for both.
@@ -280,8 +279,12 @@ panel (WorldLootInspectPanel) is gone. Selection, hover and pickup go through Lo
   sized from its measured `AbsoluteSize`.
 - **Drops no longer stack into a column.** The server's ground probe hit earlier drops, so each
   landed on the last; drops are now excluded from it and scattered within `dropScatterRadius`.
-- **Arrow keys both move the character and cycle loot.** Down walks backward out of range while it
-  moves the selection. Pre-existing; the selection keys want rebinding (or gating on precision focus).
+- **Cycling is the mouse wheel over the loot UI, not keys.** The arrow keys also moved the
+  character, and any key that changes meaning near loot fights combat and spends a scarce bind. The
+  wheel over a plate or row (with precision focus held, like hover and click) steps the selection;
+  the engine marks that wheel as processed, so the camera does not zoom. E is the only loot key.
+  Plates stack in distance order only, so a selection change never slides another plate under the
+  cursor.
 
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per

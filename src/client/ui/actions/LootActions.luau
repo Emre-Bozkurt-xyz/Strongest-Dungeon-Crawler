@@ -1,7 +1,7 @@
 --!strict
 -- Pointer intents from the nearby-loot panel.
 --
--- Both route through LootClient rather than straight to the server: selection is client-only state
+-- Each routes through LootClient rather than straight to the server: selection is client-only state
 -- it owns, and pickup has to share its throttle and interaction gate with the keyboard path, which
 -- LootClient also owns. The request itself is built in ItemActions.pickup.
 
@@ -11,6 +11,10 @@ local LootActions = {}
 
 function LootActions.select(uid: string)
 	LootClient.selectFromPanel(uid)
+end
+
+function LootActions.cycle(direction: number)
+	LootClient.cycleFromPanel(direction)
 end
 
 function LootActions.pickup(uid: string)

@@ -1,7 +1,7 @@
 --!strict
 -- The list a big pile collapses into: every drop in range as a LootLine row under a count, in a
--- slim System frame that stands over the nearest drop. Scrolls past `maxVisibleRows`, keeping the
--- selected row in view as up/down move it.
+-- slim System frame that stands over the nearest drop. The wheel moves the selection rather than the
+-- list, and the list follows it, so rows past `maxVisibleRows` come into view as they are selected.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -21,6 +21,7 @@ export type Props = {
 	position: any,
 	onHovered: (uid: string) -> (),
 	onActivated: (uid: string) -> (),
+	onScrolled: (direction: number) -> (),
 }
 
 -- Screen pixels.
@@ -49,6 +50,7 @@ local function Row(props: {
 	layoutOrder: number,
 	onHovered: (uid: string) -> (),
 	onActivated: (uid: string) -> (),
+	onScrolled: (direction: number) -> (),
 })
 	local theme = ThemeContext.useTheme()
 	local row = props.row
@@ -71,6 +73,12 @@ local function Row(props: {
 		end,
 		[React.Event.Activated] = function()
 			props.onActivated(row.uid)
+		end,
+		[React.Event.InputChanged] = function(_rbx: GuiObject, input: InputObject)
+			local direction = LootLine.wheelDirection(input)
+			if direction then
+				props.onScrolled(direction)
+			end
 		end,
 	}, content)
 end
@@ -98,10 +106,11 @@ function LootList.render(props: Props)
 			layoutOrder = index,
 			onHovered = props.onHovered,
 			onActivated = props.onActivated,
+			onScrolled = props.onScrolled,
 		})
 	end
 
-	-- Keeps the selected row in view when up/down walks past the visible window.
+	-- Keeps the selected row in view when the wheel moves past the visible window.
 	React.useEffect(function()
 		local frame = scroller.current
 		if not frame or selectedIndex == 0 then
@@ -171,6 +180,8 @@ function LootList.render(props: Props)
 				CanvasSize = UDim2.new(),
 				AutomaticCanvasSize = Enum.AutomaticSize.Y,
 				ScrollingDirection = Enum.ScrollingDirection.Y,
+				-- The wheel is the selection's; the list scrolls to follow it instead.
+				ScrollingEnabled = false,
 				ScrollBarThickness = 2,
 				ScrollBarImageColor3 = theme.color.stroke,
 				ref = scroller,

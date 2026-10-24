@@ -33,6 +33,8 @@ export type Props = {
 	variant: ("item" | "socket")?,
 	-- Dimmed silhouette shown while the slot is empty. Empty string or nil renders nothing.
 	placeholderIcon: string?,
+	-- The same, as an ItemGlyphs id, for sockets that hint what belongs in them.
+	placeholderGlyph: string?,
 	layoutOrder: number?,
 	size: UDim2?,
 	position: UDim2?,
@@ -115,6 +117,14 @@ local function Slot(props: Props)
 			color = tint,
 			size = UDim2.fromScale(0.62, 0.62),
 			position = UDim2.fromScale(0.5, 0.47),
+			zIndex = 5,
+		})
+	elseif props.placeholderGlyph then
+		-- Path2D has no transparency, so the dim comes from the colour.
+		well.Placeholder = e(Glyph, {
+			glyph = props.placeholderGlyph,
+			color = theme.color.textDisabled,
+			size = UDim2.fromScale(0.5, 0.5),
 			zIndex = 5,
 		})
 	elseif props.placeholderIcon and props.placeholderIcon ~= "" then

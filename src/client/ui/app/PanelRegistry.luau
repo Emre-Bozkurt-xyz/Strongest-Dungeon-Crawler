@@ -137,9 +137,16 @@ local entries: { PanelEntry } = {
 	{
 		id = "EquipmentPanel",
 		component = EquipmentPanel,
-		-- Studs from the Studio-authored part. 200 px/stud gives a 1052x1241 canvas, which also
-		-- reproduces the original candidate grid's 150px cells and 30px gaps almost exactly.
-		surface = { width = 5.259, height = 6.207, thickness = 0.076, pixelsPerStud = 200, scale = MENU_PANEL_SCALE },
+		-- 600 logical pixels across is about one screen pixel each at the equipment view's staging;
+		-- the 1052px canvas underneath keeps the text sharp.
+		surface = {
+			width = 5.259,
+			height = 6.207,
+			thickness = 0.076,
+			pixelsPerStud = 200,
+			scale = MENU_PANEL_SCALE,
+			logicalWidth = 600,
+		},
 		placement = menuRigPlacement(),
 		isVisible = function(state)
 			return isMenuOpen(state) and state.modal.view == "equipment"

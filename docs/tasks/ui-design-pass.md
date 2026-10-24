@@ -260,6 +260,11 @@ they are stored as percentage points.
   slope downward to the right and a far-right value lines up with the next row's label. Stat rows
   are kept short (250px) and alternate rows are banded so the eye can follow a row.
 
+**Equipment panel rebuilt** at `logicalWidth = 600`: title row with the equipped count, the
+paper-doll (same column structure and socket proportions), then a headed candidate grid sized like
+the inventory's. Empty sockets show a dim glyph of what belongs in them (`Slot.placeholderGlyph`).
+All four menu panels are now on logical scale.
+
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
 item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them

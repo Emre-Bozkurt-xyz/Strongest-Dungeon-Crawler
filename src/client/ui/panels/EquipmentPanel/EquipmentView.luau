@@ -1,6 +1,10 @@
 --!strict
--- The paper-doll: ten sockets arranged around a body silhouette, plus a strip of every equippable
+-- The paper-doll: ten sockets arranged around a body silhouette, plus a grid of every equippable
 -- item in the inventory below it.
+--
+-- Laid out in logical pixels (PanelRegistry gives this surface `logicalWidth`) in the same frame as
+-- the other menus: title row with a count, the doll, then a headed grid like the inventory's.
+-- Empty sockets show a dim glyph of what belongs in them.
 --
 -- Ported from docs/ui/EquipmentPanel.rbxmx, whose container structure is reproduced rather than
 -- flattened. The Studio tree nests the sockets in columns:
@@ -27,6 +31,7 @@ local Slot = require(script.Parent.Parent.Parent.components.Slot)
 local Grid = require(script.Parent.Parent.Parent.components.Grid)
 
 local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
+local SlotSchema = require(ReplicatedStorage.Shared.ui.EquipmentSlotSchema)
 
 local Selector = require(script.Parent.Parent.Parent.selectors.equipment)
 
@@ -38,6 +43,13 @@ export type Props = {
 	onSlotActivated: (slot: Selector.EquipSlot, uid: string?) -> (),
 	onCandidateActivated: (candidate: Selector.CandidateView) -> (),
 }
+
+-- Logical pixels.
+local TITLE_HEIGHT = 34
+local DOLL_HEIGHT = 300
+local HEADING_HEIGHT = 22
+local CELL = 56
+local GAP = 8
 
 -- Column widths. `LOCAL` is what each column is given inside its parent; `ABS` is the same column as
 -- a fraction of the whole doll. Both are derived from one set of numbers so they cannot disagree.
@@ -78,26 +90,26 @@ type SocketShape = {
 	height: number?,
 	square: boolean?,
 	y: number,
-	-- Silhouette hinting what belongs in the socket. Empty renders nothing, which is right for the
-	-- weapon sockets: they take too many shapes for one glyph to represent honestly.
-	placeholderIcon: string,
+	-- ItemGlyphs id hinting what belongs in the socket. The weapon sockets take many shapes; the
+	-- sword and shield say "main hand" and "off hand" rather than promising one.
+	placeholderGlyph: string,
 }
 
 local SOCKET_SHAPE: { [string]: SocketShape } = {
 	-- Mirrored pairs share a shape and a row, so they cannot drift apart.
-	Main = { column = "weapon", width = 0.175, height = 0.55, y = ROW.weapon, placeholderIcon = "" },
-	Secondary = { column = "weapon", width = 0.175, height = 0.55, y = ROW.weapon, placeholderIcon = "" },
+	Main = { column = "weapon", width = 0.175, height = 0.55, y = ROW.weapon, placeholderGlyph = "sword" },
+	Secondary = { column = "weapon", width = 0.175, height = 0.55, y = ROW.weapon, placeholderGlyph = "shield" },
 
-	Head = { column = "centre", width = SQUARE, square = true, y = ROW.head, placeholderIcon = "" },
-	Body = { column = "centre", width = 0.176, height = 0.52, y = ROW.body, placeholderIcon = "" },
-	Waist = { column = "centre", width = 0.172, height = 0.13, y = ROW.waist, placeholderIcon = "" },
+	Head = { column = "centre", width = SQUARE, square = true, y = ROW.head, placeholderGlyph = "helm" },
+	Body = { column = "centre", width = 0.176, height = 0.52, y = ROW.body, placeholderGlyph = "chest" },
+	Waist = { column = "centre", width = 0.172, height = 0.13, y = ROW.waist, placeholderGlyph = "belt" },
 
-	Ring1 = { column = "inner", width = SMALL, square = true, y = ROW.ring, placeholderIcon = "" },
-	Hands = { column = "inner", width = SQUARE, square = true, y = ROW.extremity, placeholderIcon = "" },
+	Ring1 = { column = "inner", width = SMALL, square = true, y = ROW.ring, placeholderGlyph = "ring" },
+	Hands = { column = "inner", width = SQUARE, square = true, y = ROW.extremity, placeholderGlyph = "gloves" },
 
-	Neck = { column = "outer", width = SMALL, square = true, y = ROW.neck, placeholderIcon = "" },
-	Ring2 = { column = "outer", width = SMALL, square = true, y = ROW.ring, placeholderIcon = "" },
-	Feet = { column = "outer", width = SQUARE, square = true, y = ROW.extremity, placeholderIcon = "" },
+	Neck = { column = "outer", width = SMALL, square = true, y = ROW.neck, placeholderGlyph = "amulet" },
+	Ring2 = { column = "outer", width = SMALL, square = true, y = ROW.ring, placeholderGlyph = "ring" },
+	Feet = { column = "outer", width = SQUARE, square = true, y = ROW.extremity, placeholderGlyph = "boots" },
 }
 
 -- A column in the doll. Children are centred horizontally within it and hung from their own row.
@@ -130,7 +142,7 @@ local function EquipmentView(props: Props)
 			rarity = slotView.rarity,
 			count = slotView.count,
 			selected = props.selectedSlot == slotView.slot,
-			placeholderIcon = shape.placeholderIcon,
+			placeholderGlyph = shape.placeholderGlyph,
 			-- Doll-space width converted into the column's own space. A square socket's height is
 			-- derived by the aspect constraint, so the 1 here is a placeholder it overrides.
 			size = UDim2.fromScale(shape.width / COLUMN_ABS[shape.column], shape.height or 1),
@@ -158,19 +170,45 @@ local function EquipmentView(props: Props)
 	end
 
 
-	return e(PanelShell, { layout = "free", padding = theme.metrics.paddingLg }, {
-		Title = e(Header, {
-			title = "EQUIPMENT",
-			width = 0.30,
-			height = 0.08,
-			position = UDim2.fromScale(0.5, 0.05),
-			anchorPoint = Vector2.new(0.5, 0),
+	local equipped = 0
+	for _, slotView in ipairs(props.view.slots) do
+		if slotView.uid then
+			equipped += 1
+		end
+	end
+
+	local function count(text: string, size: UDim2, position: UDim2, anchor: Vector2?)
+		return e("TextLabel", {
+			Text = text,
+			Size = size,
+			Position = position,
+			AnchorPoint = anchor,
+			BackgroundTransparency = 1,
+			FontFace = theme.face.mono,
+			TextSize = theme.type.small,
+			TextColor3 = theme.color.textMuted,
+			TextXAlignment = Enum.TextXAlignment.Right,
+		})
+	end
+
+	return e(PanelShell, { padding = 20, gap = 10 }, {
+		Title = e("Frame", {
+			Size = UDim2.new(1, 0, 0, TITLE_HEIGHT),
+			BackgroundTransparency = 1,
+			LayoutOrder = 1,
+		}, {
+			Header = e(Header, { title = "EQUIPMENT", height = 1 }),
+			Count = count(
+				`{equipped} / {#SlotSchema.list()}`,
+				UDim2.new(0, 120, 1, 0),
+				UDim2.fromScale(1, 0),
+				Vector2.new(1, 0)
+			),
 		}),
 
 		Paperdoll = e("Frame", {
-			Size = UDim2.fromScale(0.94, 0.42),
-			Position = UDim2.fromScale(0.5, 0.18),
-			AnchorPoint = Vector2.new(0.5, 0),
+			Size = UDim2.new(1, 0, 0, DOLL_HEIGHT),
+			LayoutOrder = 2,
 			BackgroundTransparency = 1,
 		}, {
 			Layout = e("UIListLayout", {
@@ -221,14 +259,30 @@ local function EquipmentView(props: Props)
 			}),
 		}),
 
+		CandidatesHeading = e("Frame", {
+			Size = UDim2.new(1, 0, 0, HEADING_HEIGHT),
+			BackgroundTransparency = 1,
+			LayoutOrder = 3,
+		}, {
+			Title = e("TextLabel", {
+				Text = "EQUIPPABLE",
+				Size = UDim2.fromScale(0.5, 1),
+				BackgroundTransparency = 1,
+				FontFace = theme.face.display,
+				TextSize = theme.type.small,
+				TextColor3 = theme.color.textMuted,
+				TextXAlignment = Enum.TextXAlignment.Left,
+			}),
+			Count = count(tostring(#props.view.candidates), UDim2.fromScale(0.5, 1), UDim2.fromScale(0.5, 0)),
+		}),
+
 		Candidates = e(Grid, {
-			size = UDim2.fromScale(0.92, 0.32),
-			position = UDim2.fromScale(0.5, 0.655),
-			anchorPoint = Vector2.new(0.5, 0),
-			cell = 130,
-			gap = theme.metrics.paddingMd,
-			padding = theme.metrics.paddingMd,
-			stroke = true,
+			layoutOrder = 4,
+			fill = true,
+			cell = CELL,
+			gap = GAP,
+			padding = GAP,
+			corner = false,
 		}, candidates),
 	})
 end

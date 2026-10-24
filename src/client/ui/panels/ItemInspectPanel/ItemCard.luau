@@ -18,6 +18,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local React = require(ReplicatedStorage.Packages.React)
 
 local Brackets = require(script.Parent.Parent.Parent.components.Brackets)
+local Glyph = require(script.Parent.Parent.Parent.components.Glyph)
 local PanelShell = require(script.Parent.Parent.Parent.components.PanelShell)
 local Header = require(script.Parent.Parent.Parent.components.Header)
 local Icon = require(script.Parent.Parent.Parent.components.Icon)
@@ -365,15 +366,13 @@ local function ItemCard(props: Props)
 				else nil,
 			Field = if hasIcon
 				then e(Icon, { image = view.icon, size = UDim2.fromScale(0.8, 0.8) })
-				else e("Frame", {
-					-- Stand-in until items have icons, as in Slot.
-					Size = UDim2.fromOffset(34, 34),
-					AnchorPoint = Vector2.new(0.5, 0.5),
-					Position = UDim2.fromScale(0.5, 0.48),
-					Rotation = 45,
-					BackgroundColor3 = tint or theme.color.stroke,
-					BackgroundTransparency = 0.1,
-					BorderSizePixel = 0,
+				-- Stand-in until items have icons, as in Slot.
+				else e(Glyph, {
+					glyph = view.glyph,
+					color = tint or theme.color.stroke,
+					thickness = 2,
+					size = UDim2.fromScale(0.6, 0.6),
+					position = UDim2.fromScale(0.5, 0.48),
 				}),
 		}),
 

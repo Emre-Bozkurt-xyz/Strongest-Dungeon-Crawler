@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
+local ItemGlyphs = require(script.Parent.Parent.glyphs.ItemGlyphs)
 
 local Selector = {}
 
@@ -29,6 +30,8 @@ export type SlotView = {
 	slotIndex: number,
 	uid: string,
 	icon: string?,
+	-- ItemGlyphs id, the stand-in while items have no icons.
+	glyph: string?,
 	rarity: string?,
 	count: number?,
 }
@@ -86,6 +89,7 @@ function Selector.buildView(
 			slotIndex = slotIndex,
 			uid = uid,
 			icon = def.icon,
+			glyph = ItemGlyphs.forDef(def),
 			rarity = rarity,
 			count = if item.stackSize > 1 then item.stackSize else nil,
 		})

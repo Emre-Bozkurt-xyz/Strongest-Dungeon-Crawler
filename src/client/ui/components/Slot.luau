@@ -15,11 +15,14 @@ local React = require(ReplicatedStorage.Packages.React)
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
 local useSpring = require(script.Parent.Parent.hooks.useSpring)
 local Brackets = require(script.Parent.Brackets)
+local Glyph = require(script.Parent.Glyph)
 
 local e = React.createElement
 
 export type Props = {
 	icon: string?,
+	-- An ItemGlyphs id, drawn in the rarity colour when the item has no icon.
+	glyph: string?,
 	-- "normal" | "magic" | "rare" | "unique", or nil for an empty slot.
 	rarity: string?,
 	-- Shown bottom-right when above 1.
@@ -105,17 +108,14 @@ local function Slot(props: Props)
 			ZIndex = 5,
 		})
 	elseif tint then
-		-- Stand-in until items have icons: a lit diamond in the item's rarity, so a filled slot never
-		-- reads as empty.
-		well.Glyph = e("Frame", {
-			Size = UDim2.fromScale(0.3, 0.3),
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.45),
-			Rotation = 45,
-			BackgroundColor3 = tint,
-			BackgroundTransparency = 0.15,
-			BorderSizePixel = 0,
-			ZIndex = 5,
+		-- Stand-in until items have icons: what kind of item it is, in its rarity, so a filled slot
+		-- never reads as empty.
+		well.Glyph = e(Glyph, {
+			glyph = props.glyph or "box",
+			color = tint,
+			size = UDim2.fromScale(0.62, 0.62),
+			position = UDim2.fromScale(0.5, 0.47),
+			zIndex = 5,
 		})
 	elseif props.placeholderIcon and props.placeholderIcon ~= "" then
 		well.Placeholder = e("ImageLabel", {

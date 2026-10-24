@@ -245,8 +245,14 @@ Findings:
 - **Keep a panel's elements when restyling it.** A first pass cut the status panel down to bare bars
   and read as a regression; the System chrome and a slimmer shape were welcome, the lost icons,
   readouts and stamina ring were not.
-- **The skill bar is not centred**: it anchors at 0.5 but grows rightward with `AutomaticSize.X`.
-  Visible now that the pinned readout is centred above it.
+- **The skill bar was not centred**: its authored 290px width was a minimum, leaving three slots
+  left-aligned inside it. It now sizes to its slots.
+
+**Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
+lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
+item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them
+with Path2D, so they are thin strokes of light with no assets. Slots, the inspect card and loot rows
+show them in the item's rarity colour whenever an item has no `icon`.
 
 ## Open questions
 

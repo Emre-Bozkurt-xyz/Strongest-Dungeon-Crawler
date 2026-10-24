@@ -7,6 +7,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
+local ItemGlyphs = require(script.Parent.Parent.glyphs.ItemGlyphs)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 local LootClient = require(script.Parent.Parent.controllers.LootClient)
 
@@ -17,6 +18,8 @@ export type RowView = {
 	uid: string,
 	name: string,
 	icon: string?,
+	-- ItemGlyphs id, the stand-in while items have no icons.
+	glyph: string?,
 	rarity: string,
 	count: number?,
 	selected: boolean,
@@ -39,6 +42,7 @@ function Selector.buildView(snapshot: LootClient.Snapshot): LootListView
 			uid = entry.uid,
 			name = entry.displayName,
 			icon = if def and def.icon and def.icon ~= "" then def.icon else nil,
+			glyph = ItemGlyphs.forDef(def),
 			rarity = entry.rarity or "normal",
 			count = if entry.stackSize and entry.stackSize > 1 then entry.stackSize else nil,
 			selected = entry.uid == snapshot.selectedUid,

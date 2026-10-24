@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
+local ItemGlyphs = require(script.Parent.Parent.glyphs.ItemGlyphs)
 local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
 local EquipmentSlotSchema = require(ReplicatedStorage.Shared.ui.EquipmentSlotSchema)
 
@@ -21,6 +22,8 @@ export type SlotView = {
 	slot: EquipSlot,
 	uid: string?,
 	icon: string?,
+	-- ItemGlyphs id, the stand-in while items have no icons.
+	glyph: string?,
 	rarity: string?,
 	count: number?,
 }
@@ -31,6 +34,8 @@ export type CandidateView = {
 	slotIndex: number,
 	uid: string,
 	icon: string?,
+	-- ItemGlyphs id, the stand-in while items have no icons.
+	glyph: string?,
 	rarity: string?,
 	count: number?,
 	-- Which socket clicking this candidate equips into: the selected slot when the item accepts it,
@@ -99,6 +104,7 @@ function Selector.buildView(
 			slot = slotId,
 			uid = uid,
 			icon = if def then def.icon else nil,
+			glyph = if def then ItemGlyphs.forDef(def) else nil,
 			rarity = if item then itemRarity(item, def) else nil,
 			count = if item and item.stackSize > 1 then item.stackSize else nil,
 		})
@@ -118,6 +124,7 @@ function Selector.buildView(
 						slotIndex = slotIndex,
 						uid = item.uid,
 						icon = def.icon,
+						glyph = ItemGlyphs.forDef(def),
 						rarity = itemRarity(item, def),
 						count = if item.stackSize > 1 then item.stackSize else nil,
 						targetSlot = target,

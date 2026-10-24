@@ -42,6 +42,7 @@ local function InventoryView(props: Props)
 	for _, slotView in ipairs(props.view.slots) do
 		slots[slotView.key] = e(Slot, {
 			icon = slotView.icon,
+			glyph = slotView.glyph,
 			rarity = slotView.rarity,
 			count = slotView.count,
 			selected = slotView.uid ~= nil and slotView.uid == props.selectedUid,

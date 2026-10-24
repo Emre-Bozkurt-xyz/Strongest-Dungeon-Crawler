@@ -3,8 +3,9 @@
 -- screen. Anchor, position, size and the list layout are taken directly from the SkillSlots frame in
 -- docs/ui/HUD.rbxmx, the only place the bar's screen placement was authored.
 --
--- `AutomaticSize.X` means the authored Size.X (290px) is only the initial width; the bar grows and
--- shrinks with however many slots the active profile actually fills.
+-- The width is all `AutomaticSize.X`: the bar is exactly as wide as the slots the active profile
+-- fills. The authored 290px was a minimum, which left a short bar left-aligned inside it and so off
+-- centre.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -52,7 +53,7 @@ local function SkillBar(props: Props)
 	return e("Frame", {
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 0.99, 0),
-		Size = UDim2.new(0, 290, 0, 75),
+		Size = UDim2.fromOffset(0, 75),
 		AutomaticSize = Enum.AutomaticSize.X,
 		BackgroundTransparency = 1,
 	}, children)

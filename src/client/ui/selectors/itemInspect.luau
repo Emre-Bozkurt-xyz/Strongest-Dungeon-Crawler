@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
+local ItemGlyphs = require(script.Parent.Parent.glyphs.ItemGlyphs)
 local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
 
 local Selector = {}
@@ -59,6 +60,8 @@ export type InspectView = {
 	found: boolean,
 	displayName: string,
 	icon: string,
+	-- ItemGlyphs id, the stand-in while items have no icons.
+	glyph: string,
 	rarity: string,
 	itemLevel: number?,
 	isEquipment: boolean,
@@ -198,6 +201,7 @@ function Selector.buildView(
 			found = false,
 			displayName = "",
 			icon = "",
+			glyph = "box",
 			rarity = "",
 			itemLevel = nil,
 			isEquipment = false,
@@ -230,6 +234,7 @@ function Selector.buildView(
 		found = true,
 		displayName = if meta and type(meta.displayName) == "string" then meta.displayName else def.name,
 		icon = def.icon or "",
+		glyph = ItemGlyphs.forDef(def),
 		rarity = if meta and type(meta.rarity) == "string" then meta.rarity else (def.rarity or "normal"),
 		itemLevel = if meta and type(meta.itemLevel) == "number" then meta.itemLevel else nil,
 		isEquipment = EquipmentDefUtils.isEquipment(def),

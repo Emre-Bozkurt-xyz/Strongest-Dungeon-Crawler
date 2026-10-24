@@ -52,6 +52,7 @@ local function LootRow(props: Props)
 
 		Slot = e(Slot, {
 			icon = row.icon,
+			glyph = row.glyph,
 			rarity = row.rarity,
 			count = row.count,
 			selected = selected,

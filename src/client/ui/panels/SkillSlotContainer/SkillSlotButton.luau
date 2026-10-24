@@ -1,7 +1,13 @@
 --!strict
 -- One skill slot: icon, the shrinking cooldown ring, the faint global-cooldown wash, the blocked-cast
 -- tint, its keybind, and the countdown number. Ported from SkillSlotContainer in
--- docs/ui/SkillSlotContainer.rbxmx.
+-- docs/ui/SkillSlotContainer.rbxmx, framed like the item slots: a dark well, a hairline and corner
+-- ticks.
+--
+-- Two states are added on top. Active (a combo or channel running) brightens the ticks, lights the
+-- slot from its floor and lifts it -- all additive, because the cooldown states work by dimming and
+-- anything that dims would read as "unavailable". Ready plays a single pulse the moment a cooldown
+-- ends, a flash and a kick that reads in peripheral vision mid-fight.
 --
 -- Owns its own useSkillCooldown/useSkillRemaining calls so the number of hooks per render never
 -- depends on how many slots the bar has -- each slot gets its own component precisely so its hooks
@@ -20,7 +26,10 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
+local Brackets = require(script.Parent.Parent.Parent.components.Brackets)
 local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
+local useReadyPulse = require(script.Parent.Parent.Parent.hooks.useReadyPulse)
+local useSpring = require(script.Parent.Parent.Parent.hooks.useSpring)
 local useSkillCooldown = require(script.Parent.Parent.Parent.hooks.useSkillCooldown)
 local useSkillRemaining = require(script.Parent.Parent.Parent.hooks.useSkillRemaining)
 local SkillActions = require(script.Parent.Parent.Parent.actions.SkillActions)
@@ -29,7 +38,7 @@ local CooldownRadial = require(script.Parent.CooldownRadial)
 
 local e = React.createElement
 
-local BASE_TRANSPARENCY = 0.6
+local BASE_TRANSPARENCY = 0.35
 
 export type Props = {
 	index: number,
@@ -53,6 +62,8 @@ local function SkillSlotButton(props: Props)
 	-- cooldown on the first step, so without this the slot shows a countdown while the player is still
 	-- swinging -- which is what the cooldown genuinely says, and exactly the wrong thing to show.
 	local active = props.active == true
+	local lift = useSpring(if active then 1 else 0, theme.motion.snap)
+	local pulse = useReadyPulse(cooldownProgress)
 
 	local joined = React.joinBindings({
 		cooldown = cooldownProgress,
@@ -88,31 +99,60 @@ local function SkillSlotButton(props: Props)
 		AutoButtonColor = false,
 		Size = UDim2.fromOffset(60, 60),
 		LayoutOrder = props.layoutOrder,
-		BackgroundColor3 = if active then theme.color.skillSlotActiveStroke else theme.color.skillSlotSurface,
-		BackgroundTransparency = if active then 0.55 else BASE_TRANSPARENCY,
+		BackgroundColor3 = theme.color.skillSlotSurface,
+		BackgroundTransparency = BASE_TRANSPARENCY,
+		BorderSizePixel = 0,
 		[React.Event.Activated] = function()
 			SkillActions.activate(props.index)
 		end,
 	}, {
-		Corner = e("UICorner", { CornerRadius = UDim.new(0, theme.metrics.radiusControl) }),
-		-- Placeholder active treatment, but additive rather than another veil: the cooldown and GCD
-		-- states both work by dimming, so anything that dims cannot read as "this is firing right
-		-- now". Bright outline, warm wash, and the slot lifts out of the row.
-		Stroke = e("UIStroke", {
+		Hairline = e("UIStroke", {
 			Color = if active then theme.color.skillSlotActiveStroke else theme.color.skillSlotStroke,
-			Thickness = if active then 4 else 2.5,
-			Transparency = if active then 0 else 0.17,
+			Thickness = 1,
+			Transparency = if active then 0 else 0.2,
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 		}),
-		Lift = if active
-			then e("UIScale", { Scale = 1.12 })
-			else nil,
-		Glow = if active
-			then e("UIStroke", {
-				Color = theme.color.skillSlotActiveStroke,
-				Thickness = 9,
-				Transparency = 0.72,
+		Ticks = e(Brackets, {
+			size = "small",
+			color = if active then theme.color.skillSlotActiveStroke else theme.color.stroke,
+			edgeTransparency = 1,
+			zIndex = 12,
+		}),
+		-- Lifts while active, and kicks once when the cooldown ends.
+		Scale = e("UIScale", {
+			Scale = React.joinBindings({ lift = lift, pulse = pulse }):map(function(v)
+				return 1 + 0.08 * v.lift + 0.07 * v.pulse
+			end),
+		}),
+		-- Light rising from the slot's floor while the skill runs, like a rarity-lit item slot.
+		ActiveFloor = if active
+			then e("Frame", {
+				Size = UDim2.fromScale(1, 0.55),
+				AnchorPoint = Vector2.new(0, 1),
+				Position = UDim2.fromScale(0, 1),
+				BackgroundColor3 = theme.color.skillSlotActiveStroke,
+				BorderSizePixel = 0,
+				ZIndex = 4,
+			}, {
+				Fade = e("UIGradient", {
+					Rotation = -90,
+					Transparency = NumberSequence.new({
+						NumberSequenceKeypoint.new(0, 0.45),
+						NumberSequenceKeypoint.new(1, 1),
+					}),
+				}),
 			})
 			else nil,
+		-- The ready flash: the whole slot lit, falling off over the pulse.
+		ReadyFlash = e("Frame", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = theme.color.strokeStrong,
+			BackgroundTransparency = pulse:map(function(v: number)
+				return 1 - 0.55 * v
+			end),
+			BorderSizePixel = 0,
+			ZIndex = 11,
+		}),
 
 		Radial = e(CooldownRadial, {
 			value = cooldownProgress,
@@ -153,24 +193,31 @@ local function SkillSlotButton(props: Props)
 		KeyLabel = if props.keyLabel
 			then e("TextLabel", {
 				Text = props.keyLabel,
-				Font = theme.font.action,
-				TextColor3 = theme.color.iconReadyTint,
-				TextScaled = true,
+				FontFace = theme.face.display,
+				TextSize = theme.type.label,
+				TextColor3 = theme.color.textPrimary,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextYAlignment = Enum.TextYAlignment.Top,
 				BackgroundTransparency = 1,
-				Position = UDim2.fromScale(0.07, 0.04),
-				Size = UDim2.fromScale(0.4, 0.3),
+				Position = UDim2.fromOffset(6, 4),
+				Size = UDim2.fromOffset(30, 14),
 				ZIndex = 10,
+			}, {
+				-- Readable over a bright icon without a backing box.
+				Shadow = e("UIStroke", {
+					Color = theme.color.skillSlotSurface,
+					Thickness = 1,
+					Transparency = 0.2,
+				}),
 			})
 			else nil,
 
 		Timer = e("TextLabel", {
 			Text = timerText,
 			Visible = timerVisible,
-			Font = theme.font.action,
-			TextColor3 = theme.color.iconReadyTint,
-			TextScaled = true,
+			FontFace = theme.face.mono,
+			TextColor3 = theme.color.textHeading,
+			TextSize = theme.type.title,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			TextYAlignment = Enum.TextYAlignment.Center,
 			AnchorPoint = Vector2.new(0.5, 0.5),
@@ -178,6 +225,13 @@ local function SkillSlotButton(props: Props)
 			Position = UDim2.fromScale(0.5, 0.58),
 			Size = UDim2.fromScale(0.8, 0.42),
 			ZIndex = 10,
+		}, {
+			-- The countdown sits over the icon, which is light; the outline keeps it readable.
+			Outline = e("UIStroke", {
+				Color = theme.color.skillSlotSurface,
+				Thickness = 2,
+				Transparency = 0.1,
+			}),
 		}),
 
 		GCDOverlay = e("Frame", {

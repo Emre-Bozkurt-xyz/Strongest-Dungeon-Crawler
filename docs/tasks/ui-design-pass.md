@@ -309,6 +309,12 @@ returns why a pickup failed, so `INVENTORY FULL` and `CLAIMED` tell the player t
 - **Light lines must sit outside the CanvasGroup.** The group is still transparent while the line
   draws, so the first version of the switch-on never showed its line phase.
 
+**Skill bar — restyled.** Same slots and overlays (icon, cooldown ring, GCD wash, blocked tint,
+keybind, countdown), framed like the item slots: dark well, hairline, corner ticks. The keybind is in
+the display face and the countdown in mono with an outline. Active (combo or channel running)
+brightens the ticks, lights the slot from its floor and lifts it -- additive, since the cooldown
+states dim. A cooldown ending plays one pulse (`hooks/useReadyPulse`): a flash and a kick, 0.32s.
+
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
 item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them

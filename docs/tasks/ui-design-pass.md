@@ -226,8 +226,10 @@ Findings from the inspect rebuild:
 - **Set `logicalWidth` from a measurement**, not the intended size: read the surface's on-screen
   width from a screenshot at staging.
 
-**Vitals HUD — live.** The StatusPreview world panel is gone; `panels/VitalsHud` shows the same
-hand-built status panel (icons, captions, current/max, radial stamina) as screen UI (decision 8).
+**Vitals HUD — live.** The StatusPreview world panel is gone; `panels/VitalsHud` replaces it as
+screen UI (decision 8). The panel keeps the hand-built one's elements -- icon, caption, gauge and
+current/max per vital, a stamina ring -- redrawn as a slim 340x58 strip in the System chrome, with
+the style tile's segmented gauges (`components/SegmentedGauge`; HP trails the cells a hit took).
 
 - Placed to the character's right at its projected position (beside the HumanoidRootPart, along the
   camera's flattened right vector, eased), so it keeps one size, never turns with the camera, and
@@ -240,8 +242,9 @@ hand-built status panel (icons, captions, current/max, radial stamina) as screen
 
 Findings:
 
-- **A first pass replaced the panel's composition with minimal bars, and was rejected.** Restyle and
-  re-place the hand-built panels; do not redesign their elements without showing options first.
+- **Keep a panel's elements when restyling it.** A first pass cut the status panel down to bare bars
+  and read as a regression; the System chrome and a slimmer shape were welcome, the lost icons,
+  readouts and stamina ring were not.
 - **The skill bar is not centred**: it anchors at 0.5 but grows rightward with `AutomaticSize.X`.
   Visible now that the pinned readout is centred above it.
 

@@ -20,17 +20,13 @@ local useStats = require(script.Parent.Parent.hooks.useStats)
 local Selector = require(script.Parent.Parent.selectors.systemStatus)
 
 local LowHealthVignette = require(script.LowHealthVignette)
-local StatusPreviewView = require(script.StatusPreviewView)
+local VitalsPanel = require(script.VitalsPanel)
 local useVitalsAnchor = require(script.useVitalsAnchor)
 
 local e = React.createElement
 
 -- Ratios at or above this count as full; regen lands on max, but float maths may not.
 local FULL = 0.999
-
--- Width over height of the hand-built world panel (2.991 x 1.321 studs), kept so the view's
--- scale-based layout lands where it was designed.
-local ASPECT = 2.991 / 1.321
 
 local function findVital(vitals: { Selector.VitalView }, label: string): Selector.VitalView?
 	for _, vital in ipairs(vitals) do
@@ -69,8 +65,7 @@ local function VitalsHud()
 
 	local shown = awake and not menu.modal.open
 	local opacity = useSpring(if shown then 1 else 0, theme.motion.settle)
-	local width = DevTuningService.get("VitalsHud.width")
-	local size = Vector2.new(width, math.round(width / ASPECT))
+	local size = Vector2.new(DevTuningService.get("VitalsHud.width"), DevTuningService.get("VitalsHud.height"))
 	local position = useVitalsAnchor(size)
 
 	return e(React.Fragment, nil, {
@@ -87,7 +82,7 @@ local function VitalsHud()
 				return v > 0.005
 			end),
 		}, {
-			View = e(StatusPreviewView, { vitals = vitals }),
+			View = e(VitalsPanel, { vitals = vitals }),
 		}),
 	})
 end

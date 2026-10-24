@@ -38,6 +38,9 @@ export type Props = {
 	layoutOrder: number?,
 	-- Fraction of the diameter taken by the punched-out centre.
 	thickness: number?,
+	-- A fixed label size instead of scaling to the centre, for a small ring whose scaled label
+	-- would crowd it.
+	textSize: number?,
 }
 
 -- Half-disc: opaque up to the midpoint, invisible after it.
@@ -147,7 +150,8 @@ local function RadialGauge(props: Props)
 					BackgroundTransparency = 1,
 					Font = theme.font.body,
 					TextColor3 = theme.color.textHeading,
-					TextScaled = true,
+					TextScaled = props.textSize == nil,
+					TextSize = props.textSize,
 					ZIndex = 3,
 				})
 				else nil,

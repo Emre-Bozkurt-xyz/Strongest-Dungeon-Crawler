@@ -28,6 +28,8 @@ export type Props = {
 	fillTransparency: number?,
 	-- 0..1 binding driving the materialise: corners fly out, the fill comes up. Omit to show static.
 	progress: any?,
+	-- The small bracket spec, for a surface too slim for full panel corners.
+	brackets: ("panel" | "small")?,
 	children: any?,
 }
 
@@ -83,7 +85,7 @@ local function PanelFrame(props: Props)
 				NumberSequenceKeypoint.new(1, chrome.fillFade),
 			}),
 		}),
-		Brackets = e(Brackets, { size = "panel", progress = props.progress }),
+		Brackets = e(Brackets, { size = props.brackets or "panel", progress = props.progress }),
 		Body = e("Frame", {
 			Size = UDim2.fromScale(1, 1),
 			BackgroundTransparency = 1,

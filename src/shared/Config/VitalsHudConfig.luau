@@ -9,8 +9,9 @@ local VitalsHudConfig = {
 	-- "character" or "pinned".
 	anchor = "character",
 
-	-- Screen pixels; the height follows from the panel's designed proportions.
-	width = 360,
+	-- Screen pixels. The gauges stretch with the width; the height fits two rows and the ring.
+	width = 340,
+	height = 58,
 
 	-- Following the character. The readout sits beside the HumanoidRootPart, offset along the
 	-- camera's right vector so it stays to one side of the character at any orbit angle. The root

@@ -141,6 +141,14 @@ local function register(theme: Theme, sourceName: string)
 			`Theme '{theme.id}' is missing motion preset '{presetName}'`
 		)
 	end
+	local transitions = (theme :: any).transitions
+	assert(
+		type(transitions) == "table"
+			and type(transitions.reveal) == "number"
+			and type(transitions.conceal) == "number"
+			and type(transitions.switchDelay) == "number",
+		`Theme '{theme.id}' has an incomplete transitions block`
+	)
 	for _, role in ipairs(REQUIRED_ROLES) do
 		assert(type(theme.styles[role]) == "table", `Theme '{theme.id}' is missing style role '{role}'`)
 	end

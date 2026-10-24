@@ -286,6 +286,19 @@ panel (WorldLootInspectPanel) is gone. Selection, hover and pickup go through Lo
   Plates stack in distance order only, so a selection change never slides another plate under the
   cursor.
 
+**Menu motion — rigid, not floaty.** Panels switch on rather than fade, and every transition is a
+fixed duration eased to a hard stop (`shared/ui/Ease`, `theme.transitions`); springs stay for hover
+and readouts only, and `settle` lost its overshoot.
+
+- **Open** (0.24s): a line of light draws out from the panel's centre, splits in two, and the pair
+  open outward revealing the panel (expo-out), then dim away.
+- **Close** (0.14s): the band collapses to the line (quart-in), the line shrinks to nothing.
+- **Switch:** the outgoing panel closes and the incoming one opens `switchDelay` (0.08s) later, so it
+  reads as one then the other rather than two fades crossing.
+- **Camera:** a fixed-time move to the view's pose and a matching return on close (menu-staging.md).
+- PanelHost owns this: a clip band inside the CanvasGroup with the full-size canvas centred in it, so
+  the panel is revealed in place rather than squashed, and two scan-line frames at its edges.
+
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
 item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them

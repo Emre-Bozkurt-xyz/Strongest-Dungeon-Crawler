@@ -13,6 +13,7 @@ local WorldGUIManager = require(script.Parent.WorldGUIManager)
 local CharacterFacingController = require(script.Parent.CharacterFacingController)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 local DevTuningService = require(script.Parent.dev.DevTuningService)
+local Ease = require(ReplicatedStorage.Shared.ui.Ease)
 
 local CameraController = {}
 CameraController.__index = CameraController
@@ -99,7 +100,8 @@ type CameraControllerType = {
 	_lockYaw: boolean,
 	_lockPitch: boolean,
 	_yawAssist: number,
-	_lastPoseTime: number?,
+	_poseMove: PoseMove?,
+	_release: PoseRelease?,
 	_stagedLoopBound: boolean?,
 	_lookAtProvider: (() -> Vector3?)?,
 
@@ -137,13 +139,37 @@ type CameraShake = {
 	frequency: number?,
 }
 
--- A whole camera pose from a staged view. `fov` and `settleRate` (per second) are optional and fall
--- back to the modifier stack and 12.
+-- A whole camera pose from a staged view. The camera travels to it in a fixed `duration` eased to a
+-- hard stop -- an exponential settle's long tail is what made the menu camera feel floaty -- then
+-- holds it exactly. A change of `key` (another view) starts a new move from wherever the camera is.
+-- `releaseDuration` is the matching move back to gameplay when the pose goes away.
 type StagedPose = {
 	cframe: CFrame,
 	fov: number?,
-	settleRate: number?,
+	duration: number?,
+	releaseDuration: number?,
+	key: any?,
 }
+
+type PoseMove = {
+	from: CFrame,
+	fromFov: number,
+	started: number,
+	key: any?,
+	releaseDuration: number,
+}
+
+type PoseRelease = {
+	from: CFrame,
+	fromFov: number,
+	started: number,
+	duration: number,
+}
+
+local DEFAULT_POSE_DURATION = 0.3
+local DEFAULT_RELEASE_DURATION = 0.22
+local RELEASE_RENDER_STEP_NAME = "StrongestDungeonCrawler.CameraController.Release"
+local RELEASE_RESTORE_STEP_NAME = "StrongestDungeonCrawler.CameraController.ReleaseRestore"
 
 type CameraSettings = {
 	shoulderRight: number,
@@ -403,27 +429,69 @@ end
 
 function CameraController:popModifier(id: string)
 	self._modifiers[id] = nil
+	-- A staged pose ending hands back to gameplay with a move of its own rather than a cut.
+	local posed = false
+	for _, entry in pairs(self._modifiers) do
+		if entry.spec.poseProvider then
+			posed = true
+			break
+		end
+	end
+	if not posed and self._poseMove then
+		self._release = {
+			from = self.camera.CFrame,
+			fromFov = self.camera.FieldOfView,
+			started = os.clock(),
+			duration = self._poseMove.releaseDuration,
+		}
+		self._poseMove = nil
+	end
 	self:_syncStagedLoop()
+end
+
+-- Eased progress of the move back to gameplay, or nil once it has finished.
+function CameraController:_releaseProgress(): (PoseRelease?, number)
+	local release = self._release
+	if not release then
+		return nil, 1
+	end
+	local t = if release.duration > 0 then math.clamp((os.clock() - release.started) / release.duration, 0, 1) else 1
+	if t >= 1 then
+		self._release = nil
+		return nil, 1
+	end
+	return release, Ease.quartOut(t)
 end
 
 -- Moves the camera toward a staged pose if a modifier supplies one; false when none does.
 function CameraController:_applyStagedPose(settings: CameraSettings): boolean
-	local now = os.clock()
-	local dt = math.min(now - (self._lastPoseTime or now), 0.1)
-	self._lastPoseTime = now
-
 	local posed = settings.poseProvider and settings.poseProvider()
 	if not posed then
 		return false
 	end
-	-- One frame-rate-independent blend toward the whole pose. Smoothing position and then the CFrame
-	-- again would compound the two factors and crawl. _yaw and _pitch are left untouched, so the
-	-- gameplay camera resumes exactly where it was when the pose provider goes away.
-	if posed.fov then
-		self.camera.FieldOfView = posed.fov
+	-- A fixed-time move from where the camera was to the pose, restarted when the view changes. The
+	-- pose is re-read every frame, so after arriving the camera holds it exactly. _yaw and _pitch are
+	-- left untouched, so the gameplay camera resumes exactly where it was when the pose goes away.
+	local now = os.clock()
+	local move = self._poseMove
+	if not move or move.key ~= posed.key then
+		move = {
+			from = self.camera.CFrame,
+			fromFov = self.camera.FieldOfView,
+			started = now,
+			key = posed.key,
+			releaseDuration = posed.releaseDuration or DEFAULT_RELEASE_DURATION,
+		}
+		self._poseMove = move
+		self._release = nil
 	end
-	local alpha = 1 - math.exp(-(posed.settleRate or 12) * dt)
-	self.camera.CFrame = self.camera.CFrame:Lerp(posed.cframe, alpha)
+	local duration = posed.duration or DEFAULT_POSE_DURATION
+	local t = if duration > 0 then math.clamp((now - move.started) / duration, 0, 1) else 1
+	-- Quart rather than expo: still lands hard, without the first-frame lurch that reads as a cut.
+	local eased = Ease.quartOut(t)
+	self.camera.CFrame = move.from:Lerp(posed.cframe, eased)
+	local fov = posed.fov or settings.fov
+	self.camera.FieldOfView = move.fromFov + (fov - move.fromFov) * eased
 	return true
 end
 
@@ -443,7 +511,7 @@ function CameraController:_syncStagedLoop()
 
 	if wanted and not self._stagedLoopBound then
 		self._stagedLoopBound = true
-		self._lastPoseTime = nil
+		self._poseMove = nil
 		self.camera.CameraType = Enum.CameraType.Scriptable
 		RunService:BindToRenderStep(STAGED_RENDER_STEP_NAME, Enum.RenderPriority.Camera.Value, function()
 			self:_applyStagedPose(self:_computeOverrides())
@@ -454,7 +522,37 @@ function CameraController:_syncStagedLoop()
 		if self.enabled and self.mode == "Free" then
 			self.camera.CameraType = Enum.CameraType.Custom
 			-- Roblox's own camera never touches FieldOfView, so the staged one would stick.
-			self.camera.FieldOfView = self:_computeOverrides().fov
+			local fov = self:_computeOverrides().fov
+			self.camera.FieldOfView = fov
+			-- Roblox's camera computes its own pose each frame; this runs after it and blends from
+			-- where the menu left the camera, so the return is a move rather than a cut.
+			--
+			-- Roblox's camera reads camera.CFrame back as its own state next frame, so the blended
+			-- frame it rendered is swapped for the pose it computed before it runs again. Left in
+			-- place, the blend pulls its zoom in and it snaps back out once the blend stops.
+			if self._release then
+				local computed: CFrame? = nil
+				local function stop()
+					RunService:UnbindFromRenderStep(RELEASE_RENDER_STEP_NAME)
+					RunService:UnbindFromRenderStep(RELEASE_RESTORE_STEP_NAME)
+				end
+				stop()
+				RunService:BindToRenderStep(RELEASE_RESTORE_STEP_NAME, Enum.RenderPriority.Camera.Value - 1, function()
+					if computed then
+						self.camera.CFrame = computed
+					end
+				end)
+				RunService:BindToRenderStep(RELEASE_RENDER_STEP_NAME, Enum.RenderPriority.Camera.Value + 1, function()
+					local release, eased = self:_releaseProgress()
+					if not release then
+						stop()
+						return
+					end
+					computed = self.camera.CFrame
+					self.camera.CFrame = release.from:Lerp(self.camera.CFrame, eased)
+					self.camera.FieldOfView = release.fromFov + (fov - release.fromFov) * eased
+				end)
+			end
 		end
 	end
 end
@@ -705,6 +803,15 @@ function CameraController:_updateCamera()
 
 	local idealPosition = self:_getIdealCameraPosition(settings, self._yaw + yawOffset, self._pitch)
 	local lookAtPosition = self:_getLookAtPosition()
+
+	-- Returning from a staged pose: a fixed-time move onto the exact gameplay pose, bypassing the
+	-- follow smoothing so the two do not compound into a drift.
+	local release, eased = self:_releaseProgress()
+	if release then
+		self.camera.CFrame = release.from:Lerp(CFrame.lookAt(idealPosition, lookAtPosition), eased)
+		self.camera.FieldOfView = release.fromFov + (settings.fov - release.fromFov) * eased
+		return
+	end
 
 	-- Smooth interpolation
 	local currentPosition = self.camera.CFrame.Position

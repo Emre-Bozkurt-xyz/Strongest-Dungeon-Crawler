@@ -112,7 +112,7 @@ local function build(id: string, label: string, p: Palette): ThemeTypes.Theme
 
 	local motion: ThemeTypes.ThemeMotion = {
 		snap = { frequency = 6, damping = 1 },
-		settle = { frequency = 3, damping = 0.72 },
+		settle = { frequency = 4, damping = 1 },
 		drift = { frequency = 1.2, damping = 1 },
 	}
 
@@ -230,6 +230,11 @@ local function build(id: string, label: string, p: Palette): ThemeTypes.Theme
 		rarity = p.rarity,
 		chrome = chrome,
 		motion = motion,
+		transitions = {
+			reveal = 0.24,
+			conceal = 0.14,
+			switchDelay = 0.08,
+		},
 		styles = styles,
 	}
 end

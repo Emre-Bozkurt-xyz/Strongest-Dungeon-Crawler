@@ -47,8 +47,10 @@ export type SideSlot = {
 local UIMenuConfig = {
 	groupName = "menu",
 	stage = {
-		-- Per second. How quickly the camera settles onto its pose; ~0.25s to arrive at 12.
-		settleRate = 12,
+		-- Seconds for the camera to travel to a view's pose, and back to gameplay on close. Fixed
+		-- times eased to a hard stop, so the camera arrives rather than drifting in.
+		cameraMove = 0.32,
+		cameraRelease = 0.22,
 		-- World-size multiplier for every menu panel. A 6.5-stud panel at arm's length dwarfs a
 		-- 4-stud-wide R6 character; pixelsPerStud scales inversely so the canvas is unchanged.
 		panelScale = 0.81,

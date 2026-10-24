@@ -132,10 +132,22 @@ export type SpringSpec = {
 export type ThemeMotion = {
 	-- Hover, press, selection: immediate response, no overshoot.
 	snap: SpringSpec,
-	-- Panels and cards arriving or leaving: quick with a slight overshoot.
+	-- Readouts and overlays coming and going: quick, no overshoot.
 	settle: SpringSpec,
 	-- Ambient movement and value readouts: slow and soft.
 	drift: SpringSpec,
+}
+
+-- Fixed-duration transitions, in seconds, eased by shared/ui/Ease. Panels switch on and off rather
+-- than fade, and a fixed time with a hard stop is what makes that read as mechanical, not floaty.
+export type ThemeTransitions = {
+	-- A panel opening: the band of light spreading from its centre line.
+	reveal: number,
+	-- A panel closing: faster than it opens, collapsing back to the line.
+	conceal: number,
+	-- Between the outgoing panel starting to close and the incoming one starting to open, when a
+	-- view switches, so the change reads as one panel then the other.
+	switchDelay: number,
 }
 
 export type ThemeFonts = {
@@ -185,6 +197,7 @@ export type Theme = {
 	rarity: ThemeRarity,
 	chrome: ThemeChrome,
 	motion: ThemeMotion,
+	transitions: ThemeTransitions,
 	styles: { [StyleRole]: StyleProps },
 }
 

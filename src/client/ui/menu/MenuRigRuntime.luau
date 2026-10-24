@@ -304,16 +304,26 @@ end
 
 -- Where the camera belongs while the menu is open, and how it renders. Read every frame by the menu
 -- camera modifier, so tuning any of it applies live.
-function MenuRigRuntime:getCameraPose(): { cframe: CFrame, fov: number, settleRate: number }?
+function MenuRigRuntime:getCameraPose(): {
+	cframe: CFrame,
+	fov: number,
+	duration: number,
+	releaseDuration: number,
+	key: string,
+}?
 	local solve = self:_solve()
 	if not solve then
 		return nil
 	end
-	local settle = DevTuningService.get("UIMenu.stage.settleRate")
+	local move = DevTuningService.get("UIMenu.stage.cameraMove")
+	local release = DevTuningService.get("UIMenu.stage.cameraRelease")
 	return {
 		cframe = solve.camera,
 		fov = getViewStage(self._view).camera.fov,
-		settleRate = if type(settle) == "number" then settle else StageConfig.settleRate,
+		duration = if type(move) == "number" then move else StageConfig.cameraMove,
+		releaseDuration = if type(release) == "number" then release else StageConfig.cameraRelease,
+		-- Each view is its own move; switching restarts the camera's travel from where it is.
+		key = self._view,
 	}
 end
 

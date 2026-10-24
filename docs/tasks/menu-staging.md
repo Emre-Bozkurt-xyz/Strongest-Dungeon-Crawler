@@ -46,12 +46,17 @@ open on that side, so an inspect panel opened later does not land in the wall. W
 camera, the panel bias and the side panels all flip. If both sides are blocked the camera is pulled
 in along its ray.
 
-### Camera settle
+### Camera move
 
-`CameraController` takes a `poseProvider` modifier and blends to it with one frame-rate-independent
-exponential (`settleRate = 12`/s, about 0.25s to arrive). The first version smoothed position and
-then the whole CFrame again, which multiplied the two factors (0.16 × 0.16 per frame) and crawled for
-two seconds. `_yaw`/`_pitch` are untouched, so closing returns the gameplay camera to where it was.
+`CameraController` takes a `poseProvider` modifier and travels to it in a fixed time eased to a hard
+stop (`stage.cameraMove`, 0.32s, quart-out), then holds the pose exactly. A pose's `key` (the view)
+changing restarts the move from wherever the camera is. Closing is a matching move back to the
+gameplay pose (`stage.cameraRelease`, 0.22s). This replaced an exponential settle, whose long tail
+read as floaty. `_yaw`/`_pitch` are untouched, so closing returns the gameplay camera to where it was.
+
+In Free mode the return blends after Roblox's camera computes each frame, and puts Roblox's own pose
+back before its next update: Roblox reads `camera.CFrame` back as state, so leaving the blended frame
+in place pulled its zoom in and it snapped out (6.5 studs in one frame) when the blend ended.
 
 **Both camera modes.** Over-shoulder runs the controller's own loop, which checks for a staged pose
 first. Free mode (V) hands the camera to Roblox's controller and runs no loop of ours, so originally

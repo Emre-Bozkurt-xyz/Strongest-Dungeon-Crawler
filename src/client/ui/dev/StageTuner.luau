@@ -58,7 +58,8 @@ local PANEL_FIELDS: { Field } = {
 local GLOBAL_FIELDS: { Field } = {
 	{ key = "panelScale", label = "panel scale", min = 0.3, max = 1.5, step = 0.01 },
 	{ key = "spacing", label = "spacing", min = 0, max = 2, step = 0.05 },
-	{ key = "settleRate", label = "settle /s", min = 1, max = 40, step = 0.5 },
+	{ key = "cameraMove", label = "camera in s", min = 0.05, max = 1, step = 0.01 },
+	{ key = "cameraRelease", label = "camera out s", min = 0.05, max = 1, step = 0.01 },
 }
 
 local function snap(value: number, field: Field): number
@@ -96,7 +97,8 @@ local function exportStage(): string
 
 	local lines = {
 		"\tstage = {",
-		`\t\tsettleRate = {fmt(readNumber("UIMenu.stage.settleRate"))},`,
+		`\t\tcameraMove = {fmt(readNumber("UIMenu.stage.cameraMove"))},`,
+		`\t\tcameraRelease = {fmt(readNumber("UIMenu.stage.cameraRelease"))},`,
 		`\t\tpanelScale = {fmt(readNumber("UIMenu.stage.panelScale"))},`,
 		`\t\tspacing = {fmt(readNumber("UIMenu.stage.spacing"))},`,
 		`\t\twallClearance = {fmt(readNumber("UIMenu.stage.wallClearance"))},`,

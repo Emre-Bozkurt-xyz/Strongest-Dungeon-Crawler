@@ -9,16 +9,22 @@
 -- argument. This is why visibility is not simply a React render decision: the *surface* has to exist
 -- or not, and that is imperative.
 --
--- Hosts are created lazily on first show and then kept alive. Destroying on close would fight the
--- fade-out, which needs the surface to outlive the animation. Once a hide has finished fading, the
+-- Hosts are created lazily on first show and then kept alive. Destroying on close would cut off the
+-- closing transition, which needs the surface to outlive it. Once a panel has finished closing, the
 -- host drops its React subtree while the surface and root persist.
+--
+-- When one change both closes a panel and opens another -- a view switch -- the opening waits
+-- `theme.transitions.switchDelay`, so the switch reads as one panel going and then the next arriving
+-- rather than two dissolving into each other.
 
 local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
 local MenuRigRuntime = require(script.Parent.Parent.menu.MenuRigRuntime)
 local PanelRegistry = require(script.Parent.PanelRegistry)
 local PanelHost = require(script.Parent.PanelHost)
 
-local React = require(game:GetService("ReplicatedStorage").Packages.React)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local React = require(ReplicatedStorage.Packages.React)
+local Themes = require(ReplicatedStorage.Shared.ui.themes)
 
 local UIRuntime = {}
 
@@ -29,7 +35,7 @@ local disconnect: (() -> ())? = nil
 local watchers: { () -> () } = {}
 local started = false
 
-local function applyEntry(entry: PanelRegistry.PanelEntry, state: any)
+local function applyEntry(entry: PanelRegistry.PanelEntry, state: any, openDelay: number?)
 	local visible = entry.isVisible(state)
 	local host = hosts[entry.id]
 
@@ -61,14 +67,14 @@ local function applyEntry(entry: PanelRegistry.PanelEntry, state: any)
 		host:setFollowTarget(followTarget())
 	end
 
-	-- `visible` reaches the component so a panel on its way out can hold its last state through the
-	-- fade (the host keeps rendering until the fade completes).
+	-- `visible` reaches the component so a panel on its way out can hold its last state while it
+	-- closes (the host keeps rendering until it has).
 	--
 	-- A render error must not strand the host: it is hidden rather than left half-shown, and the next
 	-- state change tries again. Unguarded, one throw left the panel looking like it had stopped
 	-- existing rather than like an error.
 	local ok, err = pcall(function()
-		host:present(React.createElement(entry.component, { visible = visible }), visible)
+		host:present(React.createElement(entry.component, { visible = visible }), visible, openDelay)
 	end)
 	if not ok then
 		warn(`[UIRuntime] {entry.id} render failed: {err}`)
@@ -77,8 +83,17 @@ local function applyEntry(entry: PanelRegistry.PanelEntry, state: any)
 end
 
 local function applyState(state: any)
+	local closing = false
 	for _, entry in ipairs(PanelRegistry.list()) do
-		applyEntry(entry, state)
+		local host = hosts[entry.id]
+		if host and host:isVisible() and not entry.isVisible(state) then
+			closing = true
+			break
+		end
+	end
+	local openDelay = if closing then Themes.getDefault().transitions.switchDelay else nil
+	for _, entry in ipairs(PanelRegistry.list()) do
+		applyEntry(entry, state, openDelay)
 	end
 end
 

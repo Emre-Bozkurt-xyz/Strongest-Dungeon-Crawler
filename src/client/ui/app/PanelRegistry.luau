@@ -64,8 +64,6 @@ export type PanelEntry = {
 	-- Optional, for `followMode = "target"`: the part to anchor to, re-read whenever visibility is.
 	-- A target that moves between things in the world is placement, so it stays out of React (R3).
 	followTarget: (() -> BasePart?)?,
-	-- Seconds for the show/hide fade.
-	fadeDuration: number?,
 }
 
 local ItemInspectPanel = require(script.Parent.Parent.panels.ItemInspectPanel)

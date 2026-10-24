@@ -11,11 +11,19 @@
 -- originals as attributes. React owns those properties and rewrites them on re-render, so the tween
 -- and the reconciler would fight, and the cached "original" would be whatever value happened to be
 -- live at the first hide. Instead the React tree is mounted inside a CanvasGroup that React never
--- touches, and fading tweens its GroupTransparency -- one property, one owner.
+-- touches, and the host's own transition drives it -- a few properties, one owner.
+--
+-- A panel switches on rather than fading in: a line of light draws out from its centre, splits in
+-- two, and the pair open outward revealing the panel between them, then dim away. Closing runs it
+-- backward, faster: the band collapses to the line and the line shrinks to nothing. Fixed durations eased to a hard stop (theme.transitions, shared/ui/Ease), because a fade or a
+-- spring's settling tail is what made panels feel floaty.
 
-local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
+local Ease = require(ReplicatedStorage.Shared.ui.Ease)
+local Themes = require(ReplicatedStorage.Shared.ui.themes)
 local WorldGUIManager = require(script.Parent.Parent.Parent.WorldGUIManager)
 local mountPanel = require(script.Parent.mountPanel)
 local PanelRegistry = require(script.Parent.PanelRegistry)
@@ -24,14 +32,26 @@ local PanelHost = {}
 PanelHost.__index = PanelHost
 
 export type PanelHostType = {
-	setVisible: (self: PanelHostType, visible: boolean) -> (),
+	setVisible: (self: PanelHostType, visible: boolean, delay: number?) -> (),
+	isVisible: (self: PanelHostType) -> boolean,
 	setFollowTarget: (self: PanelHostType, target: BasePart?) -> (),
 	setScale: (self: PanelHostType, scale: number) -> (),
-	present: (self: PanelHostType, element: any, visible: boolean) -> (),
+	present: (self: PanelHostType, element: any, visible: boolean, delay: number?) -> (),
 	destroy: (self: PanelHostType) -> (),
 }
 
-local DEFAULT_FADE = 0.2
+-- Canvas pixels: the light lines at the band's edges.
+local LINE_THICKNESS = 3
+-- The band never quite reaches zero height while shown, so the lines have a gap to sit either side of.
+local MIN_BAND = 0.004
+
+type Surface = {
+	gui: SurfaceGui,
+	group: CanvasGroup,
+	clip: Frame,
+	lines: { Frame },
+	mountRoot: GuiObject,
+}
 
 local function buildPart(entry: PanelRegistry.PanelEntry): BasePart
 	local part = Instance.new("Part")
@@ -50,7 +70,7 @@ local function buildPart(entry: PanelRegistry.PanelEntry): BasePart
 	return part
 end
 
-local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): (SurfaceGui, CanvasGroup, GuiObject)
+local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): Surface
 	local gui = Instance.new("SurfaceGui")
 	gui.Name = "Surface"
 	gui.Face = Enum.NormalId.Front
@@ -63,7 +83,7 @@ local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): (S
 	gui.Enabled = false
 	gui.Parent = part
 
-	-- The fade target. React mounts inside it and never sets GroupTransparency.
+	-- Opacity for the whole panel. React mounts below it and never sets GroupTransparency.
 	local group = Instance.new("CanvasGroup")
 	group.Name = "Content"
 	group.Size = UDim2.fromScale(1, 1)
@@ -72,20 +92,61 @@ local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): (S
 	group.GroupTransparency = 1
 	group.Parent = gui
 
+	-- The band: a clip that grows from the centre line. The canvas inside keeps the full surface size
+	-- in pixels and stays centred, so the panel is revealed in place rather than squashed.
+	local canvasWidth = entry.surface.width * (entry.surface.pixelsPerStud or 100)
+	local canvasHeight = entry.surface.height * (entry.surface.pixelsPerStud or 100)
+	local clip = Instance.new("Frame")
+	clip.Name = "Band"
+	clip.AnchorPoint = Vector2.new(0.5, 0.5)
+	clip.Position = UDim2.fromScale(0.5, 0.5)
+	clip.Size = UDim2.fromScale(1, MIN_BAND)
+	clip.BackgroundTransparency = 1
+	clip.BorderSizePixel = 0
+	clip.ClipsDescendants = true
+	clip.Parent = group
+
+	local canvas = Instance.new("Frame")
+	canvas.Name = "Canvas"
+	canvas.AnchorPoint = Vector2.new(0.5, 0.5)
+	canvas.Position = UDim2.fromScale(0.5, 0.5)
+	canvas.Size = UDim2.fromOffset(canvasWidth, canvasHeight)
+	canvas.BackgroundTransparency = 1
+	canvas.BorderSizePixel = 0
+	canvas.Parent = clip
+
+	local accent = Themes.getDefault().color.accent
+	local lines = {}
+	for index = 1, 2 do
+		local line = Instance.new("Frame")
+		line.Name = `ScanLine{index}`
+		line.AnchorPoint = Vector2.new(0.5, 0.5)
+		line.Position = UDim2.fromScale(0.5, 0.5)
+		line.Size = UDim2.new(1, 0, 0, LINE_THICKNESS)
+		line.BackgroundColor3 = accent
+		line.BackgroundTransparency = 1
+		line.BorderSizePixel = 0
+		line.ZIndex = 10
+		line.Parent = group
+		table.insert(lines, line)
+	end
+
+	local surface: Surface = { gui = gui, group = group, clip = clip, lines = lines, mountRoot = canvas }
+
 	-- A surface declaring a logical width is authored in that many pixels across, scaled up to fill
 	-- the real canvas. The canvas keeps its resolution, so text stays sharp, while the panel lays out in
 	-- units close to screen pixels at staging and the theme's type scale means what it says.
 	local logicalWidth = entry.surface.logicalWidth
 	if not logicalWidth then
-		return gui, group, group
+		return surface
 	end
-	local factor = (entry.surface.width * (entry.surface.pixelsPerStud or 100)) / logicalWidth
+	local factor = canvasWidth / logicalWidth
 	local logical = Instance.new("Frame")
 	logical.Name = "Logical"
 	logical.Size = UDim2.fromScale(1 / factor, 1 / factor)
 	logical.BackgroundTransparency = 1
 	logical.BorderSizePixel = 0
-	logical.Parent = group
+	logical.Parent = canvas
 	local uiScale = Instance.new("UIScale")
 	uiScale.Scale = factor
 	uiScale.Parent = logical
@@ -97,8 +158,9 @@ local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): (S
 	root.BackgroundTransparency = 1
 	root.BorderSizePixel = 0
 	root.Parent = logical
+	surface.mountRoot = root
 
-	return gui, group, root
+	return surface
 end
 
 function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
@@ -107,17 +169,22 @@ function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
 	self._entry = entry
 	self._visible = false
 	self._destroyed = false
-	self._tween = nil :: Tween?
+	self._transition = nil :: RBXScriptConnection?
+	-- Band height, 0..1, kept between transitions so a reversal starts from where the last one was.
+	self._band = 0
 	self._hasContent = false
 	self._followTarget = nil :: BasePart?
 
 	local part = buildPart(entry)
-	local gui, group, mountRoot = buildSurface(entry, part)
+	local surface = buildSurface(entry, part)
+	local mountRoot = surface.mountRoot
 	self._part = part
-	self._gui = gui
-	self._group = group
+	self._gui = surface.gui
+	self._group = surface.group
+	self._clip = surface.clip
+	self._lines = surface.lines
 
-	-- Parented up front so placement and the initial fade have somewhere to run. It is invisible
+	-- Parented up front so placement and the first transition have somewhere to run. It is invisible
 	-- until setVisible, since GroupTransparency starts at 1.
 	part.Parent = Workspace
 
@@ -157,10 +224,10 @@ function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
 end
 
 -- Shows or hides the panel with `element` as its content. A panel on its way out keeps rendering
--- until its fade completes -- the element it is handed carries `visible = false`, so the content can
--- hold its last state or play an exit of its own -- and only then is the subtree dropped. Dropping it
--- at the start of the fade would fade out an empty surface.
-function PanelHost.present(self: any, element: any, visible: boolean)
+-- until it has closed -- the element it is handed carries `visible = false`, so the content can hold
+-- its last state -- and only then is the subtree dropped; dropping it at the start would close an
+-- empty surface. `delay` holds an opening back, for a view switch.
+function PanelHost.present(self: any, element: any, visible: boolean, delay: number?)
 	if self._destroyed then
 		return
 	end
@@ -168,22 +235,39 @@ function PanelHost.present(self: any, element: any, visible: boolean)
 		self._mounted.render(element)
 		self._hasContent = true
 	end
-	self:setVisible(visible)
+	self:setVisible(visible, delay)
 end
 
-function PanelHost.setVisible(self: any, visible: boolean)
+function PanelHost.isVisible(self: any): boolean
+	return self._visible
+end
+
+-- Band height, line length (both 0..1) and line transparency for one frame.
+function PanelHost._drawBand(self: any, band: number, lineLength: number, lineTransparency: number)
+	local height = math.max(band, MIN_BAND)
+	self._band = band
+	self._clip.Size = UDim2.fromScale(1, height)
+	for index, line in ipairs(self._lines) do
+		local edge = if index == 1 then -0.5 else 0.5
+		line.Position = UDim2.fromScale(0.5, 0.5 + edge * height)
+		line.Size = UDim2.new(lineLength, 0, 0, LINE_THICKNESS)
+		line.BackgroundTransparency = lineTransparency
+	end
+end
+
+function PanelHost.setVisible(self: any, visible: boolean, delay: number?)
 	if self._destroyed or self._visible == visible then
 		return
 	end
 	self._visible = visible
 
-	local running = self._tween
+	local running = self._transition
 	if running then
-		running:Cancel()
-		self._tween = nil
+		running:Disconnect()
+		self._transition = nil
 	end
 
-	-- Input is gated on the way in before the fade starts, and on the way out immediately, so a
+	-- Input is gated on the way in before the transition starts, and on the way out immediately, so a
 	-- panel is never clickable while it is invisible or on its way to being so.
 	self._part.CanQuery = visible
 	if visible then
@@ -193,27 +277,60 @@ function PanelHost.setVisible(self: any, visible: boolean)
 		WorldGUIManager.getInstance():snapPanel(self._entry.id)
 	end
 
-	local duration = self._entry.fadeDuration or DEFAULT_FADE
-	local tween = TweenService:Create(
-		self._group,
-		TweenInfo.new(duration, Enum.EasingStyle.Quart),
-		{ GroupTransparency = if visible then 0 else 1 }
-	)
-	self._tween = tween
+	local timing = Themes.getDefault().transitions
+	local from = self._band
+	-- A reversal mid-way covers only the distance left, at the same pace.
+	local duration = if visible then timing.reveal * (1 - from) else timing.conceal * from
+	local hold = if visible then delay or 0 else 0
+	local started = os.clock()
 
-	if not visible then
-		-- Deferred to the end of the fade so the panel stays rendered while it fades, and guarded
-		-- because setVisible(true) may land mid-fade -- Cancel does not stop Completed from firing.
-		tween.Completed:Connect(function(state: Enum.PlaybackState)
-			if state == Enum.PlaybackState.Completed and not self._visible and not self._destroyed then
-				self._gui.Enabled = false
-				self._mounted.render(nil)
-				self._hasContent = false
-			end
-		end)
+	local function finish()
+		if self._transition then
+			self._transition:Disconnect()
+			self._transition = nil
+		end
+		if not visible and not self._destroyed then
+			self._gui.Enabled = false
+			self._mounted.render(nil)
+			self._hasContent = false
+		end
 	end
 
-	tween:Play()
+	local function step()
+		local elapsed = os.clock() - started - hold
+		if elapsed < 0 then
+			return
+		end
+		local t = if duration > 0 then Ease.clamp01(elapsed / duration) else 1
+		if visible then
+			-- First quarter: the line draws out across the panel. Then the band throws open and
+			-- brakes onto full height, the content coming up with it; the lines dim out once it is
+			-- nearly open. A reversal that starts with the band already open skips the line.
+			local lineIn = if from > 0 then 1 else Ease.quartOut(Ease.clamp01(t / 0.25))
+			local open = if from > 0 then t else Ease.clamp01((t - 0.25) / 0.75)
+			self:_drawBand(from + (1 - from) * Ease.expoOut(open), lineIn, Ease.clamp01((t - 0.65) / 0.35))
+			self._group.GroupTransparency = 1 - Ease.clamp01((t - 0.2) / 0.2)
+		else
+			-- The band collapses slowly then snaps to the line, the content cutting out with it, and
+			-- the line shrinks to nothing in the last fifth.
+			self:_drawBand(from * (1 - Ease.quartIn(Ease.clamp01(t / 0.8))), 1 - Ease.quartIn(Ease.clamp01((t - 0.8) / 0.2)), 0)
+			self._group.GroupTransparency = Ease.clamp01((t - 0.6) / 0.2)
+		end
+		if t >= 1 then
+			if visible then
+				self:_drawBand(1, 1, 1)
+			end
+			finish()
+		end
+	end
+
+	-- Closed until its delayed start, rather than showing the whole panel for the wait.
+	if visible and from == 0 then
+		self:_drawBand(0, 0, 1)
+		self._group.GroupTransparency = 1
+	end
+	self._transition = RunService.Heartbeat:Connect(step)
+	step()
 end
 
 -- For a panel whose anchor changes at runtime, e.g. the nearest loot drop. nil clears it, which
@@ -253,10 +370,10 @@ function PanelHost.destroy(self: any)
 	end
 	self._destroyed = true
 
-	local running = self._tween
+	local running = self._transition
 	if running then
-		running:Cancel()
-		self._tween = nil
+		running:Disconnect()
+		self._transition = nil
 	end
 
 	-- Unmount before destroying: React must drop its host instances while they still exist.

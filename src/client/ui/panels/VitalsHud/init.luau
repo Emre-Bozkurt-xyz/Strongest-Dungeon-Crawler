@@ -1,5 +1,5 @@
 --!strict
--- The always-on vitals: the status panel beside the character and the low-HP edge pulse.
+-- The always-on vitals: a slim status strip beside the character and the low-HP edge pulse.
 --
 -- Shown only while it has something to say. It fades in when any vital drops below full and out a
 -- little after everything is full again, so an idle screen stays empty. It also yields to the menu,
@@ -19,8 +19,9 @@ local useSpring = require(script.Parent.Parent.hooks.useSpring)
 local useStats = require(script.Parent.Parent.hooks.useStats)
 local Selector = require(script.Parent.Parent.selectors.systemStatus)
 
+local PanelFrame = require(script.Parent.Parent.components.PanelFrame)
+local VitalsBlock = require(script.Parent.Parent.components.VitalsBlock)
 local LowHealthVignette = require(script.LowHealthVignette)
-local VitalsPanel = require(script.VitalsPanel)
 local useVitalsAnchor = require(script.useVitalsAnchor)
 
 local e = React.createElement
@@ -82,7 +83,10 @@ local function VitalsHud()
 				return v > 0.005
 			end),
 		}, {
-			View = e(VitalsPanel, { vitals = vitals }),
+			-- A slim strip: small brackets, since full panel corners would swallow its height.
+			Frame = e(PanelFrame, { layout = "free", padding = 10, brackets = "small" }, {
+				Vitals = e(VitalsBlock.render, { vitals = vitals }),
+			}),
 		}),
 	})
 end

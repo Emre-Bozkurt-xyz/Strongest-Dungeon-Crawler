@@ -102,8 +102,15 @@ local entries: { PanelEntry } = {
 	{
 		id = "SystemPanel",
 		component = SystemPanel,
-		-- Studs from the Studio-authored part. 200 px/stud gives a 1296x710 canvas.
-		surface = { width = 6.478, height = 3.549, thickness = 0.076, pixelsPerStud = 200, scale = MENU_PANEL_SCALE },
+		-- Same surface and logical width as the inventory, so the two views read at one size.
+		surface = {
+			width = 6.478,
+			height = 3.549,
+			thickness = 0.076,
+			pixelsPerStud = 200,
+			scale = MENU_PANEL_SCALE,
+			logicalWidth = 768,
+		},
 		placement = menuRigPlacement(),
 		isVisible = function(state)
 			return isMenuOpen(state) and state.modal.view == "system"

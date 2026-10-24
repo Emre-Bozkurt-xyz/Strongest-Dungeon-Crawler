@@ -1,38 +1,45 @@
 --!strict
--- The status panel: HP and MP as rows, stamina as a ring spanning both.
+-- HP and MP as rows, stamina as a ring spanning both: the vitals as the HUD strip and the System
+-- panel both show them.
 --
--- The hand-built panel's elements -- icon, caption, gauge, current/max per vital and a stamina ring
--- -- in the System's chrome, drawn as a slim strip so it sits beside the character without bulk.
--- The gauges are the style tile's segmented cells, and HP keeps a trail of the cells a hit took.
+-- The hand-built status panel's elements -- icon, caption, gauge, current/max per vital and a
+-- stamina ring -- drawn slim. The gauges are the style tile's segmented cells, and HP keeps a trail
+-- of the cells a hit took. Fills its parent; the parent supplies the chrome and padding.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 
-local PanelFrame = require(script.Parent.Parent.Parent.components.PanelFrame)
-local RadialGauge = require(script.Parent.Parent.Parent.components.RadialGauge)
-local SegmentedGauge = require(script.Parent.Parent.Parent.components.SegmentedGauge)
-local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
-local useTweenedNumber = require(script.Parent.Parent.Parent.hooks.useTweenedNumber)
-local Selector = require(script.Parent.Parent.Parent.selectors.systemStatus)
+local RadialGauge = require(script.Parent.RadialGauge)
+local SegmentedGauge = require(script.Parent.SegmentedGauge)
+local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
+local useTweenedNumber = require(script.Parent.Parent.hooks.useTweenedNumber)
+local Selector = require(script.Parent.Parent.selectors.systemStatus)
 
 local e = React.createElement
 
 export type Props = {
 	vitals: { Selector.VitalView },
+	size: UDim2?,
+	position: UDim2?,
+	layoutOrder: number?,
 }
 
 local HEART_ICON = "rbxassetid://100398419080154"
 local DROPLET_ICON = "rbxassetid://109364647302001"
 
--- Screen pixels.
-local PADDING = 10
+-- Pixels (logical ones on a logical-width surface).
 local ROW_HEIGHT = 16
 local ROW_GAP = 6
 local ICON_SIZE = 13
 local CAPTION_WIDTH = 24
 local VALUE_WIDTH = 64
 local RING_SIZE = ROW_HEIGHT * 2 + ROW_GAP
+
+local VitalsBlock = {}
+
+-- Height the block needs; a parent sizing it in pixels uses this.
+VitalsBlock.HEIGHT = RING_SIZE
 
 local function findVital(vitals: { Selector.VitalView }, label: string): Selector.VitalView?
 	for _, vital in ipairs(vitals) do
@@ -117,7 +124,7 @@ local function VitalRow(props: {
 	})
 end
 
-local function VitalsPanel(props: Props)
+function VitalsBlock.render(props: Props)
 	local theme = ThemeContext.useTheme()
 
 	local health = findVital(props.vitals, "HP")
@@ -126,10 +133,11 @@ local function VitalsPanel(props: Props)
 	-- Called unconditionally so the hook order never depends on the stats snapshot's shape.
 	local staminaRatio = useTweenedNumber(if stamina then stamina.ratio else 0)
 
-	return e(PanelFrame, {
-		layout = "free",
-		padding = PADDING,
-		brackets = "small",
+	return e("Frame", {
+		Size = props.size or UDim2.fromScale(1, 1),
+		Position = props.position,
+		LayoutOrder = props.layoutOrder,
+		BackgroundTransparency = 1,
 	}, {
 		Layout = e("UIListLayout", {
 			FillDirection = Enum.FillDirection.Horizontal,
@@ -184,4 +192,4 @@ local function VitalsPanel(props: Props)
 	})
 end
 
-return VitalsPanel
+return VitalsBlock

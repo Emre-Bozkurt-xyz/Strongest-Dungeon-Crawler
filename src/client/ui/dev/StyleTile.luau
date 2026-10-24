@@ -7,9 +7,8 @@
 -- change freely while the direction is argued over. Once it is agreed the tokens move into a theme
 -- and the chrome pieces (Brackets, HeaderRule) become the skinnable chrome parts.
 --
--- Laid out in logical pixels that come out at roughly one screen pixel each at current staging: the
--- System panel's 1296px canvas spans about 775 screen pixels, so content is authored on a 1/SCALE
--- canvas and scaled up. Sizes here are therefore what the player actually sees.
+-- Authored on an 864-unit-wide canvas, from when it scaled the System panel's raw 1296px canvas up
+-- by 1.5. That surface is now laid out at 768 logical pixels, so the tile scales down to fit it.
 --
 -- Studio only. F7 (or "Tile" in the F6 tuner) swaps it in for the System panel's content.
 
@@ -22,7 +21,7 @@ local useSpring = require(script.Parent.Parent.hooks.useSpring)
 
 local e = React.createElement
 
-local SCALE = 1.5
+local SCALE = 768 / 864
 
 -- Prototype palette. Light on near-black: the System is projected, so surfaces are dark and
 -- translucent and everything meaningful is drawn in light.

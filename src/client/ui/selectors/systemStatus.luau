@@ -84,8 +84,9 @@ local function formatNumber(value: number): string
 end
 
 local function formatStat(value: number, format: string?): string
+	-- Percent stats are stored as percentage points (crit chance 5 is 5%; see StatsConfig).
 	if format == "percent" then
-		return `{math.floor(value * 100 + 0.5)}%`
+		return `{formatNumber(value)}%`
 	elseif format == "regen" then
 		return `+{formatNumber(value)}/s`
 	elseif format == "int" then

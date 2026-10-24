@@ -18,6 +18,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local React = require(ReplicatedStorage.Packages.React)
 
 local Brackets = require(script.Parent.Parent.Parent.components.Brackets)
+local StatList = require(script.Parent.Parent.Parent.components.StatList)
 local Glyph = require(script.Parent.Parent.Parent.components.Glyph)
 local PanelShell = require(script.Parent.Parent.Parent.components.PanelShell)
 local Header = require(script.Parent.Parent.Parent.components.Header)
@@ -43,79 +44,8 @@ export type Props = {
 	uid: string?,
 }
 
--- Logical pixels (PanelRegistry gives this surface `logicalWidth`), close to screen pixels at
--- staging. Rows hold the theme's `small` step so long labels ("Critical Chance") still fit beside
--- their value in a 380px-wide card.
-local ROW_HEIGHT = 26
-local ROW_GAP = 2
-local HEADING_HEIGHT = 22
-local LABEL_WIDTH = 0.58
-
--- A titled group. One real container rather than a Fragment, so the section has an Instance of its
--- own to lay out, and children merge in flat.
---
--- Height is computed rather than left to AutomaticSize. These sections sit inside a ScrollingFrame
--- with AutomaticCanvasSize that is itself sized by UIFlexItem, and an auto-sized child in that chain
--- makes the constraint circular -- Roblox resolves it inconsistently, which showed up as label and
--- value columns drifting further apart the further down the list they were.
-local function Section(props: { title: string, layoutOrder: number, children: any })
-	local theme = ThemeContext.useTheme()
-	local children: { [string]: any } = {
-		Layout = e("UIListLayout", {
-			FillDirection = Enum.FillDirection.Vertical,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			Padding = UDim.new(0, ROW_GAP),
-		}),
-		Heading = e(Text, {
-			text = string.upper(props.title),
-			role = "MutedText",
-			layoutOrder = 0,
-			size = UDim2.new(1, 0, 0, HEADING_HEIGHT),
-			textSize = theme.type.small,
-			props = { FontFace = theme.face.display },
-		}),
-	}
-	local rowCount = 0
-	for key, child in pairs(props.children) do
-		children[key] = child
-		rowCount += 1
-	end
-
-	return e("Frame", {
-		LayoutOrder = props.layoutOrder,
-		Size = UDim2.new(1, 0, 0, HEADING_HEIGHT + rowCount * (ROW_HEIGHT + ROW_GAP)),
-		BackgroundTransparency = 1,
-	}, children)
-end
-
--- A label/value row. `role` carries the semantics: an unmet requirement is RequirementUnmet, which
--- is where the theme's danger colour enters (Guardrail 3 -- no colour literals here).
-local function Row(props: { label: string, value: string, role: any, layoutOrder: number })
-	local theme = ThemeContext.useTheme()
-	return e("Frame", {
-		LayoutOrder = props.layoutOrder,
-		Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
-		BackgroundTransparency = 1,
-	}, {
-		Label = e(Text, {
-			text = props.label,
-			role = props.role,
-			size = UDim2.fromScale(LABEL_WIDTH, 1),
-			textSize = theme.type.body,
-		}),
-		Value = e(Text, {
-			text = props.value,
-			role = props.role,
-			size = UDim2.fromScale(1 - LABEL_WIDTH, 1),
-			position = UDim2.fromScale(LABEL_WIDTH, 0),
-			alignX = Enum.TextXAlignment.Right,
-			textSize = theme.type.small,
-			-- Mono like every other ticking value; it also holds up at distance better than the
-			-- narrow body face.
-			props = { FontFace = theme.face.mono },
-		}),
-	})
-end
+local Section = StatList.Section
+local Row = StatList.Row
 
 local function ItemCard(props: Props)
 	local theme = ThemeContext.useTheme()

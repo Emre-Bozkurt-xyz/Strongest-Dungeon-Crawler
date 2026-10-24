@@ -248,6 +248,18 @@ Findings:
 - **The skill bar was not centred**: its authored 290px width was a minimum, leaving three slots
   left-aligned inside it. It now sizes to its slots.
 
+**System panel rebuilt** at `logicalWidth = 768`, the same surface and scale as the inventory, using
+the whole surface rather than the old inset card. Left: level/class/title, the vitals (the HUD's
+`components/VitalsBlock`), combat stats. Right: attributes with the points to spend (each row is its
+button; a `+` marks it), recovery stats. Every element of the hand-built panel is kept; the combat
+and recovery stats were replicated all along and are now shown. `components/StatList` is the shared
+section/row used here and by the inspect card. Percent stats were shown x100 (crit 5 as "500%") --
+they are stored as percentage points.
+
+- **Perspective slopes rows.** The staged panel's right side is nearer the camera, so lower rows
+  slope downward to the right and a far-right value lines up with the next row's label. Stat rows
+  are kept short (250px) and alternate rows are banded so the eye can follow a row.
+
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
 item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them

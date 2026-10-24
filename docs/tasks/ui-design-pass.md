@@ -178,6 +178,15 @@ Findings while building it:
 - **Fonts.** Built-in families that fit: Michroma (display), Titillium Web (body, has weights),
   Roboto Mono (numbers), Sarpanch/Zekton as alternates. Use `Font.fromEnum`; guessed family JSON
   paths fail to load.
+- **Chrome must never be a child of a padded container.** `UIPadding` applies to every child, so
+  corner brackets placed beside padded content were pushed inward onto the text they frame. A chrome
+  part owns the outer frame; content goes in its own padded body. Bake this into the skinnable
+  `PanelFrame` so no panel can get it wrong.
+- **Perspective shrinks the far edge.** With the panel turned toward the character, the camera sees
+  its left edge 8.1 studs away and its right edge 5.5: left-edge text renders at ~68% the size of
+  right-edge text (`faceCamera` 0.10). Raising `faceCamera` trades diegetic angle for evenness —
+  0.40 gives 79%, 0.70 gives 87%. The type scale has to be set by the far edge, and fine print
+  belongs on the near side.
 - **F7 arrives with `gameProcessed = true`** (a core binding claims it), so dev keys that use it must
   guard on `GetFocusedTextBox()` instead.
 

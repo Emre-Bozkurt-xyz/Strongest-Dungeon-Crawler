@@ -465,62 +465,70 @@ local function Notification()
 		end),
 		BorderSizePixel = 0,
 	}, {
+		-- Chrome frames the card, so it must not sit under the content's UIPadding: padding applies to
+		-- every child, and the corners would be pushed inward onto the text they are meant to frame.
 		Brackets = e(Brackets, { color = C.line, length = 16, thickness = 2, progress = progress }),
-		Padding = e("UIPadding", {
-			PaddingTop = UDim.new(0, 12),
-			PaddingLeft = UDim.new(0, 16),
-			PaddingRight = UDim.new(0, 16),
-		}),
-		Header = e(HeaderRule, { title = "NOTIFICATION", size = TYPE.label + 1, transparency = content }),
-		Alert = e("Frame", {
-			Size = UDim2.fromOffset(26, 26),
-			Position = UDim2.fromOffset(0, 38),
+		Body = e("Frame", {
+			Size = UDim2.fromScale(1, 1),
 			BackgroundTransparency = 1,
 		}, {
-			Stroke = e("UIStroke", { Color = C.line, Thickness = 2, Transparency = content }),
-			Mark = e(Label, {
-				text = "!",
-				font = FONT.display,
-				size = TYPE.title,
-				color = C.line,
-				transparency = content,
-				frameSize = UDim2.fromScale(1, 1),
-				alignX = Enum.TextXAlignment.Center,
+			Padding = e("UIPadding", {
+				PaddingTop = UDim.new(0, 14),
+				PaddingBottom = UDim.new(0, 14),
+				PaddingLeft = UDim.new(0, 18),
+				PaddingRight = UDim.new(0, 18),
 			}),
-		}),
-		Message = e(Label, {
-			text = "You have acquired an item.",
-			font = FONT.bodyBold,
-			size = TYPE.body,
-			transparency = content,
-			position = UDim2.fromOffset(36, 36),
-			frameSize = UDim2.new(1, -36, 0, 20),
-		}),
-		Item = e(Label, {
-			text = "Iron Sword",
-			font = FONT.bodyBold,
-			size = TYPE.body,
-			color = RARITY.rare,
-			transparency = content,
-			position = UDim2.fromOffset(36, 58),
-			frameSize = UDim2.new(1, -36, 0, 20),
-		}),
-		Hint = e(Label, {
-			text = "Rare · Main hand · +12 Phys",
-			font = FONT.mono,
-			size = TYPE.label,
-			color = C.inkMuted,
-			transparency = content,
-			position = UDim2.fromOffset(36, 82),
-			frameSize = UDim2.new(1, -36, 0, 16),
-		}),
-		Confirm = e("Frame", {
-			Size = UDim2.fromOffset(84, 30),
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, 0, 0, 124),
-			BackgroundTransparency = 1,
-		}, {
-			Button = e(Button, { text = "CONFIRM", variant = "secondary", layoutOrder = 1 }),
+			Header = e(HeaderRule, { title = "NOTIFICATION", size = TYPE.label + 1, transparency = content }),
+			Alert = e("Frame", {
+				Size = UDim2.fromOffset(26, 26),
+				Position = UDim2.fromOffset(0, 38),
+				BackgroundTransparency = 1,
+			}, {
+				Stroke = e("UIStroke", { Color = C.line, Thickness = 2, Transparency = content }),
+				Mark = e(Label, {
+					text = "!",
+					font = FONT.display,
+					size = TYPE.title,
+					color = C.line,
+					transparency = content,
+					frameSize = UDim2.fromScale(1, 1),
+					alignX = Enum.TextXAlignment.Center,
+				}),
+			}),
+			Message = e(Label, {
+				text = "You have acquired an item.",
+				font = FONT.bodyBold,
+				size = TYPE.body,
+				transparency = content,
+				position = UDim2.fromOffset(36, 36),
+				frameSize = UDim2.new(1, -36, 0, 20),
+			}),
+			Item = e(Label, {
+				text = "Iron Sword",
+				font = FONT.bodyBold,
+				size = TYPE.body,
+				color = RARITY.rare,
+				transparency = content,
+				position = UDim2.fromOffset(36, 58),
+				frameSize = UDim2.new(1, -36, 0, 20),
+			}),
+			Hint = e(Label, {
+				text = "Rare · Main hand · +12 Phys",
+				font = FONT.mono,
+				size = TYPE.label,
+				color = C.inkMuted,
+				transparency = content,
+				position = UDim2.fromOffset(36, 82),
+				frameSize = UDim2.new(1, -36, 0, 16),
+			}),
+			Confirm = e("Frame", {
+				Size = UDim2.fromOffset(84, 30),
+				AnchorPoint = Vector2.new(1, 1),
+				Position = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+			}, {
+				Button = e(Button, { text = "CONFIRM", variant = "secondary", layoutOrder = 1 }),
+			}),
 		}),
 	})
 end

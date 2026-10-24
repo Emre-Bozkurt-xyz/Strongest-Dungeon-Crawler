@@ -1,0 +1,158 @@
+# UI Design Pass — theme, structure, feel
+
+Status: **brainstorm.** Nothing here is decided until the open questions at the bottom are answered.
+Runs after `menu-staging.md`, which fixes how large panels are on screen.
+
+## Why
+
+The React migration was deliberately a port (R12, R15): every panel does what it did, built from
+shared primitives, and none of them was designed. They read as MVP — flat translucent purple boxes,
+thin type, a lot of dead space (the inventory is a 6.5-stud panel holding one row of nine slots),
+no motion beyond a fade, no sound, and no item icons at all (every item def has `icon = ""`).
+
+The goal of this pass is a UI with a point of view: a theme that means something in this game, a
+structure that uses its space, and a feel — motion, response, sound — that makes it satisfying to
+touch.
+
+## Theme directions
+
+The codebase already leans one way: the menu's home view is the **System** panel and the only theme
+is named `SoloLeveling`. That points at direction 1, but it is worth choosing on purpose.
+
+### 1. The System — holographic, light not material *(recommended)*
+
+The UI *is* the System: an interface projected for the player alone. Panels are made of light rather
+than material.
+
+- **Surfaces:** near-black navy, highly translucent; edges drawn as thin bright strokes and **corner
+  brackets** rather than full borders; faint grid or scanline texture; glow instead of shadow.
+- **Colour:** one electric blue/cyan carries everything interactive; amber/red reserved for System
+  alerts and danger; rarity colours as the only other hues. Today's palette is purple-led — this
+  direction moves it to blue.
+- **Type:** condensed sans, uppercase labels with tracking, tabular numerals for every value that
+  ticks.
+- **Motion:** panels *materialise* — brackets snap out, the frame draws, content staggers in with a
+  brief flicker — and dematerialise faster than they arrive. Hover pushes an element slightly toward
+  the camera, which only a world-space UI can do.
+- **Voice:** System messages as notifications — `[ITEM ACQUIRED]`, `[LEVEL UP]` — with a chime.
+
+Strong fit for world-space panels: light reads well over any background, and translucency is the
+point rather than a compromise.
+
+### 2. Grimoire — dark fantasy, weight not light
+
+Classic ARPG (Diablo, Path of Exile): engraved metal, parchment, gold trim, serif display type.
+Motion is physical — slide, settle, thud. Richest *dungeon* feel, but it fights world-space
+translucency, and it needs textures, which means a real asset-production cost.
+
+### 3. Tactical minimal
+
+Flat, crisp, one accent, generous whitespace (Destiny-adjacent). The most legible and the cheapest to
+build, and the least character.
+
+A hybrid is plausible: the System's light language, with dungeon grit in the texture and the sound.
+
+## Surfaces
+
+### Always-on — highest priority
+
+These sit over live gameplay, so they have to be legible against anything and must not compete with
+combat.
+
+- **StatusPreview.** A floating card beside the character is the least convincing surface right now.
+  Options: (a) keep it diegetic but shrink it to a slim arc or band that hugs the character,
+  (b) move vitals into screen space beside the skill bar, where players look anyway,
+  (c) diegetic only while values change, fading to nothing at full health.
+- **Loot.** One list panel over the nearest drop works, but the ARPG-native answer is **per-drop
+  ground labels**: every drop gets its own rarity-coloured name plate above it, the selected one
+  expands with the key hint, and a busy pile fans out to avoid overlap. It reads at a glance where
+  the loot *is*, not just what it is. Bigger change; worth it if the game leans into loot.
+- **Skill bar.** Already the most polished surface. Needs the theme pass, a clearer active state, and
+  a proper ready/cooldown-end pulse.
+
+### Menus
+
+Inventory, Equipment, System and ItemInspect, staged by `menu-staging.md`. Structural work, beyond
+skinning:
+
+- Inventory should be sized by its content: a dense grid that fills, with category filtering that
+  feels instant, not a wide panel with one row.
+- Equipment pairs naturally with the character in frame (menu-staging D1(c)).
+- ItemInspect becomes the hover card that R14 wants — design it as a tooltip from the start.
+- View switching (System ↔ Inventory ↔ Equipment) should be a transition, not a cut.
+
+### Feedback
+
+Damage numbers, overhead HP, pickup confirmation, level-up and error toasts. Most of the *feel* of a
+UI lives here rather than in the panels.
+
+## Foundations
+
+These come before any surface gets redesigned, or every surface invents its own.
+
+- **One pixel density.** Panels currently use 200, 300 and 400 px/stud, so the same `TextSize` is a
+  different physical size on each. Once staging fits panels to the view, set `pixelsPerStud` so one
+  canvas pixel is about one screen pixel at 1080p, and design in screen pixels everywhere.
+- **Type scale** — 5-6 steps, with a role for every one, plus tabular numerals. `Enum.Font` has to
+  move to `FontFace` to get weights.
+- **Spacing scale** — a 4/8 grid in canvas pixels, used by every primitive.
+- **Colour roles** — the existing semantic layer (R2), re-derived from the chosen direction. Rarity
+  colours join the theme as their own role group instead of living in `selectors/rarity`.
+- **Elevation** — expressed as light (glow, stroke brightness), not drop shadow, if direction 1 wins.
+- **Motion tokens** — 3-4 durations, 2-3 easings or spring presets, and a stagger step. Every
+  animation picks from these.
+- **Sound set** — open, close, hover tick, confirm, error, and pickup by rarity.
+- **Icons** — an item icon pipeline. Studio MCP can generate textures and upload images, so a
+  consistent generated set is an option worth testing before commissioning art.
+
+## Motion — the engineering prerequisites
+
+- **A motion primitive.** Guardrail 6 ("no motion library until a panel needs one") is now
+  triggered. Spike two options against one real interaction: Ripple (springs, framework-agnostic),
+  versus a small in-house `useSpring` built on React bindings. Bindings matter either way — animation
+  must not re-render the tree each frame.
+- **Exit animations are currently impossible.** `UIRuntime` renders `nil` the moment a panel is
+  hidden, then fades an empty surface. Hosts need to keep rendering through the hide — pass a
+  `visible` prop and unmount after the exit completes — before any dematerialise effect can exist.
+- **Camera transition** from menu-staging D3 uses the same primitive.
+
+## Process
+
+1. **Pick a direction** (open questions below).
+2. **Style tile.** One static specimen surface in Studio — palette, type scale, a button, a slot, a
+   bar, a panel frame, one motion sample — iterated over MCP screenshots until it feels right. Cheap
+   to change, and it settles the arguments before any panel is rebuilt.
+3. **Rebuild tokens and primitives** to the style tile.
+4. **Two hero surfaces to full polish**, motion and sound included: one always-on (loot) and one menu
+   (inventory). These set the bar.
+5. **Roll out** to the remaining surfaces.
+6. **Feel pass** — view transitions, notifications, feedback, sound balance.
+
+**Tooling first:** a dev command that opens any view with fixture data — seeded inventory, synthetic
+loot drops, set vitals — and pins the camera, so every screenshot is reproducible without playing
+into the state. This is what makes MCP iteration fast instead of fiddly.
+
+## Decisions (2026-10-24)
+
+1. **Direction: the System.**
+2. **Purple is not identity** — the palette is free to move to blue.
+3. **Skins are a future product.** Panels will eventually take optional, possibly purchasable styles
+   that change the look heavily — border textures, frame treatments, ornaments — though not a genre
+   switch. This shapes the foundations now: a theme can no longer be only colours and fonts. Panel
+   chrome (frame, corners, header, dividers, slot frame) has to be a themable *part* — a skin can
+   swap the frame component or its 9-slice textures, not just recolour it — and panel content must
+   never draw its own chrome. Per-panel skins mean a theme is resolvable per surface, which
+   `mountPanel`'s per-root `ThemeProvider` already allows.
+4. **Loot: per-drop ground labels, collapsing into a list past a threshold.** Few drops show as
+   labels where they lie; a big pile (late game, PoE-style mass kills) switches to the list so
+   everything nearby is readable at a glance. The threshold, and whether it counts drops in range
+   or overlapping labels, is a tuning question.
+5. **HUD feel: Fisch.** Simple and minimal for the screen-space HUD. This is a reference for HUD
+   restraint, not for the world panels.
+6. **Menu camera: per view** (menu-staging D1(c)), to be revisited after playtesting.
+
+## Open questions
+
+1. StatusPreview: diegetic band, screen-space HUD, or show-on-change? The Fisch reference leans
+   toward minimal screen-space.
+2. Icons: generated set, commissioned, or placeholder glyphs for now?

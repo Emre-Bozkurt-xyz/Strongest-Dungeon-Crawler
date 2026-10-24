@@ -1,13 +1,24 @@
 --!strict
+-- The menu stage: one solve that yields both where the camera stands and where every menu panel
+-- sits, from the character's position and the yaw it had when the menu opened.
+--
+-- The camera pose comes first and the panels are fitted to it -- square to the camera, at whatever
+-- distance makes the composition fill a set share of the view. Neither side reads the other's live,
+-- smoothed position, so there is no feedback loop to jitter (docs/tasks/menu-rig-runtime.md, rule 3),
+-- and a panel occupies the same share of the frame on any screen shape.
+--
+-- WorldGUIManager still moves the parts. It receives a full CFrame per panel through its target
+-- override providers and only smooths toward it. See docs/tasks/menu-staging.md.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local WorldGUIManager = require(script.Parent.Parent.Parent.WorldGUIManager)
-local SharedConfig = require(ReplicatedStorage.Shared.Config)
+local UIMenuConfig = require(ReplicatedStorage.Shared.Config.UIMenuConfig)
 local DevTuningService = require(script.Parent.Parent.Parent.dev.DevTuningService)
 
-local UIMenuConfig = SharedConfig.UIMenu
+local StageConfig = UIMenuConfig.stage
 
 type MenuView = "system" | "inventory" | "equipment"
 type ModalStateLike = {
@@ -20,29 +31,9 @@ type MenuStateLike = {
 	modal: ModalStateLike,
 }
 
-type AnchorBasis = {
-	position: Vector3,
-	right: Vector3,
-	up: Vector3,
-	forward: Vector3,
-}
-
-type PanelPlacement = {
-	offset: Vector3?,
-	playerSpaceOffset: Vector3?,
-	maxRadius: number?,
-}
-
-type PanelSlotConfig = {
-	role: string?,
-	side: string?,
-	order: number?,
-}
-
-type LayoutBuckets = {
-	primary: string?,
-	left: { string },
-	right: { string },
+type Solve = {
+	camera: CFrame,
+	panels: { [string]: CFrame },
 }
 
 local MENU_PANEL_IDS = {
@@ -58,100 +49,57 @@ local PRIMARY_PANEL_BY_VIEW: { [MenuView]: string } = {
 	equipment = "EquipmentPanel",
 }
 
+-- Where the wall check starts: roughly the character's shoulder, so a low obstacle in front of the
+-- feet does not count as a wall between the character and the camera.
+local SHOULDER_HEIGHT = 1.0
+
 local MenuRigRuntime = {}
 MenuRigRuntime.__index = MenuRigRuntime
 
 local _instance = nil
-
-local function tunedString(path: string, fallback: string): string
-	local value = DevTuningService.get(path)
-	return if type(value) == "string" and value ~= "" then value else fallback
-end
-
-local function tunedNumber(path: string, fallback: number): number
-	local value = DevTuningService.get(path)
-	return if type(value) == "number" then value else fallback
-end
 
 local function tunedTable(path: string, fallback: { [string]: any }): { [string]: any }
 	local value = DevTuningService.get(path)
 	return if type(value) == "table" then value else fallback
 end
 
-local function resolveGroupName(): string
-	return tunedString("UIMenu.groupName", UIMenuConfig.groupName)
+local function getViewStage(view: MenuView): UIMenuConfig.ViewStage
+	local views = tunedTable("UIMenu.stage.views", StageConfig.views)
+	return (views[view] or StageConfig.views[view]) :: UIMenuConfig.ViewStage
 end
 
-local function computeYawAxesFromYaw(yaw: number): (Vector3, Vector3, Vector3)
-	local forward = Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
-	if forward.Magnitude <= 1e-4 then
-		forward = Vector3.new(0, 0, -1)
-	else
-		forward = forward.Unit
-	end
-	local up = Vector3.yAxis
-	local right = forward:Cross(up)
-	if right.Magnitude <= 1e-4 then
-		right = Vector3.xAxis
-	else
-		right = right.Unit
-	end
-	return right, up, forward
+local function getPlayerRoot(): BasePart?
+	local character = Players.LocalPlayer.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return if root and root:IsA("BasePart") then root else nil
 end
 
-local function computeYawAxesFromRoot(root: BasePart): (Vector3, Vector3, Vector3)
-	local forward = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
-	if forward.Magnitude <= 1e-4 then
-		forward = Vector3.new(0, 0, -1)
-	else
-		forward = forward.Unit
-	end
-	local up = Vector3.yAxis
-	local right = forward:Cross(up)
-	if right.Magnitude <= 1e-4 then
-		right = Vector3.xAxis
-	else
-		right = right.Unit
-	end
-	return right, up, forward
+local function flatYaw(root: BasePart): number
+	local look = root.CFrame.LookVector
+	return math.atan2(-look.X, -look.Z)
 end
 
-local function transformLocal(right: Vector3, up: Vector3, forward: Vector3, localOffset: Vector3): Vector3
-	return right * localOffset.X + up * localOffset.Y + forward * localOffset.Z
+-- `side` is 1 for the configured pose and -1 for its mirror on the character's other side.
+local function poseFromBasis(basis: CFrame, pose: UIMenuConfig.CameraPose, side: number): CFrame
+	local position = (basis * CFrame.new(pose.right * side, pose.up, pose.back)).Position
+	local facing = basis * CFrame.Angles(0, math.rad(pose.turn) * side, 0)
+	return CFrame.lookAt(position, position + facing.LookVector)
 end
 
-local function asVector3(value: any, fallback: Vector3): Vector3
-	return if typeof(value) == "Vector3" then value else fallback
+local function wallParams(): RaycastParams
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local character = Players.LocalPlayer.Character
+	params.FilterDescendantsInstances = if character then { character } else {}
+	-- Panels, loot and other non-colliding parts are not walls.
+	params.RespectCanCollide = true
+	return params
 end
 
-local function clampRadius(anchor: Vector3, desired: Vector3, minRadius: number?, maxRadius: number?): Vector3
-	if minRadius == nil and maxRadius == nil then
-		return desired
-	end
-	local offset = desired - anchor
-	local distance = offset.Magnitude
-	if distance <= 1e-4 then
-		return desired
-	end
-	local targetDistance = distance
-	if type(minRadius) == "number" and distance < minRadius then
-		targetDistance = minRadius
-	end
-	if type(maxRadius) == "number" and distance > maxRadius then
-		targetDistance = maxRadius
-	end
-	if targetDistance ~= distance then
-		return anchor + offset.Unit * targetDistance
-	end
-	return desired
-end
-
-local function getPanelWidth(part: BasePart): number
-	local layoutWidth = part:GetAttribute("LayoutWidth")
-	if type(layoutWidth) == "number" and layoutWidth > 0 then
-		return layoutWidth
-	end
-	return math.max(part.Size.X, part.Size.Z)
+-- How far toward `to` the camera can go before hitting something, or nil when the way is clear.
+local function obstruction(from: Vector3, to: Vector3): number?
+	local result = Workspace:Raycast(from, to - from, wallParams())
+	return if result then result.Distance else nil
 end
 
 function MenuRigRuntime.new()
@@ -164,18 +112,30 @@ function MenuRigRuntime.new()
 	self._view = "system" :: MenuView
 	self._primaryPanelId = "SystemPanel"
 	self._sidePanelIds = {} :: { string }
-	self._providerFns = {} :: { [string]: () -> Vector3? }
-	self._smoothedAnchorPosition = nil :: Vector3?
-	self._lastAnchorUpdateTime = 0
+	self._basisYaw = nil :: number?
+	-- Which side of the character the camera stands on. Chosen when the menu opens or the view
+	-- changes, not per frame, so walking along a wall cannot make the camera flip back and forth.
+	self._side = 1
+	-- Studs, declared up front by UIRuntime. Read from the registry rather than the live parts
+	-- because a side panel's part does not exist until it is first shown, and a reserved slot has to
+	-- be the right size before then.
+	self._panelSizes = {} :: { [string]: Vector2 }
+	self._providerFns = {} :: { [string]: () -> CFrame? }
 
 	for _, panelId in ipairs(MENU_PANEL_IDS) do
 		self._providerFns[panelId] = function()
-			return self:_resolveOverrideTarget(panelId)
+			local solve = self:_solve()
+			return if solve then solve.panels[panelId] else nil
 		end
 	end
 
 	_instance = self
 	return self
+end
+
+function MenuRigRuntime.getFov(): number
+	local tuned = DevTuningService.get("UIMenu.stage.fov")
+	return if type(tuned) == "number" then tuned else StageConfig.fov
 end
 
 function MenuRigRuntime:_ensureProviders()
@@ -188,412 +148,182 @@ function MenuRigRuntime:_ensureProviders()
 	end
 end
 
-function MenuRigRuntime:_getActivePanelIds(): { string }
-	if not self._modalOpen then
-		return {}
-	end
+function MenuRigRuntime:_basis(root: BasePart): CFrame
+	return CFrame.new(root.Position) * CFrame.Angles(0, self._basisYaw or flatYaw(root), 0)
+end
 
-	local ids = {}
-	local primary = self._primaryPanelId or PRIMARY_PANEL_BY_VIEW[self._view]
-	if type(primary) == "string" and primary ~= "" then
-		table.insert(ids, primary)
+function MenuRigRuntime:_chooseSide()
+	local root = getPlayerRoot()
+	if not root then
+		return
 	end
+	local basis = self:_basis(root)
+	local pose = getViewStage(self._view).camera
+	local shoulder = root.Position + Vector3.yAxis * SHOULDER_HEIGHT
+	for _, side in ipairs({ 1, -1 }) do
+		if not obstruction(shoulder, poseFromBasis(basis, pose, side).Position) then
+			self._side = side
+			return
+		end
+	end
+	-- Walled in on both sides: keep the preferred side and let the camera be pulled in.
+	self._side = 1
+end
+
+function MenuRigRuntime:_solveCamera(root: BasePart, stage: UIMenuConfig.ViewStage): CFrame
+	local pose = poseFromBasis(self:_basis(root), stage.camera, self._side)
+	local shoulder = root.Position + Vector3.yAxis * SHOULDER_HEIGHT
+	local blockedAt = obstruction(shoulder, pose.Position)
+	if not blockedAt then
+		return pose
+	end
+	local direction = (pose.Position - shoulder).Unit
+	local position = shoulder + direction * math.max(0, blockedAt - StageConfig.wallClearance)
+	return CFrame.lookAt(position, position + pose.LookVector)
+end
+
+-- Left-to-right order of the composition: left side panels, the primary, then right side panels.
+-- Reserved panels are included whether or not they are showing, so the layout does not shift when
+-- one appears.
+function MenuRigRuntime:_composition(stage: UIMenuConfig.ViewStage): { string }
+	local present: { [string]: boolean } = {}
 	for _, panelId in ipairs(self._sidePanelIds) do
-		table.insert(ids, panelId)
+		present[panelId] = true
 	end
-	return ids
-end
-
-function MenuRigRuntime:_getPlayerRoot(): BasePart?
-	local player = Players.LocalPlayer
-	local character = player and player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	return if root and root:IsA("BasePart") then root else nil
-end
-
-function MenuRigRuntime:_resolveAnchorPosition(targetPosition: Vector3): Vector3
-	local anchorConfig = tunedTable("UIMenu.anchor", UIMenuConfig.anchor)
-	local followSpeed = tunedNumber("UIMenu.anchor.followSpeed", anchorConfig.followSpeed or UIMenuConfig.anchor.followSpeed)
-	local snapDistance = tunedNumber(
-		"UIMenu.anchor.snapDistance",
-		anchorConfig.snapDistance or UIMenuConfig.anchor.snapDistance
-	)
-
-	local current = self._smoothedAnchorPosition
-	local now = os.clock()
-	if current == nil then
-		self._smoothedAnchorPosition = targetPosition
-		self._lastAnchorUpdateTime = now
-		return targetPosition
+	for _, panelId in ipairs(stage.reserve) do
+		present[panelId] = true
 	end
 
-	if (targetPosition - current).Magnitude >= snapDistance then
-		self._smoothedAnchorPosition = targetPosition
-		self._lastAnchorUpdateTime = now
-		return targetPosition
-	end
-
-	local dt = 0
-	if self._lastAnchorUpdateTime > 0 then
-		dt = math.max(0, now - self._lastAnchorUpdateTime)
-	end
-	self._lastAnchorUpdateTime = now
-
-	if dt <= 0 then
-		return current
-	end
-
-	local alpha = 1 - math.exp(-math.max(0.1, followSpeed) * dt)
-	local nextPosition = current:Lerp(targetPosition, alpha)
-	self._smoothedAnchorPosition = nextPosition
-	return nextPosition
-end
-
-function MenuRigRuntime:_getPanelSlotConfig(panelId: string): PanelSlotConfig?
-	local layout = tunedTable("UIMenu.layout", UIMenuConfig.layout)
-	local panelSlots = if type(layout.panelSlots) == "table" then layout.panelSlots else UIMenuConfig.layout.panelSlots
-	local config = panelSlots and panelSlots[panelId]
-	return if type(config) == "table" then (config :: PanelSlotConfig) else nil
-end
-
-function MenuRigRuntime:_getPanelLayoutOrder(panelId: string): number
-	local config = self:_getPanelSlotConfig(panelId)
-	return if config and type(config.order) == "number" then config.order else 0
-end
-
-function MenuRigRuntime:_resolveLayoutBuckets(): LayoutBuckets
-	local buckets: LayoutBuckets = {
-		primary = nil,
-		left = {},
-		right = {},
-	}
-	if not self._modalOpen then
-		return buckets
-	end
-
-	local primary = self._primaryPanelId or PRIMARY_PANEL_BY_VIEW[self._view]
-	if type(primary) == "string" and primary ~= "" then
-		buckets.primary = primary
-	end
-
-	for _, panelId in ipairs(self._sidePanelIds) do
-		local config = self:_getPanelSlotConfig(panelId)
-		local side = if config and type(config.side) == "string" then config.side else "right"
-		if side == "left" then
-			table.insert(buckets.left, panelId)
+	local left: { string } = {}
+	local right: { string } = {}
+	for panelId in pairs(present) do
+		local slot = (UIMenuConfig.sideSlots :: any)[panelId]
+		-- Mirrored with the camera: when a wall pushed the camera to the character's left, the wall
+		-- is now on the composition's authored side, and a side panel placed there would sink into it.
+		local authoredLeft = slot ~= nil and slot.side == "left"
+		if authoredLeft == (self._side == 1) then
+			table.insert(left, panelId)
 		else
-			table.insert(buckets.right, panelId)
+			table.insert(right, panelId)
 		end
 	end
-
-	table.sort(buckets.left, function(a: string, b: string)
-		local aOrder = self:_getPanelLayoutOrder(a)
-		local bOrder = self:_getPanelLayoutOrder(b)
+	local function byOrder(a: string, b: string): boolean
+		local aSlot = (UIMenuConfig.sideSlots :: any)[a]
+		local bSlot = (UIMenuConfig.sideSlots :: any)[b]
+		local aOrder = if aSlot then aSlot.order else 0
+		local bOrder = if bSlot then bSlot.order else 0
 		if aOrder == bOrder then
 			return a < b
 		end
 		return aOrder < bOrder
+	end
+	-- Left panels are ordered outward from the primary, so they are reversed into screen order.
+	table.sort(left, function(a, b)
+		return byOrder(b, a)
 	end)
-	table.sort(buckets.right, function(a: string, b: string)
-		local aOrder = self:_getPanelLayoutOrder(a)
-		local bOrder = self:_getPanelLayoutOrder(b)
-		if aOrder == bOrder then
-			return a < b
-		end
-		return aOrder < bOrder
-	end)
+	table.sort(right, byOrder)
 
-	return buckets
+	local ordered = left
+	table.insert(ordered, self._primaryPanelId)
+	for _, panelId in ipairs(right) do
+		table.insert(ordered, panelId)
+	end
+	return ordered
 end
 
-function MenuRigRuntime:_getAnchorBasis(): AnchorBasis?
-	local root = self:_getPlayerRoot()
+function MenuRigRuntime:_solve(): Solve?
+	if not self._modalOpen then
+		return nil
+	end
+	local root = getPlayerRoot()
 	if not root then
 		return nil
 	end
 
-	local wgm = WorldGUIManager.peekInstance()
-	local basisYaw = if wgm then wgm:getGroupBasisYaw(resolveGroupName()) else nil
-	local right
-	local up
-	local forward
-	if type(basisYaw) == "number" then
-		right, up, forward = computeYawAxesFromYaw(basisYaw)
-	else
-		right, up, forward = computeYawAxesFromRoot(root)
+	local stage = getViewStage(self._view)
+	local camera = self:_solveCamera(root, stage)
+
+	local ids = self:_composition(stage)
+	local widths: { number } = {}
+	local totalWidth = 0
+	local maxHeight = 0
+	for index, panelId in ipairs(ids) do
+		local size = self._panelSizes[panelId] or Vector2.zero
+		widths[index] = size.X
+		totalWidth += size.X
+		maxHeight = math.max(maxHeight, size.Y)
+	end
+	totalWidth += StageConfig.spacing * math.max(0, #ids - 1)
+	if totalWidth <= 0 then
+		return { camera = camera, panels = {} }
 	end
 
-	local anchorPosition = self:_resolveAnchorPosition(root.Position)
+	-- Fit by width, or by height when the composition is tall for this screen shape, whichever puts
+	-- the panels further away.
+	local vfov = math.rad(MenuRigRuntime.getFov())
+	local viewport = Workspace.CurrentCamera.ViewportSize
+	local aspect = if viewport.Y > 0 then viewport.X / viewport.Y else 16 / 9
+	local halfTanV = math.tan(vfov / 2)
+	local halfTanH = halfTanV * aspect
+	local distance = math.max(
+		(totalWidth / stage.fill) / (2 * halfTanH),
+		(maxHeight / StageConfig.maxHeightFill) / (2 * halfTanV)
+	)
 
-	return {
-		position = anchorPosition,
-		right = right,
-		up = up,
-		forward = forward,
-	}
-end
-
-function MenuRigRuntime:_getPanelConfig(panelId: string): PanelPlacement?
-	local wgm = WorldGUIManager.peekInstance()
-	if wgm then
-		local panelCfg = wgm:getPanelSnapshot(panelId)
-		if panelCfg then
-			return {
-				offset = panelCfg.offset,
-				playerSpaceOffset = panelCfg.basePlayerSpaceOffset,
-				maxRadius = panelCfg.maxRadius,
-			}
-		end
+	-- Panels sit on an arc around the camera, so each one faces it squarely rather than all of them
+	-- sharing one plane and the outer ones turning away.
+	local cursor = stage.shift * self._side * (2 * distance * halfTanH) - totalWidth / 2
+	local drop = -StageConfig.drop * distance
+	local panels: { [string]: CFrame } = {}
+	for index, panelId in ipairs(ids) do
+		local centre = cursor + widths[index] / 2
+		cursor += widths[index] + StageConfig.spacing
+		panels[panelId] = camera
+			* CFrame.Angles(0, -centre / distance, 0)
+			* CFrame.new(0, drop, -distance)
+			* CFrame.Angles(0, math.pi, 0)
 	end
 
-	local panels = UIMenuConfig.panels :: any
-	local config = panels[panelId]
-	return if type(config) == "table" then config else nil
-end
-
-function MenuRigRuntime:_getRadiusLimits(panelId: string): (number?, number?)
-	local wgm = WorldGUIManager.peekInstance()
-	local panelCfg = if wgm then wgm:getPanelSnapshot(panelId) else nil
-	local groupParams = if wgm then wgm:getGroupParams(resolveGroupName()) else nil
-	local padding = 0
-	if panelCfg and type(panelCfg.radiusPadding) == "number" then
-		padding = panelCfg.radiusPadding
-	elseif groupParams and type(groupParams.radiusPadding) == "number" then
-		padding = groupParams.radiusPadding
-	end
-
-	local minRadius = nil :: number?
-	if panelCfg and type(panelCfg.minRadius) == "number" then
-		minRadius = panelCfg.minRadius
-	elseif groupParams and type(groupParams.minRadius) == "number" then
-		minRadius = groupParams.minRadius
-	end
-	if type(minRadius) == "number" then
-		minRadius += padding
-	end
-
-	local maxRadius = nil :: number?
-	if panelCfg and type(panelCfg.maxRadius) == "number" then
-		maxRadius = panelCfg.maxRadius
-	elseif groupParams and type(groupParams.maxRadius) == "number" then
-		maxRadius = groupParams.maxRadius
-	end
-
-	return minRadius, maxRadius
-end
-
-function MenuRigRuntime:_resolveBaseTarget(panelId: string): Vector3?
-	local panelCfg = self:_getPanelConfig(panelId)
-	local basis = self:_getAnchorBasis()
-	if not panelCfg or not basis then
-		return nil
-	end
-
-	local offset = asVector3(panelCfg.offset, Vector3.zero)
-	local playerSpaceOffset = asVector3(panelCfg.playerSpaceOffset, Vector3.zero)
-	local desired = basis.position + offset + transformLocal(basis.right, basis.up, basis.forward, playerSpaceOffset)
-	local minRadius, maxRadius = self:_getRadiusLimits(panelId)
-	return clampRadius(basis.position, desired, minRadius, maxRadius)
-end
-
-function MenuRigRuntime:_resolveLayoutLocalOffset(distanceAlongRight: number): Vector3
-	local layout = tunedTable("UIMenu.layout", UIMenuConfig.layout)
-	local surface = layout.surface or "line"
-	if surface == "arc" then
-		local radius = math.max(0.1, layout.arcRadius or UIMenuConfig.layout.arcRadius)
-		local theta = distanceAlongRight / radius
-		local arcDepthSign = layout.arcDepthSign or UIMenuConfig.layout.arcDepthSign or -1
-		local arcDepthScale = layout.arcDepthScale or UIMenuConfig.layout.arcDepthScale or 1
-		return Vector3.new(
-			math.sin(theta) * radius,
-			0,
-			arcDepthSign * (1 - math.cos(theta)) * radius * arcDepthScale
-		)
-	end
-	return Vector3.new(distanceAlongRight, 0, 0)
-end
-
-function MenuRigRuntime:_resolvePanelHalfWidth(panelId: string): number
-	local wgm = WorldGUIManager.peekInstance()
-	if not wgm then
-		return 1
-	end
-	local width = wgm:getPanelLayoutWidth(panelId)
-	if type(width) == "number" and width > 0 then
-		return width * 0.5
-	end
-	return 1
-end
-
-function MenuRigRuntime:_resolveSlotOffsets(): { [string]: Vector3 }
-	local offsets: { [string]: Vector3 } = {}
-	local buckets = self:_resolveLayoutBuckets()
-	local primaryPanelId = buckets.primary
-	if primaryPanelId == nil then
-		return offsets
-	end
-
-	local layout = tunedTable("UIMenu.layout", UIMenuConfig.layout)
-	local spacing = layout.spacing or UIMenuConfig.layout.spacing or 0
-	offsets[primaryPanelId] = Vector3.zero
-
-	local primaryHalfWidth = self:_resolvePanelHalfWidth(primaryPanelId)
-	local function resolveSide(panelIds: { string }, direction: number)
-		local cursor = 0
-		local previousHalfWidth = primaryHalfWidth
-		for _, panelId in ipairs(panelIds) do
-			local currentHalfWidth = self:_resolvePanelHalfWidth(panelId)
-			cursor += previousHalfWidth + currentHalfWidth + spacing
-			offsets[panelId] = self:_resolveLayoutLocalOffset(cursor * direction)
-			previousHalfWidth = currentHalfWidth
-		end
-	end
-
-	resolveSide(buckets.left, -1)
-	resolveSide(buckets.right, 1)
-
-	return offsets
-end
-
-function MenuRigRuntime:_resolveOverrideTarget(panelId: string): Vector3?
-	if not self._modalOpen then
-		return nil
-	end
-
-	local activeIds = self:_getActivePanelIds()
-	local isActive = false
-	for _, activePanelId in ipairs(activeIds) do
-		if activePanelId == panelId then
-			isActive = true
-			break
-		end
-	end
-	if not isActive then
-		return nil
-	end
-
-	local baseTarget = self:_resolveBaseTarget(panelId)
-	local basis = self:_getAnchorBasis()
-	if not baseTarget or not basis then
-		return nil
-	end
-
-	local slotOffsets = self:_resolveSlotOffsets()
-	local localOffset = slotOffsets[panelId]
-	if not localOffset then
-		return baseTarget
-	end
-
-	local target = baseTarget + transformLocal(basis.right, basis.up, basis.forward, localOffset)
-	local minRadius, maxRadius = self:_getRadiusLimits(panelId)
-	return clampRadius(basis.position, target, minRadius, maxRadius)
-end
-
-function MenuRigRuntime:_applyCenterWeights()
-	local wgm = WorldGUIManager.peekInstance()
-	if not wgm then
-		return
-	end
-
-	local centerWeights = UIMenuConfig.centerWeights
-	local nextWeights = centerWeights.systemView
-	if self._view == "inventory" then
-		nextWeights = centerWeights.inventoryView
-	elseif self._view == "equipment" then
-		nextWeights = centerWeights.equipmentView
-	end
-
-	wgm:setGroupParams(resolveGroupName(), {
-		centerWeights = tunedTable(`UIMenu.centerWeights.{self._view}View`, nextWeights),
-	})
+	return { camera = camera, panels = panels }
 end
 
 function MenuRigRuntime:applyMenuState(state: MenuStateLike)
 	local wasOpen = self._modalOpen
+	local previousView = self._view
 	self._modalOpen = state.modal.open
 	self._view = state.modal.view
 	self._primaryPanelId = state.modal.primaryPanelId or PRIMARY_PANEL_BY_VIEW[state.modal.view]
 	self._sidePanelIds = if type(state.modal.sidePanelIds) == "table" then table.clone(state.modal.sidePanelIds) else {}
+
 	if not self._modalOpen then
-		self._smoothedAnchorPosition = nil
-		self._lastAnchorUpdateTime = 0
+		self._basisYaw = nil
 	elseif not wasOpen then
-		local root = self:_getPlayerRoot()
-		if root then
-			self._smoothedAnchorPosition = root.Position
-			self._lastAnchorUpdateTime = os.clock()
-		end
+		local root = getPlayerRoot()
+		self._basisYaw = if root then flatYaw(root) else nil
+		self:_chooseSide()
+	elseif previousView ~= self._view then
+		self:_chooseSide()
 	end
+
 	self:_ensureProviders()
-	self:_applyCenterWeights()
+end
+
+function MenuRigRuntime:setPanelSize(panelId: string, width: number, height: number)
+	self._panelSizes[panelId] = Vector2.new(width, height)
 end
 
 function MenuRigRuntime:isOpen(): boolean
 	return self._modalOpen
 end
 
-function MenuRigRuntime:getBasisYaw(): number?
-	local wgm = WorldGUIManager.peekInstance()
-	if wgm then
-		local basisYaw = wgm:getGroupBasisYaw(resolveGroupName())
-		if type(basisYaw) == "number" then
-			return basisYaw
-		end
-	end
-
-	local root = self:_getPlayerRoot()
-	if not root then
-		return nil
-	end
-
-	local forward = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
-	if forward.Magnitude <= 1e-4 then
-		return nil
-	end
-	forward = forward.Unit
-	return math.atan2(-forward.X, -forward.Z)
-end
-
 function MenuRigRuntime:getPrimaryPanelId(): string
 	return self._primaryPanelId
 end
 
-function MenuRigRuntime:getFocusPoint(): Vector3?
-	if not self._modalOpen then
-		return nil
-	end
-
-	self:_ensureProviders()
-	local wgm = WorldGUIManager.peekInstance()
-	if not wgm then
-		return nil
-	end
-
-	local groupParams = wgm:getGroupParams(resolveGroupName())
-	local centerWeights = if groupParams and type(groupParams.centerWeights) == "table" then groupParams.centerWeights else nil
-
-	local sum = Vector3.zero
-	local weightSum = 0
-	for _, panelId in ipairs(self:_getActivePanelIds()) do
-		local target = self:_resolveOverrideTarget(panelId)
-		if target then
-			local weight = 1
-			if centerWeights then
-				local weighted = centerWeights[panelId] or centerWeights._default
-				if type(weighted) == "number" then
-					weight = weighted
-				end
-			end
-			sum += target * weight
-			weightSum += weight
-		end
-	end
-
-	if weightSum > 0 then
-		return sum / weightSum
-	end
-
-	return self:_resolveOverrideTarget(self:getPrimaryPanelId())
+-- Where the camera belongs while the menu is open. Read every frame by the menu camera modifier.
+function MenuRigRuntime:getCameraPose(): CFrame?
+	local solve = self:_solve()
+	return if solve then solve.camera else nil
 end
 
 function MenuRigRuntime.get()

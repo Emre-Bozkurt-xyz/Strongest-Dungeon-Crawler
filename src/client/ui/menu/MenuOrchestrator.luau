@@ -141,7 +141,6 @@ function MenuOrchestrator.destroy()
 		_disconnect = nil
 	end
 	_store = nil
-	MenuMotionBridge.clearEntryBasis()
 	MenuInputBridge.apply(false)
 	MenuRigRuntime.get():applyMenuState({
 		modal = {

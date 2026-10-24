@@ -14,6 +14,7 @@
 -- React subtree drops while the surface and root persist.
 
 local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
+local MenuRigRuntime = require(script.Parent.Parent.menu.MenuRigRuntime)
 local PanelRegistry = require(script.Parent.PanelRegistry)
 local PanelHost = require(script.Parent.PanelHost)
 
@@ -77,6 +78,13 @@ function UIRuntime.start()
 		return
 	end
 	started = true
+
+	-- The stage lays out reserved slots before their panels have ever been shown, so it needs every
+	-- size up front rather than reading them off parts that may not exist yet.
+	local rig = MenuRigRuntime.get()
+	for _, entry in ipairs(PanelRegistry.list()) do
+		rig:setPanelSize(entry.id, entry.surface.width, entry.surface.height)
+	end
 
 	applyState(MenuOrchestrator.getState())
 	disconnect = MenuOrchestrator.onChanged(function(_prev, next)

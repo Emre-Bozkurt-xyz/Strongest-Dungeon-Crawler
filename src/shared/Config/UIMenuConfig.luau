@@ -1,113 +1,77 @@
 --!strict
--- Central tuning values for diegetic menu panel placement and layout.
+-- Menu staging: where the camera stands for each menu view, and how the panels are fitted to it.
+-- MenuRigRuntime solves both from the character's position and the yaw it had when the menu opened;
+-- see docs/tasks/menu-staging.md.
 
-export type PanelPlacement = {
-	offset: Vector3,
-	playerSpaceOffset: Vector3,
-	faceBlend: number,
-	playerOffsetMode: "full" | "yaw",
-	maxRadius: number,
+export type CameraPose = {
+	-- Studs from the HumanoidRootPart, in the character's yaw frame. `right` mirrors when the stage
+	-- flips sides to clear a wall.
+	right: number,
+	up: number,
+	-- Positive is behind the character, negative ahead of it.
+	back: number,
+	-- Degrees from the character's facing, turning toward the character. 180 looks straight back.
+	turn: number,
+}
+
+export type ViewStage = {
+	camera: CameraPose,
+	-- Share of the view width the panel composition fills.
+	fill: number,
+	-- Where the composition is centred, as a share of the visible width at the panels' distance.
+	-- Positive is right. Used to leave room for the character in views that frame it.
+	shift: number,
+	-- Side panels whose slot is held open even while hidden, so the primary panel does not move
+	-- when one appears.
+	reserve: { string },
+}
+
+export type SideSlot = {
+	side: "left" | "right",
+	order: number,
 }
 
 local UIMenuConfig = {
 	groupName = "menu",
-	anchor = {
-		followSpeed = 22,
-		snapDistance = 10,
-	},
-	groupParams = {
-		lerpSpeed = 14,
-		minRadius = 2.7,
-		maxRadius = 8.0,
-	},
-	layout = {
-		spacing = 0.4,
-		includeHidden = false,
-		space = "player",
-		surface = "arc",
-		arcRadius = 8.5,
-		arcDepthScale = 0.28,
-		arcDepthSign = -1,
-		panelSlots = {
-			SystemPanel = {
-				role = "primary",
-				side = "center",
-				order = 0,
-			},
-			InventoryPanel = {
-				role = "primary",
-				side = "center",
-				order = 0,
-			},
-			EquipmentPanel = {
-				role = "primary",
-				side = "center",
-				order = 0,
-			},
-			ItemInspectPanel = {
-				role = "side",
-				side = "right",
-				order = 100,
-			},
+	stage = {
+		-- Narrower than gameplay on purpose: at 65 the horizontal FOV on 16:9 is ~97 degrees, and an
+		-- off-centre panel is visibly stretched by the wide-angle projection.
+		fov = 45,
+		-- Height cap, so a tall panel is fitted by height rather than overflowing the frame.
+		maxHeightFill = 0.82,
+		-- Studs between adjacent panels in a composition.
+		spacing = 0.3,
+		-- Lowers the composition below the eye line, as a share of its distance.
+		drop = 0.03,
+		-- Kept between the camera and a wall it is pulled in front of.
+		wallClearance = 0.4,
+		views = {
+			-- Beside the character at a little under shoulder height, the character out of frame:
+			-- these views are about reading the panel, and the character only gets in the way.
+			system = {
+				camera = { right = 3.2, up = 0.7, back = 0, turn = 0 },
+				fill = 0.72,
+				shift = 0,
+				reserve = {},
+			} :: ViewStage,
+			inventory = {
+				camera = { right = 3.2, up = 0.7, back = 0, turn = 0 },
+				fill = 0.86,
+				shift = 0,
+				reserve = { "ItemInspectPanel" },
+			} :: ViewStage,
+			-- In front of the character and turned back toward it, so the paper doll sits beside the
+			-- character it describes.
+			equipment = {
+				camera = { right = 5.2, up = 0.7, back = -7.4, turn = 122 },
+				fill = 0.55,
+				shift = 0.2,
+				reserve = { "ItemInspectPanel" },
+			} :: ViewStage,
 		},
 	},
-	panels = {
-		SystemPanel = {
-			offset = Vector3.new(0, 0.2, 0),
-			-- Pushed back and raised: at 2.1 studs the panel's lower-left sat behind the character.
-			playerSpaceOffset = Vector3.new(0.300, 1.500, 3.400),
-			faceBlend = 0.35,
-			playerOffsetMode = "yaw",
-			maxRadius = 16.0,
-		} :: PanelPlacement,
-		InventoryPanel = {
-			offset = Vector3.new(0, 0.2, 0),
-			playerSpaceOffset = Vector3.new(0.3, 1.0, 3.8),
-			faceBlend = 0.35,
-			playerOffsetMode = "yaw",
-			maxRadius = 16.0,
-		} :: PanelPlacement,
-		EquipmentPanel = {
-			offset = Vector3.new(0, 0.2, 0),
-			playerSpaceOffset = Vector3.new(0.3, 1.0, 3.8),
-			faceBlend = 0.35,
-			playerOffsetMode = "yaw",
-			maxRadius = 16.0,
-		} :: PanelPlacement,
-		ItemInspectPanel = {
-			offset = Vector3.new(0, 0.2, 0),
-			playerSpaceOffset = Vector3.new(0.3, 1.0, 3.8),
-			faceBlend = 0.35,
-			playerOffsetMode = "yaw",
-			maxRadius = 16.0,
-		} :: PanelPlacement,
-	},
-	centerWeights = {
-		systemPanelBootstrap = {
-			SystemPanel = 2.25,
-			_default = 1.0,
-		},
-		systemView = {
-			SystemPanel = 2.5,
-			_default = 0.75,
-		},
-		inspectOnly = {
-			ItemInspectPanel = 2.4,
-			_default = 1.0,
-		},
-		inventoryView = {
-			InventoryPanel = 2.8,
-			ItemInspectPanel = 0.85,
-			_default = 0.6,
-		},
-		equipmentView = {
-			EquipmentPanel = 2.8,
-			ItemInspectPanel = 0.85,
-			_default = 0.6,
-		},
-	},
-	systemPanel = {
-		radiusPaddingFloor = 0.5,
+	sideSlots = {
+		ItemInspectPanel = { side = "right", order = 100 } :: SideSlot,
 	},
 }
 

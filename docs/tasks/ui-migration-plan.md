@@ -680,9 +680,11 @@ an ordinary render decision.
 Run the capability checklist first (Guardrail 1) — list what the old panel could do and confirm each,
 or record the omission.
 
-**What you never touch:** `WorldGUIManager`, `MenuRigRuntime`, `MenuStateStore`, `MenuReducer`,
-`MenuInputBridge`. Placement, motion and menu state are already correct and stay imperative (R3,
-R16). Panel placement is configured in `SharedConfig.UIMenu.panels[id]`, not in the panel.
+**What a panel never touches:** `WorldGUIManager`, `MenuRigRuntime`, `MenuStateStore`, `MenuReducer`,
+`MenuInputBridge`. Placement, motion and menu state stay imperative (R3, R16) and outside the panel.
+A menu panel is placed by the menu stage (`UIMenuConfig.stage`, see `menu-staging.md`); a new menu
+panel needs its id in `MenuRigRuntime.MENU_PANEL_IDS` and, if it is a side panel, a
+`UIMenuConfig.sideSlots` entry.
 
 ### Reading the Studio exports
 
@@ -844,9 +846,10 @@ walks. Capability notes: the `WorldLootInspect.*` DevTuning subscription is drop
 those paths); `maxVisibleRows` now actually sizes rows; the pickup hint is new. Rarity tints moved to
 `selectors/rarity` (four copies existed).
 
-**Remaining:** the migration itself is complete. Next is a dedicated design pass — every panel is a
-functional port, not a finished design (R12) — iterating against live Studio captures over MCP.
-Phases R5/R6 (pointer spike, interaction rework) follow it.
+**Remaining:** the migration itself is complete. Next is menu staging
+(`docs/tasks/menu-staging.md`), then a dedicated design pass (`docs/tasks/ui-design-pass.md`) — every
+panel is a functional port, not a finished design (R12). The R5 pointer spike folds into staging;
+R6 follows the design pass.
 
 **Deliberately staying imperative:** `OverheadHPBar` and `DamageLabel`. Both are per-entity/per-hit
 `BillboardGui`s, a third mounting model that neither `PanelHost` nor `ScreenRegistry` covers, and

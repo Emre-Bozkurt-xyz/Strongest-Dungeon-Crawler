@@ -56,10 +56,11 @@ type WorldGUIManagerType = {
 	setPanelFrozen: (self: WorldGUIManagerType, panelName: string, frozen: boolean) -> (),
 	setPanelFollowMode: (self: WorldGUIManagerType, panelName: string, mode: "player" | "camera" | "target") -> (),
 	_snapPanelToTarget: (self: WorldGUIManagerType, config: PanelConfig) -> (),
+	snapPanel: (self: WorldGUIManagerType, panelName: string) -> (),
 	setGroupBasisYaw: (self: WorldGUIManagerType, groupName: string, yaw: number?) -> (),
 	getGroupBasisYaw: (self: WorldGUIManagerType, groupName: string) -> number?,
 	getGroupParams: (self: WorldGUIManagerType, groupName: string) -> { [string]: any }?,
-	setPanelTargetOverrideProvider: (self: WorldGUIManagerType, panelName: string, provider: (() -> Vector3?)?) -> (),
+	setPanelTargetOverrideProvider: (self: WorldGUIManagerType, panelName: string, provider: (() -> (Vector3 | CFrame)?)?) -> (),
 }
 
 local WorldGUIConfig = SharedConfig.WorldGUI
@@ -124,7 +125,7 @@ type PanelConfig = {
 	radiusPadding: number?, -- Optional extra min-radius padding (e.g. panel depth/2)
 	lerpSpeed: number?, -- Optional per-panel lerp speed (defaults to BASE_LERP_SPEED)
 	visible: boolean?, -- Current visibility state
-	targetOverrideProvider: (() -> Vector3?)?,
+	targetOverrideProvider: (() -> (Vector3 | CFrame)?)?,
 }
 
 type PanelMutableFields = {
@@ -142,7 +143,7 @@ type PanelMutableFields = {
 	maxRadius: number?,
 	radiusPadding: number?,
 	lerpSpeed: number?,
-	targetOverrideProvider: (() -> Vector3?)?,
+	targetOverrideProvider: (() -> (Vector3 | CFrame)?)?,
 }
 
 type PanelSnapshot = {
@@ -421,6 +422,16 @@ local function resolvePanelTargetPosition(self: WorldGUIManagerType, config: Pan
 end
 
 local function resolvePanelTargetCFrame(self: WorldGUIManagerType, config: PanelConfig): CFrame?
+	-- A provider returning a CFrame has solved facing as well as position (the menu stage places
+	-- panels square to its own camera pose), so none of the facing modes apply.
+	local overrideProvider = (config :: any).targetOverrideProvider
+	if overrideProvider ~= nil then
+		local ok, override = pcall(overrideProvider)
+		if ok and typeof(override) == "CFrame" then
+			return override
+		end
+	end
+
 	local targetPosition = resolvePanelTargetPosition(self, config)
 	if not targetPosition then
 		return nil
@@ -442,6 +453,10 @@ function WorldGUIManager.new()
 	self.panels = registry.panels :: { [string]: PanelConfig }
 	self._panelGroups = registry.groups :: { [string]: { [string]: any } }
 	self._groupRuntime = {} :: { [string]: { [string]: any } }
+	-- Kept by name so a provider set before its panel registers (or across a re-register) still
+	-- attaches; the menu stage installs providers when menu state changes, which can precede the
+	-- lazily created panel host.
+	self._overrideProviders = {} :: { [string]: () -> (Vector3 | CFrame)? }
 	self._frozenPanels = registry.frozen :: { [string]: boolean }
 	self._panelVisOps = registry.visibilityOps :: { [string]: number }
 	self._panelVisSeq = registry.visibilitySeq :: number
@@ -471,6 +486,10 @@ function WorldGUIManager:registerPanel(config: PanelConfig)
 	config._basePlayerSpaceOffset = cfgAny.playerSpaceOffset
 	config.visible = false
 
+	local pendingProvider = self._overrideProviders[config.name]
+	if pendingProvider and (config :: any).targetOverrideProvider == nil then
+		(config :: any).targetOverrideProvider = pendingProvider
+	end
 	self.panels[config.name] = config
 
 	-- Initial positioning (use 1/60 as default deltaTime for initial setup)
@@ -560,6 +579,15 @@ function WorldGUIManager:_snapPanelToTarget(config: PanelConfig)
 	end
 
 	config.part.CFrame = targetCF
+end
+
+-- Jump straight to the target instead of lerping there, for a panel that is appearing and has no
+-- meaningful previous position to travel from.
+function WorldGUIManager:snapPanel(panelName: string)
+	local cfg = self.panels[panelName]
+	if cfg then
+		self:_snapPanelToTarget(cfg)
+	end
 end
 
 function WorldGUIManager:setPanelFollowTarget(panelName: string, followTarget: BasePart?)
@@ -951,7 +979,8 @@ function WorldGUIManager:getGroupBasisYaw(groupName: string): number?
 	return if type(yaw) == "number" then yaw else nil
 end
 
-function WorldGUIManager:setPanelTargetOverrideProvider(panelName: string, provider: (() -> Vector3?)?)
+function WorldGUIManager:setPanelTargetOverrideProvider(panelName: string, provider: (() -> (Vector3 | CFrame)?)?)
+	self._overrideProviders[panelName] = provider
 	local cfg = self.panels[panelName]
 	if not cfg then
 		return

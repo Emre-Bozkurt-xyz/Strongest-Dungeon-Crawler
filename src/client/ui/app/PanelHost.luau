@@ -151,6 +151,9 @@ function PanelHost.setVisible(self: any, visible: boolean)
 	self._part.CanQuery = visible
 	if visible then
 		self._gui.Enabled = true
+		-- A hidden panel's last position is stale -- wherever it was parked, possibly across the
+		-- map -- so it appears where it belongs rather than flying in from there.
+		WorldGUIManager.getInstance():snapPanel(self._entry.id)
 	end
 
 	local duration = self._entry.fadeDuration or DEFAULT_FADE
@@ -188,9 +191,9 @@ function PanelHost.setFollowTarget(self: any, target: BasePart?)
 
 	-- Snap rather than lerp when a target appears from nothing. The panel's last position belongs to
 	-- whatever it followed before, possibly across the map, and it would fly in from there. Moving
-	-- between two live targets still lerps. Re-applying the follow mode is WorldGUIManager's snap.
+	-- between two live targets still lerps.
 	if target and appearing then
-		wgm:setPanelFollowMode(self._entry.id, (self._entry.placement.followMode or "target") :: any)
+		wgm:snapPanel(self._entry.id)
 	end
 end
 

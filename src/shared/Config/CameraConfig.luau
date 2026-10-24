@@ -25,25 +25,14 @@ local CameraConfig = {
 		},
 	},
 	modifiers = {
+		-- The pose and FOV come from the menu stage (UIMenuConfig.stage); this only sets how the
+		-- camera travels there. Per-frame lerp factors, so lower is a longer, softer move.
 		systemMenuFocus = {
 			priority = 50,
-			followSmoothness = 0.75,
-			lookSmoothness = 0.7,
-			shoulderRight = 3.3,
-			shoulderUp = 2.25,
-			shoulderBack = 3.0,
-			fov = 65,
+			followSmoothness = 0.16,
+			lookSmoothness = 0.16,
 			lockYaw = true,
 			lockPitch = true,
-			entryPose = {
-				pitch = math.rad(-8),
-				yawOffset = 0,
-			},
-			yawAssist = {
-				maxYaw = math.rad(10),
-				deadzone = 0.5,
-				smoothness = 0.14,
-			},
 		},
 	},
 }

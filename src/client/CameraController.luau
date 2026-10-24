@@ -147,6 +147,7 @@ type CameraSettings = {
 	shake: CameraShake?,
 	yawAssist: { maxYaw: number, deadzone: number, smoothness: number }?,
 	lookAtProvider: (() -> Vector3?)?,
+	poseProvider: (() -> CFrame?)?,
 }
 
 type CameraModifierSpec = {
@@ -164,7 +165,9 @@ type CameraModifierSpec = {
 	shake: CameraShake?,
 	yawAssist: { maxYaw: number, deadzone: number, smoothness: number }?,
 	lookAtProvider: (() -> Vector3?)?,
-	entryPose: { pitch: number?, yawOffset: number? }?,
+	-- Supplies the whole camera pose, bypassing shoulder offsets, look-at and collision. For a staged
+	-- view (the menu) whose owner has already solved where the camera belongs.
+	poseProvider: (() -> CFrame?)?,
 }
 
 type CameraModifierEntry = {
@@ -426,6 +429,7 @@ function CameraController:_computeOverrides(): CameraSettings
 		shake = nil,
 		yawAssist = nil,
 		lookAtProvider = nil,
+		poseProvider = nil,
 	}
 
 	for _, entry in ipairs(ordered) do
@@ -467,6 +471,9 @@ function CameraController:_computeOverrides(): CameraSettings
 		end
 		if spec.lookAtProvider ~= nil then
 			settings.lookAtProvider = spec.lookAtProvider
+		end
+		if spec.poseProvider ~= nil then
+			settings.poseProvider = spec.poseProvider
 		end
 	end
 
@@ -598,6 +605,17 @@ function CameraController:_updateCamera()
 	self._lockPitch = settings.lockPitch
 	self.camera.FieldOfView = settings.fov
 	self._lookAtProvider = settings.lookAtProvider
+
+	local posed = settings.poseProvider and settings.poseProvider()
+	if posed then
+		-- _yaw and _pitch are left untouched, so the gameplay camera resumes exactly where it was
+		-- when the pose provider goes away.
+		local current = self.camera.CFrame
+		local position = current.Position:Lerp(posed.Position, settings.followSmoothness)
+		local target = CFrame.lookAt(position, position + posed.LookVector)
+		self.camera.CFrame = current:Lerp(target, settings.lookSmoothness)
+		return
+	end
 
 	local yawOffset = 0
 	if settings.yawAssist then

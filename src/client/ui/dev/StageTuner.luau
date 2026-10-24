@@ -510,6 +510,17 @@ local function StageTuner()
 				MenuOrchestrator.setInspect("inventory", { uid = uid })
 			end,
 		}),
+		-- Not a stage setting, but this is the one dev overlay; switches the vitals readout between
+		-- following the character and pinned above the skill bar.
+		VitalsAnchor = e(SmallButton, {
+			text = "Vitals",
+			width = 60,
+			layoutOrder = 7,
+			onActivated = function()
+				local anchor = DevTuningService.get("VitalsHud.anchor")
+				DevTuningService.set("VitalsHud.anchor", if anchor == "character" then "pinned" else "character")
+			end,
+		}),
 	}
 	children.Actions = e("Frame", {
 		Size = UDim2.new(1, 0, 0, ROW_HEIGHT),

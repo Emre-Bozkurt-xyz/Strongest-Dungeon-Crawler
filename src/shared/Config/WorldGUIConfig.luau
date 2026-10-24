@@ -5,12 +5,6 @@ local WorldGUIConfig = {
 	defaults = {
 		baseLerpSpeed = 8.0,
 	},
-	panels = {
-		StatusPreview = {
-			offset = Vector3.new(0, 0, 0),
-			playerSpaceOffset = Vector3.new(4, 0.7, 0.1),
-		},
-	},
 	cameraPanel = {
 		forward = 4.0,
 		forwardOverShoulder = 3.5,

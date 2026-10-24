@@ -2,7 +2,7 @@
 -- One vital: icon and caption in a column at the left, fill bar to their right, current/max readout
 -- beneath it.
 --
--- Shared because SystemPanel and StatusPreviewPanel had grown near-identical private copies of this
+-- Shared because SystemPanel and the old status preview had grown near-identical private copies of this
 -- composition, and the icon/caption alignment bug existed in both -- they were separate absolutely
 -- positioned boxes of different widths with different alignments, so nothing lined them up. Here
 -- they share one column and both centre within it.

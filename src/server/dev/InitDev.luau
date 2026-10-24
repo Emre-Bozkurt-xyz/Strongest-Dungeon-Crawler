@@ -66,6 +66,27 @@ function Dev.start(ctx)
 		warn('[DevTune] Usage: _G.DevTune("set Camera.baseline.shoulderBack 5.2")')
 		warn('[DevTune]    or: _G.DevTune(player, "set Camera.baseline.shoulderBack 5.2")')
 	end
+
+	-- Moves a player's pool, for checking the vitals UI without a fight. Positive adds, negative
+	-- removes: ServerStorage.DevPool:Fire(player, "Health", -40). An instance rather than a _G
+	-- function because the Studio command bar and MCP scripts do not share this script's _G.
+	local devPool = Instance.new("BindableEvent")
+	devPool.Name = "DevPool"
+	devPool.Parent = game:GetService("ServerStorage")
+	devPool.Event:Connect(function(player: Player, pool: string, delta: number)
+		local registrar = require(script.Parent.Parent.Services.Registrar)
+		local statsManager = require(script.Parent.Parent.Stats.StatsManager)
+		local playerId = registrar.getPlayerId(player)
+		if not playerId then
+			warn("[DevPool] No playerId for", player)
+			return
+		end
+		if delta >= 0 then
+			statsManager.addToPool(playerId, pool :: any, delta)
+		else
+			statsManager.removeFromPool(playerId, pool :: any, -delta)
+		end
+	end)
 end
 
 function Dev.onPlayerReady(player: Player, character: Model)

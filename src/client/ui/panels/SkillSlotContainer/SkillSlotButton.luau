@@ -5,8 +5,8 @@
 --
 -- Owns its own useSkillCooldown/useSkillRemaining calls so the number of hooks per render never
 -- depends on how many slots the bar has -- each slot gets its own component precisely so its hooks
--- belong to it (StatusPreviewView documents the same discipline for a differently-shaped hazard: a
--- hook that must never become conditional on how much data is currently available).
+-- belong to it. The same goes for any hook that could otherwise become conditional on how much data
+-- is currently available.
 --
 -- GCD and cast-blocked are shared across every slot -- SkillSlots.activate gates on the same GCD key
 -- and the same status effect no matter which slot fired it -- so those arrive as bindings computed

@@ -19,11 +19,16 @@ export type ScreenEntry = {
 local RunService = game:GetService("RunService")
 
 local SkillSlotContainer = require(script.Parent.Parent.panels.SkillSlotContainer)
+local VitalsHud = require(script.Parent.Parent.panels.VitalsHud)
 
 local entries: { ScreenEntry } = {
 	{
 		id = "SkillSlotContainer",
 		component = SkillSlotContainer,
+	},
+	{
+		id = "VitalsHud",
+		component = VitalsHud,
 	},
 }
 

@@ -13,7 +13,6 @@ local MenuTypes = require(script.Parent.Parent.menu.MenuTypes)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 
 local UIMenuConfig = SharedConfig.UIMenu
-local WorldGUIConfig = SharedConfig.WorldGUI
 
 export type MenuState = MenuTypes.MenuState
 
@@ -32,10 +31,10 @@ export type SurfaceConfig = {
 }
 
 -- How WorldGUIManager should place the panel. Passed through to `registerPanel` untouched, so the
--- host has no opinion about where panels live -- menu panels are posed by MenuRigRuntime, the status
--- preview reads WorldGUIConfig, and a panel anchored to something in the world supplies its own.
+-- host has no opinion about where panels live -- menu panels are posed by MenuRigRuntime, and a panel
+-- anchored to something in the world supplies its own.
 export type Placement = {
-	-- Optional: a panel outside the menu rig belongs to no group (the status preview does not).
+	-- Optional: a panel outside the menu rig need not belong to a group.
 	group: string?,
 	followMode: string?,
 	faceCamera: boolean?,
@@ -77,7 +76,6 @@ if game:GetService("RunService"):IsStudio() then
 	SystemPanel = require(script.Parent.Parent.dev.StyleTile).withStyleTile(SystemPanel)
 end
 
-local StatusPreviewPanel = require(script.Parent.Parent.panels.StatusPreviewPanel)
 local EquipmentPanel = require(script.Parent.Parent.panels.EquipmentPanel)
 local InventoryPanel = require(script.Parent.Parent.panels.InventoryPanel)
 local WorldLootInspectPanel = require(script.Parent.Parent.panels.WorldLootInspectPanel)
@@ -138,27 +136,6 @@ local entries: { PanelEntry } = {
 		placement = menuRigPlacement(),
 		isVisible = function(state)
 			return isMenuOpen(state) and state.modal.view == "equipment"
-		end,
-	},
-	{
-		-- "StatusPreview", not "StatusPreviewPanel": this is the WorldGUIManager panel name the old
-		-- controller registered under, and WorldGUIConfig and the DevTuning paths are keyed on it.
-		id = "StatusPreview",
-		component = StatusPreviewPanel,
-		-- Studs from the Studio-authored part. 300 px/stud gives an 897x396 canvas.
-		surface = { width = 2.991, height = 1.321, thickness = 0.076, pixelsPerStud = 300 },
-		-- Character-anchored, not on the menu rig, so it states its own placement. Only the fields
-		-- the old controller set -- PanelHost fills in no defaults.
-		placement = {
-			faceCamera = true,
-			followMode = "player",
-			offset = WorldGUIConfig.panels.StatusPreview.offset,
-			playerSpaceOffset = WorldGUIConfig.panels.StatusPreview.playerSpaceOffset,
-		},
-		-- The inverse of every menu panel: this is the ambient gameplay readout, so it yields
-		-- whenever a modal is up.
-		isVisible = function(state)
-			return not state.modal.open
 		end,
 	},
 	{

@@ -150,6 +150,12 @@ into the state. This is what makes MCP iteration fast instead of fiddly.
 5. **HUD feel: Fisch.** Simple and minimal for the screen-space HUD. This is a reference for HUD
    restraint, not for the world panels.
 6. **Menu camera: per view** (menu-staging D1(c)), to be revisited after playtesting.
+7. **Icons: placeholder glyphs** — rarity-tinted, one shape per category — until the game outgrows
+   the concept stage. Commissioned art comes much later.
+8. **Vitals: a hybrid.** Screen UI that follows the character (constant size, on top, camera-facing,
+   show-on-change), not a world panel — a world surface is depth-tested, lit, foreshortened by orbit
+   and scaled by zoom, all of which hurt a glanceable bar in fast combat. Pinned above the skill bar
+   is the same component in another position mode.
 
 ## Progress
 
@@ -220,8 +226,24 @@ Findings from the inspect rebuild:
 - **Set `logicalWidth` from a measurement**, not the intended size: read the surface's on-screen
   width from a screenshot at staging.
 
+**Vitals HUD — live.** The StatusPreview world panel is gone; `panels/VitalsHud` replaces it (decision 8).
+
+- Screen UI placed at the character's projected position (beside the HumanoidRootPart, along the
+  camera's flattened right vector, eased), so it keeps one size, never turns with the camera, and
+  draws over effects. Falls back to pinned when the camera is inside the character.
+- Fades in when any vital drops below full and out `lingerSeconds` after all are full; hidden while
+  the menu is open. HP leaves a trail chip; the screen edges pulse red under 30% HP.
+- `VitalsHudConfig.anchor` is `"character"` or `"pinned"` (above the skill bar), toggled live by
+  "Vitals" in the F6 tuner. Meant to become a player setting.
+- Dev: `ServerStorage.DevPool:Fire(player, "Health", -40)` moves a pool from MCP or the command bar.
+
+Findings:
+
+- **Siblings with equal ZIndex draw in no reliable order.** A backing fill and the content beside
+  it need explicit ZIndex, or the fill can land on top and dim everything.
+- **The skill bar is not centred**: it anchors at 0.5 but grows rightward with `AutomaticSize.X`.
+  Visible now that the pinned readout is centred above it.
+
 ## Open questions
 
-1. StatusPreview: diegetic band, screen-space HUD, or show-on-change? The Fisch reference leans
-   toward minimal screen-space.
-2. Icons: generated set, commissioned, or placeholder glyphs for now?
+None outstanding.

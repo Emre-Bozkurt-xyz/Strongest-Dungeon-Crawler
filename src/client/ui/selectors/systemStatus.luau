@@ -149,8 +149,8 @@ local function buildStatGroup(stats: StatTypes.PlayerStats?, group: string): { S
 	return rows
 end
 
--- Exposed separately so a panel that only needs HP/MP/Stamina -- StatusPreviewPanel, an ambient
--- overlay with no attribute display -- can read vitals without paying for buildStatGroup's ClientSpec
+-- Exposed separately so a surface that only needs HP/MP/Stamina -- the VitalsHud readout, with no
+-- attribute display -- can read vitals without paying for buildStatGroup's ClientSpec
 -- walk over stats it never shows.
 function Selector.buildVitals(stats: StatTypes.PlayerStats?): { VitalView }
 	local vitals: { VitalView } = {}

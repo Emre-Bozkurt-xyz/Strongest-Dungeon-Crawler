@@ -10,7 +10,7 @@
 --
 -- Not merged into RadialGauge: the shapes differ (square vs. circular) and the centre-fill needs the
 -- caller's live background rather than a fixed one, so sharing would mean branching RadialGauge for a
--- case only this panel needs, and RadialGauge already serves StatusPreviewPanel. This is the second
+-- case only this panel needs, and RadialGauge already serves the System panel. This is the second
 -- use of the masking trick, though, so a third use should promote a shared primitive instead of a
 -- third copy.
 --

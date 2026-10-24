@@ -99,6 +99,8 @@ type CameraControllerType = {
 	_lockYaw: boolean,
 	_lockPitch: boolean,
 	_yawAssist: number,
+	_lastPoseTime: number?,
+	_stagedLoopBound: boolean?,
 	_lookAtProvider: (() -> Vector3?)?,
 
 	_computeOverrides: (self: CameraControllerType) -> CameraSettings,
@@ -135,6 +137,14 @@ type CameraShake = {
 	frequency: number?,
 }
 
+-- A whole camera pose from a staged view. `fov` and `settleRate` (per second) are optional and fall
+-- back to the modifier stack and 12.
+type StagedPose = {
+	cframe: CFrame,
+	fov: number?,
+	settleRate: number?,
+}
+
 type CameraSettings = {
 	shoulderRight: number,
 	shoulderUp: number,
@@ -147,7 +157,7 @@ type CameraSettings = {
 	shake: CameraShake?,
 	yawAssist: { maxYaw: number, deadzone: number, smoothness: number }?,
 	lookAtProvider: (() -> Vector3?)?,
-	poseProvider: (() -> CFrame?)?,
+	poseProvider: (() -> StagedPose?)?,
 }
 
 type CameraModifierSpec = {
@@ -167,7 +177,7 @@ type CameraModifierSpec = {
 	lookAtProvider: (() -> Vector3?)?,
 	-- Supplies the whole camera pose, bypassing shoulder offsets, look-at and collision. For a staged
 	-- view (the menu) whose owner has already solved where the camera belongs.
-	poseProvider: (() -> CFrame?)?,
+	poseProvider: (() -> StagedPose?)?,
 }
 
 type CameraModifierEntry = {
@@ -179,6 +189,7 @@ type CameraModifierEntry = {
 
 local CameraController_Instance = nil
 local CAMERA_RENDER_STEP_NAME = "StrongestDungeonCrawler.CameraController"
+local STAGED_RENDER_STEP_NAME = "StrongestDungeonCrawler.CameraController.Staged"
 
 function CameraController.new()
 	if CameraController_Instance then
@@ -247,6 +258,7 @@ function CameraController:setMode(mode: Mode)
 			local s2: any = self
 			s2._inputConn = nil
 		end
+		self:_syncStagedLoop()
 		return
 	end
 
@@ -295,6 +307,7 @@ function CameraController:setMode(mode: Mode)
 		end
 	end)
 	self:_startUpdateLoop()
+	self:_syncStagedLoop()
 end
 
 function CameraController:isCursorUnlocked(): boolean
@@ -346,6 +359,7 @@ function CameraController:disable()
 
 	self.enabled = false
 	self:_stopUpdateLoop()
+	self:_syncStagedLoop()
 
 	self.camera.CameraType = self.originalCameraType
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
@@ -383,11 +397,66 @@ function CameraController:pushModifier(spec: CameraModifierSpec): string
 		priority = spec.priority or 0,
 		expiresAt = duration and (os.clock() + duration) or nil,
 	}
+	self:_syncStagedLoop()
 	return id
 end
 
 function CameraController:popModifier(id: string)
 	self._modifiers[id] = nil
+	self:_syncStagedLoop()
+end
+
+-- Moves the camera toward a staged pose if a modifier supplies one; false when none does.
+function CameraController:_applyStagedPose(settings: CameraSettings): boolean
+	local now = os.clock()
+	local dt = math.min(now - (self._lastPoseTime or now), 0.1)
+	self._lastPoseTime = now
+
+	local posed = settings.poseProvider and settings.poseProvider()
+	if not posed then
+		return false
+	end
+	-- One frame-rate-independent blend toward the whole pose. Smoothing position and then the CFrame
+	-- again would compound the two factors and crawl. _yaw and _pitch are left untouched, so the
+	-- gameplay camera resumes exactly where it was when the pose provider goes away.
+	if posed.fov then
+		self.camera.FieldOfView = posed.fov
+	end
+	local alpha = 1 - math.exp(-(posed.settleRate or 12) * dt)
+	self.camera.CFrame = self.camera.CFrame:Lerp(posed.cframe, alpha)
+	return true
+end
+
+-- A staged pose has to win in both camera modes. Over-shoulder already runs our loop, which checks
+-- for one first. Free mode hands the camera to Roblox's own controller and runs no loop of ours, so
+-- while a pose is active the camera is taken back as Scriptable and driven by a loop of its own,
+-- then returned to Roblox when the pose goes away.
+function CameraController:_syncStagedLoop()
+	local staged = false
+	for _, entry in pairs(self._modifiers) do
+		if entry.spec.poseProvider then
+			staged = true
+			break
+		end
+	end
+	local wanted = staged and self.enabled and self.mode == "Free"
+
+	if wanted and not self._stagedLoopBound then
+		self._stagedLoopBound = true
+		self._lastPoseTime = nil
+		self.camera.CameraType = Enum.CameraType.Scriptable
+		RunService:BindToRenderStep(STAGED_RENDER_STEP_NAME, Enum.RenderPriority.Camera.Value, function()
+			self:_applyStagedPose(self:_computeOverrides())
+		end)
+	elseif not wanted and self._stagedLoopBound then
+		self._stagedLoopBound = false
+		RunService:UnbindFromRenderStep(STAGED_RENDER_STEP_NAME)
+		if self.enabled and self.mode == "Free" then
+			self.camera.CameraType = Enum.CameraType.Custom
+			-- Roblox's own camera never touches FieldOfView, so the staged one would stick.
+			self.camera.FieldOfView = self:_computeOverrides().fov
+		end
+	end
 end
 
 function CameraController:clearModifiers()
@@ -606,14 +675,7 @@ function CameraController:_updateCamera()
 	self.camera.FieldOfView = settings.fov
 	self._lookAtProvider = settings.lookAtProvider
 
-	local posed = settings.poseProvider and settings.poseProvider()
-	if posed then
-		-- _yaw and _pitch are left untouched, so the gameplay camera resumes exactly where it was
-		-- when the pose provider goes away.
-		local current = self.camera.CFrame
-		local position = current.Position:Lerp(posed.Position, settings.followSmoothness)
-		local target = CFrame.lookAt(position, position + posed.LookVector)
-		self.camera.CFrame = current:Lerp(target, settings.lookSmoothness)
+	if self:_applyStagedPose(settings) then
 		return
 	end
 

@@ -37,8 +37,6 @@ function MenuMotionBridge.pushMenuCamera()
 
 	local tuned = DevTuningService.get("Camera.modifiers.systemMenuFocus")
 	local modifier = table.clone(if type(tuned) == "table" then tuned else CameraConfig.modifiers.systemMenuFocus)
-	-- The stage fits panels to this FOV, so the camera must render with exactly the same one.
-	modifier.fov = MenuRigRuntime.getFov()
 	modifier.poseProvider = function()
 		return MenuRigRuntime.get():getCameraPose()
 	end

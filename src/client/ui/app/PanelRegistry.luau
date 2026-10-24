@@ -23,6 +23,9 @@ export type SurfaceConfig = {
 	height: number,
 	thickness: number?,
 	pixelsPerStud: number?,
+	-- World-size multiplier. The part shrinks or grows and pixelsPerStud scales inversely, so the
+	-- canvas resolution -- and every pixel constant a panel derives from it -- is unchanged.
+	scale: number?,
 }
 
 -- How WorldGUIManager should place the panel. Passed through to `registerPanel` untouched, so the
@@ -81,6 +84,9 @@ end
 -- id once the menu is open, so these values only matter before the rig takes over.
 -- While the menu is open MenuRigRuntime supplies each menu panel's full pose, so registration needs
 -- only the group; the follow fields would never be read.
+-- See UIMenuConfig.stage.panelScale.
+local MENU_PANEL_SCALE = UIMenuConfig.stage.panelScale
+
 local function menuRigPlacement(): Placement
 	return { group = UIMenuConfig.groupName }
 end
@@ -90,7 +96,7 @@ local entries: { PanelEntry } = {
 		id = "SystemPanel",
 		component = SystemPanel,
 		-- Studs from the Studio-authored part. 200 px/stud gives a 1296x710 canvas.
-		surface = { width = 6.478, height = 3.549, thickness = 0.076, pixelsPerStud = 200 },
+		surface = { width = 6.478, height = 3.549, thickness = 0.076, pixelsPerStud = 200, scale = MENU_PANEL_SCALE },
 		placement = menuRigPlacement(),
 		isVisible = function(state)
 			return isMenuOpen(state) and state.modal.view == "system"
@@ -100,7 +106,7 @@ local entries: { PanelEntry } = {
 		id = "InventoryPanel",
 		component = InventoryPanel,
 		-- Studs from the Studio-authored part; same width as SystemPanel, so the same px/stud.
-		surface = { width = 6.478, height = 3.549, thickness = 0.076, pixelsPerStud = 200 },
+		surface = { width = 6.478, height = 3.549, thickness = 0.076, pixelsPerStud = 200, scale = MENU_PANEL_SCALE },
 		placement = menuRigPlacement(),
 		isVisible = function(state)
 			return isMenuOpen(state) and state.modal.view == "inventory"
@@ -111,7 +117,7 @@ local entries: { PanelEntry } = {
 		component = EquipmentPanel,
 		-- Studs from the Studio-authored part. 200 px/stud gives a 1052x1241 canvas, which also
 		-- reproduces the original candidate grid's 150px cells and 30px gaps almost exactly.
-		surface = { width = 5.259, height = 6.207, thickness = 0.076, pixelsPerStud = 200 },
+		surface = { width = 5.259, height = 6.207, thickness = 0.076, pixelsPerStud = 200, scale = MENU_PANEL_SCALE },
 		placement = menuRigPlacement(),
 		isVisible = function(state)
 			return isMenuOpen(state) and state.modal.view == "equipment"
@@ -143,7 +149,7 @@ local entries: { PanelEntry } = {
 		component = ItemInspectPanel,
 		-- Studs from the Studio-authored part. 300 px/stud gives a 562x1002 canvas, enough for the
 		-- info rows to stay legible at this physical size.
-		surface = { width = 1.875, height = 3.34, thickness = 0.076, pixelsPerStud = 300 },
+		surface = { width = 1.875, height = 3.34, thickness = 0.076, pixelsPerStud = 300, scale = MENU_PANEL_SCALE },
 		placement = menuRigPlacement(),
 		-- Hidden over the system view, which has no item context to inspect against.
 		isVisible = function(state)

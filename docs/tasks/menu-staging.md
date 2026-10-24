@@ -1,179 +1,119 @@
-# Menu Staging — camera beside the character, panels fitted to the view
+# Menu Staging — panels placed for the character, camera placed to watch
 
-Status: **implemented 2026-10-24, awaiting playtest.** Verified in Studio at 16:9: all three views,
-close, and the wall flip. Not yet verified: real pointer clicks on staged panels, other aspect
-ratios, a camera walled in on both sides. Precedes the design pass (`ui-design-pass.md`), because it
-decides how large a panel is on screen, and every type size and density decision downstream depends
-on that.
-
-## As built
-
-- `MenuRigRuntime` is the stage: one `_solve()` returns the camera CFrame and a CFrame per panel.
-  Basis yaw is captured on open; the side (right, or mirrored left) is chosen on open and on view
-  change by raycasting from the shoulder, never per frame, so walking along a wall cannot flip it.
-  When mirrored, side panels and `shift` mirror too.
-- Reserved slots: `reserve` keeps ItemInspect's slot open in inventory and equipment, so the primary
-  does not jump when an item is inspected. Panel sizes are declared to the rig by `UIRuntime` from
-  the registry, because a side panel's part does not exist until first shown.
-- `CameraController` gained a `poseProvider` modifier field; `MenuMotionBridge` pushes it with the
-  stage's FOV. `_yaw`/`_pitch` are untouched, so closing returns the gameplay camera to exactly where
-  it was. The glide is the existing per-frame lerp at 0.16 (D3 is still open).
-- `WorldGUIManager` accepts a CFrame from an override provider, keeps providers by name so one set
-  before its panel registers still attaches, and exposes `snapPanel`. `PanelHost` snaps every panel
-  on show.
-- Config is `UIMenuConfig.stage` (per-view pose, fill, shift, reserve). The old player-space offsets,
-  arc layout and centre weights are gone.
-
-### Found while building
-
-- **The menu FOV is 45, not 65.** At 65 the horizontal FOV on 16:9 is ~97°; a panel pushed
-  off-centre by a reserved slot is visibly stretched by the wide-angle projection and reads as
-  tilted even when it faces the camera exactly. 45 is flatter and more screen-like.
-- **`SurfaceGui.AlwaysOnTop` does not render the `CanvasGroup` PanelHost fades** — the panel vanishes
-  entirely. So the "panels clipping into walls" hazard below is unsolved; the side flip covers the
-  common corridor case, but a panel can still intersect geometry ahead of the camera.
-- **Synthetic MCP mouse clicks do not reach world-space SurfaceGuis.** A ray from the reported mouse
-  position hits the panel and the SurfaceGui is Active, but neither hover nor click registers. Pointer
-  behaviour on staged panels has to be checked by hand.
-- **Equipment framing** puts the camera ~9 studs out at the character's front-right
-  (`right = 5.2, back = -7.4, turn = 122`), which sits the character ~23° left of the axis with the
-  paper doll beside it at the same depth. The character reads larger than computed; tune by eye.
+Status: **second design, implemented 2026-10-24, awaiting playtest.** Verified in Studio at 16:9: all
+three views, the camera settle, and the wall flip. Not yet verified: real pointer clicks on staged
+panels, other aspect ratios, a camera walled in on both sides. Precedes the design pass
+(`ui-design-pass.md`), because it decides how large a panel is on screen.
 
 ## The problem
 
-The menu camera is the gameplay over-the-shoulder camera, pushed further out
-(`CameraConfig.modifiers.systemMenuFocus`), looking at a weighted average of the panel positions.
-Measured 2026-10-24 with the inventory open at 1920x1080:
+The menu camera was the gameplay over-the-shoulder camera pushed out and aimed at a weighted average
+of the panel positions. Measured with the inventory open at 1920x1080: camera 3.3 right, 2.65 up,
+2.66 behind the HumanoidRootPart; panel 7.27 studs away, tilted 21° away from the camera, filling 39%
+of the view width, with the character's head over its lower-left corner. Far, small, oblique, and
+the wider the panel the worse.
 
-| | |
-| --- | --- |
-| Camera, relative to HumanoidRootPart | 3.3 right, 2.65 up, 2.66 behind |
-| Inventory panel, relative to HRP | 0.3 right, 1.2 up, 3.8 ahead |
-| Camera to panel | 7.27 studs |
-| Panel width as a share of the view | **39%** |
-| Panel tilt away from the camera | **21°** |
+## The model
 
-The panel is far, small and oblique, and the character's head and shoulder cover its lower-left
-corner. Wider panels suffer most: inventory is 6.5 studs across, so at that distance its text is
-tiny, and the tilt makes the far side smaller still.
+**The panel and the camera are placed independently, and neither aims at the other.**
 
-The root cause is that the camera is placed for gameplay and then aimed at the panels. The panels
-never get a say in where the camera is.
+- **Panel** — where it would make sense for the character to read it: ahead of it, biased to one
+  side, at about eye height, turned mostly toward the character's head (`faceCamera` blends toward
+  the camera; yaw only, panels stay upright). Side panels (ItemInspect) continue the primary's plane
+  outward.
+- **Camera** — its own seat in the character's frame (`right`/`up`/`back`) with its own look
+  direction (`yaw`/`pitch` from the character's facing). It does not look at the panel or at a
+  midpoint; composition comes from tuning the two poses.
+- **Scale** — menu panels are shrunk to character scale (`surface.scale = 0.72`). A 6.5-stud panel at
+  arm's length dwarfs a 4-stud-wide R6 character. The part shrinks and `pixelsPerStud` grows
+  inversely, so the canvas — and every pixel constant a panel derives from it — is unchanged.
 
-## The idea
+Current seat for the reading views (system, inventory): camera behind the right shoulder at about
+head height, looking down the character's line of sight; panel 3.7 ahead, 2.1 right, 1.8 up. The head
+and shoulder take the lower-left of the frame and the panel sits centre-right, turned toward the
+character. Equipment uses the same idea a little further out and higher, for the taller paper doll.
+All values are in `UIMenuConfig.stage.views`.
 
-Invert it. **The menu has its own camera pose, and the panels are placed to fit that pose.**
+Both poses come from the character's position and the yaw captured on open, so nothing reads a live,
+smoothed position and there is no feedback loop (rule 3 of `menu-rig-runtime.md`).
 
-1. **Camera pose** — beside the character at a little under shoulder height, like a slightly
-   shorter person standing next to them, facing the way the character faces. Derived from the
-   entry basis (character yaw at menu open), which `MenuMotionBridge` already captures.
-2. **Panel placement** — in camera space, square to the camera, at whatever distance makes the
-   composition fill a target fraction of the view. Distance is solved from the FOV, the viewport
-   aspect and the composition's width — not authored as studs.
+### Walls
 
-Both come from the same basis, so this keeps rule 3 of `menu-rig-runtime.md` (the camera never
-derives framing from live, smoothed panel positions). It removes the loop entirely: neither reads the
-other.
+The side (authored, or mirrored to the character's left) is chosen on open and on view change, never
+per frame. It mirrors when the ray from the head to the camera seat, or to the composition's outer
+edge, is blocked. The outer edge counts the primary's half width plus every side panel that could
+open on that side, so an inspect panel opened later does not land in the wall. When mirrored, the
+camera, the panel bias and the side panels all flip. If both sides are blocked the camera is pulled
+in along its ray.
 
-### Fit-to-view
+### Camera settle
 
-```
-hfov     = 2 * atan(tan(vfov / 2) * aspect)
-distance = (compositionWidth / fill) / (2 * tan(hfov / 2))
-```
+`CameraController` takes a `poseProvider` modifier and blends to it with one frame-rate-independent
+exponential (`settleRate = 12`/s, about 0.25s to arrive). The first version smoothed position and
+then the whole CFrame again, which multiplied the two factors (0.16 × 0.16 per frame) and crawled for
+two seconds. `_yaw`/`_pitch` are untouched, so closing returns the gameplay camera to where it was.
 
-Also check height (`compositionHeight / fill` against `vfov`) and take the larger distance, so a tall
-panel (EquipmentPanel, 6.2 studs) fits vertically too. Recompute on `ViewportSize` change.
+**Both camera modes.** Over-shoulder runs the controller's own loop, which checks for a staged pose
+first. Free mode (V) hands the camera to Roblox's controller and runs no loop of ours, so originally
+the panels were staged but the camera never moved — the shot depended on wherever the free camera
+was. `_syncStagedLoop` now takes the camera back as Scriptable with its own render step whenever a
+pose provider is active in free mode, and returns it (CameraType `Custom`, FOV restored) when the
+pose goes away. Pushing or popping a modifier and switching modes all re-sync. Switching modes with
+the menu open works, but entering over-shoulder turns the character to the camera's yaw.
 
-This is the part that makes readability *guaranteed* rather than tuned: a wider screen pulls panels
-in, a narrower one pushes them out, and the same panel always occupies the same share of the frame.
+## History
 
-## Prototype (2026-10-24, in Studio)
+The first version (commit `84879c6`) inverted the problem the other way: camera beside the character
+with the character out of frame, panels square to the camera and fitted to fill a share of the view.
+It was readable, but it flattened the panels onto the camera — "might as well have made it HUD space
+GUI" — and lost the character entirely. Two lessons from it survive:
 
-Done by hand during a playtest: a clone of InventoryPanel placed by the formula above, with the
-camera pinned by a render step (see "Iterating on this" below for why).
+- **Wide FOV stretches off-centre panels.** At 65° vertical on 16:9 the horizontal FOV is ~97°, and
+  anything off-centre reads as tilted. The menu renders at 55°.
+- **`SurfaceGui.AlwaysOnTop` does not render the `CanvasGroup` PanelHost fades** — the panel vanishes.
+  So panels can still intersect geometry the wall check does not catch (anything not on the ray
+  from the head to the outer edge).
 
-| Variant | Pose (right, up, back from HRP) | Result |
-| --- | --- | --- |
-| A | 2.4, 0.9, 1.6 | readable, but the head covers the panel's left third |
-| B | 2.7, 0.75, 0.6 | the arm fills the left of the frame |
-| C | 3.4, 0.55, 2.2, yawed 12° in | the character is in frame and overlaps the panel |
-| D | 2.6, 0.55, 0.9 | still the arm |
-| **E** | **3.2, 0.7, 0.0** | **clean: panel at 3.97 studs, 72% of view width, square, every label legible** |
+## Hazards still open
 
-The character is an R6 rig, 4.0 studs wide including arms and 1.0 deep, with shoulders about 1.0
-above the HRP. Any pose that keeps the character in frame and the panel large ends up overlapping
-them; there is not room for both at this panel size. Variant E clears the character because the
-nearest arm edge is about 69° off the camera axis, well outside the 48.5° half-FOV at 16:9.
-
-## Decisions
-
-**D1 is decided: per-view poses (c)**, revisited after playtesting. D2 and D3 are open.
-
-**D1. Is the character in frame?** E removes it, which is what makes the panel readable. The cost
-is diegetic weight — the menu stops feeling like it lives beside the character. Options:
-
-- **(a) Out of frame (E).** Maximum readability. The world still shows behind the translucent panel.
-- **(b) Shoulder peeking at the left edge.** Camera ~3.0 right, ~0.3 behind; the panel shifts right
-  by ~10% of its width. Some presence, some lost width.
-- **(c) Per-view poses.** Inventory and System use (a). **Equipment turns to face the character** —
-  the camera swings to the front-right and the paper doll sits beside the actual character, which is
-  the one view where seeing the character is the point. Recommended: it spends the diegetic budget
-  where it pays.
-
-**D2. Fill target.** 0.72 read well for one panel. A primary plus ItemInspect side-by-side should fit
-as a group at roughly 0.85, the inspect card angled slightly toward the camera (the rig's existing
-arc layout gives this).
-
-**D3. Transition.** The camera has to travel from the gameplay pose to the menu pose. A short eased
-move (~0.25-0.35s) with the panels materialising during it reads as "turning to look at the
-System". This is the first motion the design pass will want to own, so build it on whatever motion
-primitive that pass settles on rather than a one-off tween.
-
-## Hazards
-
-- **Walls.** A camera 3.2 studs to the character's right is inside the wall in any corridor.
-  Raycast from the character's shoulder to the camera pose; if blocked, mirror to the left side, and
-  only pull in if both sides are blocked. Dungeons make this the common case, not an edge case.
-- **Panels clipping into geometry.** Panels 4 studs ahead will intersect walls just as often.
-  `SurfaceGui.AlwaysOnTop = true` renders them over geometry and makes this disappear; check it does
-  not break the translucent look (it also removes depth sorting between panels, which the arc layout
-  does not rely on).
-- **Pointer input.** Square, near panels are the best case for R5's pointer spike — fold the spike
-  into this work rather than running it against the old oblique layout.
-- **Gameplay camera hand-off.** On close, restore the gameplay yaw the player had, not the menu yaw.
-
-## What changes
-
-- `CameraConfig.modifiers.systemMenuFocus` — new pose fields (right/up/back relative to the basis),
-  per-view if D1(c). `lookAtProvider` goes: the camera looks along the basis, not at the panels.
-- `MenuRigRuntime` — the slot solver keeps its buckets and spacing but solves in **camera** space
-  from the menu pose, and adds the fit-to-view distance. `getFocusPoint` loses its only consumer.
-  This deliberately breaks the migration plan's "never touch MenuRigRuntime" rule; that rule existed
-  to keep the React port a port.
-- `UIMenuConfig.panels[*].playerSpaceOffset` — replaced by the solver; per-panel tuning becomes
-  layout role and order only.
-- Panel `faceMode` — `"camera"` instead of `"playerYaw"`, so each panel faces the viewer.
-
-`WorldGUIManager` needs nothing new: override providers and `faceMode = "camera"` already exist.
+- **Geometry between the head and the panel's lower half** — the wall check is a single ray per side.
+- **Pointer input** — synthetic MCP mouse clicks do not reach world-space SurfaceGuis (a ray from the
+  reported mouse position hits the panel and the SurfaceGui is Active, but nothing registers), so
+  click behaviour on staged panels has to be checked by hand.
+- **Other aspect ratios** — composition is authored at 16:9; a narrow screen crops the panel's right.
 
 ## Iterating on this
 
-**`screen_capture` with `camera_position` does not place the camera reliably during a playtest** —
-the captures came back skewed, with the character far closer than the requested pose allowed.
-Instead, pin the real camera from the Client datamodel and capture without camera arguments:
+Composition is taste, so tune it by eye with the **stage tuner**: press F6 in a Studio playtest
+(`src/client/ui/dev/StageTuner.luau`, registered in `ScreenRegistry` only under `RunService:IsStudio()`).
+
+- Per view: camera `right/up/back/yaw/pitch/fov` and panel `ahead/right/up/faceCamera/turn/tilt`.
+  The view tabs also open the menu on that view. Globals: panel scale (applied live through
+  `UIRuntime.setPanelScale`), spacing, settle rate.
+- Each value has a slider, ±step buttons, and a box that takes any typed number, including beyond the
+  slider's range.
+- Values are DevTuningService overrides under `UIMenu.stage`; `MenuRigRuntime` re-reads them every
+  frame and the camera takes FOV and settle rate from the pose provider, so everything is live.
+- **Export** prints a `stage = { ... }` block (and shows it in a selectable box) to paste over
+  `UIMenuConfig.stage`. Nothing persists until it is pasted. **Copy to all views** copies the
+  edited view's poses to the others; the dock button moves the overlay to the other screen edge.
+
+For changes the tuner cannot express, a probe during a playtest still works: clone the panel part,
+place it with the same maths as `MenuRigRuntime._solve`, and pin the camera.
+
+**`screen_capture` with `camera_position` does not place the camera reliably during a playtest.**
+Pin the real camera from the Client datamodel instead and capture without camera arguments:
 
 ```luau
 RunService:BindToRenderStep("StageCamProbe", Enum.RenderPriority.Last.Value, function()
     workspace.CurrentCamera.CFrame = camCF
-    workspace.CurrentCamera.FieldOfView = 65
+    workspace.CurrentCamera.FieldOfView = 55
 end)
 ```
 
 `Last` runs after `CameraController`, so this wins every frame. Stopping the playtest clears it.
 
-Also: `execute_luau` runs in its own module cache, so requiring a game module there gives a fresh,
-uninitialised copy — and initialising one (e.g. requiring `InventoryService` server-side) starts a
-duplicate stack that spams the log. Probe with instances, not module state.
+`execute_luau` runs in its own module cache: requiring a game module there gives a fresh,
+uninitialised copy, and initialising one (e.g. `InventoryService` server-side) starts a duplicate stack
+that spams the log. Probe with instances, not module state.
 
-Check every view at 16:9, 21:9 and 4:3 before calling it done.

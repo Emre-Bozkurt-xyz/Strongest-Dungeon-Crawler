@@ -23,6 +23,8 @@ local React = require(game:GetService("ReplicatedStorage").Packages.React)
 local UIRuntime = {}
 
 local hosts: { [string]: PanelHost.PanelHostType } = {}
+-- Live world-scale changes from the stage tuner, kept so a host created after the change gets it too.
+local scaleOverrides: { [string]: number } = {}
 local disconnect: (() -> ())? = nil
 local watchers: { () -> () } = {}
 local started = false
@@ -47,6 +49,10 @@ local function applyEntry(entry: PanelRegistry.PanelEntry, state: any)
 		end
 		host = created
 		hosts[entry.id] = host
+		local scale = scaleOverrides[entry.id]
+		if scale then
+			created:setScale(scale)
+		end
 	end
 
 	-- Before visibility, so a panel fading in is already at its new anchor.
@@ -79,11 +85,12 @@ function UIRuntime.start()
 	end
 	started = true
 
-	-- The stage lays out reserved slots before their panels have ever been shown, so it needs every
-	-- size up front rather than reading them off parts that may not exist yet.
+	-- The stage spaces side panels by width, including ones never shown yet, so it needs every size up
+	-- front rather than reading them off parts that may not exist.
 	local rig = MenuRigRuntime.get()
 	for _, entry in ipairs(PanelRegistry.list()) do
-		rig:setPanelSize(entry.id, entry.surface.width, entry.surface.height)
+		local scale = entry.surface.scale or 1
+		rig:setPanelSize(entry.id, entry.surface.width * scale, entry.surface.height * scale)
 	end
 
 	applyState(MenuOrchestrator.getState())
@@ -100,6 +107,21 @@ function UIRuntime.start()
 				applyEntry(entry, MenuOrchestrator.getState())
 			end))
 		end
+	end
+end
+
+-- Resizes a panel in the world at runtime: its host if it exists, and the size the menu stage spaces
+-- side panels by. For live tuning; the authored scale lives on the registry entry.
+function UIRuntime.setPanelScale(id: string, scale: number)
+	local entry = PanelRegistry.get(id)
+	if not entry then
+		return
+	end
+	scaleOverrides[id] = scale
+	MenuRigRuntime.get():setPanelSize(id, entry.surface.width * scale, entry.surface.height * scale)
+	local host = hosts[id]
+	if host then
+		host:setScale(scale)
 	end
 end
 

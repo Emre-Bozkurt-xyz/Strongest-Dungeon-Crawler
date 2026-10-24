@@ -25,12 +25,10 @@ local CameraConfig = {
 		},
 	},
 	modifiers = {
-		-- The pose and FOV come from the menu stage (UIMenuConfig.stage); this only sets how the
-		-- camera travels there. Per-frame lerp factors, so lower is a longer, softer move.
+		-- Pose, FOV and settle rate all come from the menu stage (UIMenuConfig.stage). Yaw and pitch
+		-- are locked so mouse movement while the menu is open does not turn the character.
 		systemMenuFocus = {
 			priority = 50,
-			followSmoothness = 0.16,
-			lookSmoothness = 0.16,
 			lockYaw = true,
 			lockPitch = true,
 		},

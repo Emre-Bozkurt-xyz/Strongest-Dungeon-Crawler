@@ -16,6 +16,8 @@ export type ScreenEntry = {
 	zIndex: number?,
 }
 
+local RunService = game:GetService("RunService")
+
 local SkillSlotContainer = require(script.Parent.Parent.panels.SkillSlotContainer)
 
 local entries: { ScreenEntry } = {
@@ -24,6 +26,15 @@ local entries: { ScreenEntry } = {
 		component = SkillSlotContainer,
 	},
 }
+
+-- Dev tooling, never shipped to players.
+if RunService:IsStudio() then
+	table.insert(entries, {
+		id = "StageTuner",
+		component = require(script.Parent.Parent.dev.StageTuner),
+		zIndex = 100,
+	})
+end
 
 local ScreenRegistry = {}
 

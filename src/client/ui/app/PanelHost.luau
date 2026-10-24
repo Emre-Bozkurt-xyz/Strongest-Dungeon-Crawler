@@ -26,6 +26,7 @@ PanelHost.__index = PanelHost
 export type PanelHostType = {
 	setVisible: (self: PanelHostType, visible: boolean) -> (),
 	setFollowTarget: (self: PanelHostType, target: BasePart?) -> (),
+	setScale: (self: PanelHostType, scale: number) -> (),
 	render: (self: PanelHostType, element: any) -> (),
 	destroy: (self: PanelHostType) -> (),
 }
@@ -35,7 +36,8 @@ local DEFAULT_FADE = 0.2
 local function buildPart(entry: PanelRegistry.PanelEntry): BasePart
 	local part = Instance.new("Part")
 	part.Name = entry.id
-	part.Size = Vector3.new(entry.surface.width, entry.surface.height, entry.surface.thickness or 0.1)
+	local scale = entry.surface.scale or 1
+	part.Size = Vector3.new(entry.surface.width * scale, entry.surface.height * scale, entry.surface.thickness or 0.1)
 	part.Anchored = true
 	part.CanCollide = false
 	part.CanTouch = false
@@ -53,7 +55,7 @@ local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): (S
 	gui.Name = "Surface"
 	gui.Face = Enum.NormalId.Front
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
-	gui.PixelsPerStud = entry.surface.pixelsPerStud or 100
+	gui.PixelsPerStud = (entry.surface.pixelsPerStud or 100) / (entry.surface.scale or 1)
 	gui.LightInfluence = 0
 	gui.ResetOnSpawn = false
 	gui.Adornee = part
@@ -195,6 +197,17 @@ function PanelHost.setFollowTarget(self: any, target: BasePart?)
 	if target and appearing then
 		wgm:snapPanel(self._entry.id)
 	end
+end
+
+-- Resizes the panel in the world without touching its canvas: pixelsPerStud moves inversely, so every
+-- pixel a component lays out stays where it was.
+function PanelHost.setScale(self: any, scale: number)
+	if self._destroyed then
+		return
+	end
+	local surface = self._entry.surface
+	self._part.Size = Vector3.new(surface.width * scale, surface.height * scale, self._part.Size.Z)
+	self._gui.PixelsPerStud = (surface.pixelsPerStud or 100) / scale
 end
 
 function PanelHost.destroy(self: any)

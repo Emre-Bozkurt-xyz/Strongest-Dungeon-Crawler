@@ -79,7 +79,7 @@ function Bootstrap.startAll(): BootstrapContext
 		local Inputs = require(script.Parent.Inputs)
 		local MenuOrchestrator = require(script.Parent.ui.menu.MenuOrchestrator)
 		local InventoryClient = require(script.Parent.Inventory.InventoryClient)
-		local OverheadHealthService = require(script.Parent.OverheadHealthService)
+		local EnemyHealthClient = require(script.Parent.ui.controllers.EnemyHealthClient)
 		local DamageNumberController = require(script.Parent.ui.DamageNumberController)
 		local StaggerController = require(script.Parent.ui.controllers.StaggerController)
 		local LootClient = require(script.Parent.ui.controllers.LootClient)
@@ -142,7 +142,7 @@ function Bootstrap.startAll(): BootstrapContext
 			end
 		end)
 
-		OverheadHealthService.start()
+		EnemyHealthClient.start()
 	end, { "SessionMirror" })
 
 	startEntry(ctx, started, "DevHooks", function(context)

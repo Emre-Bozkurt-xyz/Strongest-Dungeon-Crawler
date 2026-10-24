@@ -315,6 +315,23 @@ the display face and the countdown in mono with an outline. Active (combo or cha
 brightens the ticks, lights the slot from its floor and lifts it -- additive, since the cooldown
 states dim. A cooldown ending plays one pulse (`hooks/useReadyPulse`): a flash and a kick, 0.32s.
 
+**Combat feedback — rebuilt in code.** The last UI cloned from Studio templates
+(`Assets/WorldUI`, not in the repo) is gone.
+
+- **Enemy bars** (`panels/EnemyBars`, store `controllers/EnemyHealthClient`): screen UI over each
+  revealed enemy -- name, exact health or a percentage depending on what is revealed, and a segmented
+  danger-coloured bar that trails damage. Same rules as the old OverheadHealthService: hidden 1s
+  after an enemy leaves the presence feed, dropped after 4s; the nearest six at full strength, the
+  rest stepping down to 30%; hidden while a menu is open.
+- **Damage numbers** (`ui/DamageNumberController`): same anchors, spread, stagger, type colours and
+  crit markers, now screen UI projected from the hit point with rigid motion (snap in, rise, cut out).
+  Crits are actually larger now (the old code scaled a pixel-sized template by its zero scale), and
+  blocked/dodged hits show as words instead of a print.
+- **Billboards do not appear in Studio MCP screen captures**, even a plain red frame; SurfaceGuis
+  and ScreenGuis do. Moving the numbers to screen UI made them verifiable, and matches the rest.
+- `DamageNumberSpawn` attachments flank the character about 3.7 studs out by design, so numbers
+  appear beside a target rather than over it.
+
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
 item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them

@@ -22,8 +22,14 @@ local SkillSlotContainer = require(script.Parent.Parent.panels.SkillSlotContaine
 local VitalsHud = require(script.Parent.Parent.panels.VitalsHud)
 local NearbyLoot = require(script.Parent.Parent.panels.NearbyLoot)
 local Notifications = require(script.Parent.Parent.panels.Notifications)
+local EnemyBars = require(script.Parent.Parent.panels.EnemyBars)
 
 local entries: { ScreenEntry } = {
+	-- First, so the player's own readouts draw over a crowd of enemy bars.
+	{
+		id = "EnemyBars",
+		component = EnemyBars,
+	},
 	{
 		id = "SkillSlotContainer",
 		component = SkillSlotContainer,

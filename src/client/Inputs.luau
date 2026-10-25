@@ -7,6 +7,7 @@ local SkillSlots = require(script.Parent.SkillsFramework.SkillSlots)
 local InputManager = require(script.Parent.input.InputManager)
 local InteractionStateController = require(script.Parent.input.InteractionStateController)
 local MenuOrchestrator = require(script.Parent.ui.menu.MenuOrchestrator)
+local MasteryCanvasController = require(script.Parent.ui.controllers.MasteryCanvasController)
 local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
 
 local Inputs = {}
@@ -42,6 +43,10 @@ function Inputs.init()
 
 	InputManager.on("MenuViewEquipment", function()
 		toggleMenuView("equipment")
+	end)
+
+	InputManager.on("MasteryCanvas", function()
+		MasteryCanvasController.toggle()
 	end)
 
 	InputManager.on("PrecisionFocus", function(_action, meta)
@@ -80,7 +85,7 @@ function Inputs.init()
 		if InteractionStateController.allowsWorldPanelInteraction() then
 			return
 		end
-		SkillSlots.cycleProfile(1)
+		SkillSlots.cycleSet(1)
 	end)
 
 	InputManager.on("CycleSkillProfilePrev", function()
@@ -90,7 +95,7 @@ function Inputs.init()
 		if InteractionStateController.allowsWorldPanelInteraction() then
 			return
 		end
-		SkillSlots.cycleProfile(-1)
+		SkillSlots.cycleSet(-1)
 	end)
 end
 

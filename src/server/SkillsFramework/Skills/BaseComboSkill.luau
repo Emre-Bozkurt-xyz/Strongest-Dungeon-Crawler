@@ -54,12 +54,17 @@ function BaseComboSkill:use(requestData: any?): any
 	local stepDelay = (baseStepDelays and baseStepDelays[step] or 0) * durationScale
 	local window = (combo and combo.window or baseWindow) * durationScale
 	local recovery = baseRecovery * durationScale
+	-- The step's animation length. `recovery` is held after it on the final step, not folded in,
+	-- so end lag never slows the finisher's animation (which is played to fit this duration).
 	local baseStepDuration = if baseStepDurations and baseStepDurations[step]
 		then baseStepDurations[step]
-		else baseHitDelay + (step == total and baseRecovery or 0)
+		else baseHitDelay
 	local stepDuration = math.max(baseStepDuration * durationScale, 0)
 
 	local isFinal = (step == total)
+	-- The step's clock starts at the caster's input, not at this request's arrival, so the hit
+	-- and the end of the step line up with the animation the caster is already playing.
+	local lead = self:resolveInputLead(requestData)
 
 	if not self:applyResourceCost(req) then
 		if self._execToken then
@@ -96,8 +101,7 @@ function BaseComboSkill:use(requestData: any?): any
 		targetDuration = stepDuration,
 	})
 
-	-- Delay server-side hit logic to align with animation
-	local delaySec = hitDelay
+	local delaySec = math.max(hitDelay - lead, 0)
 	if delaySec > 0 then
 		self:guardedDelay(delaySec, function()
 			self:onComboStep(step, req)
@@ -121,8 +125,8 @@ function BaseComboSkill:use(requestData: any?): any
 	end
 
 	if isFinal then
-		-- Schedule completion after the authoritative step duration (fallback to hit+recovery), ensuring onComboStep executes first.
-		local completionDelay = if stepDuration > 0 then stepDuration else delaySec + recovery
+		-- Schedule completion after the step's animation plus its end lag, ensuring onComboStep executes first.
+		local completionDelay = math.max(math.max(stepDuration, hitDelay) + recovery - lead, 0)
 		debugPhase3(`Step {step} is FINAL, scheduling completion in {completionDelay}s`)
 		if completionDelay > 0 then
 			self:guardedDelay(completionDelay, function()

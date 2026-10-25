@@ -16,6 +16,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local EntityUtils = require(ReplicatedStorage.Shared.EntityUtils)
+local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
+local MeleeHits = require(ReplicatedStorage.Shared.skills.MeleeHits)
 local Registrar = require(game:GetService("ServerScriptService").Server.Services.Registrar)
 
 local HitboxService = {}
@@ -251,40 +253,16 @@ end
 -- @param opts QueryOptions|nil Optional filters and rules
 -- @return {Model} Distinct models found (respecting opts)
 function HitboxService.queryCone(origin: CFrame, angleDeg: number, range: number, opts: QueryOptions?): { Model }
-	local results: { Model } = {}
-	local forward = origin.LookVector
-	local halfAngle = math.rad(angleDeg * 0.5)
-	local overlap = buildOverlapParams(opts)
-	local parts = Workspace:GetPartBoundsInRadius(origin.Position, range, overlap)
-	for _, part in ipairs(parts) do
-		local m = modelOf(part)
-		if m and not shouldExclude(m, opts) then
-			local hrp = getHRP(m)
-			if hrp then
-				local toTarget = (hrp.Position - origin.Position)
-				local dist = toTarget.Magnitude
-				if dist > 0 then
-					local dir = toTarget.Unit
-					local dot = math.clamp(forward:Dot(dir), -1, 1)
-					local angle = math.acos(dot)
-					if angle <= halfAngle then
-						if not opts or not opts.playersOnly then
-							addUnique(results, m)
-						else
-							local targetEntityId = Registrar.getEntityId(m)
-							if targetEntityId and Registrar.isPlayerEntity(targetEntityId) then
-								addUnique(results, m)
-							end
-						end
-						if opts and opts.maxTargets and #results >= opts.maxTargets then
-							break
-						end
-					end
-				end
-			end
+	return MeleeHits.queryCone(origin, angleDeg, range, buildOverlapParams(opts), function(m: Model): boolean
+		if shouldExclude(m, opts) then
+			return false
 		end
-	end
-	return results
+		if opts and opts.playersOnly then
+			local targetEntityId = Registrar.getEntityId(m)
+			return targetEntityId ~= nil and Registrar.isPlayerEntity(targetEntityId)
+		end
+		return true
+	end, opts and opts.maxTargets)
 end
 
 -- Query for models intersecting an oriented box.
@@ -566,7 +544,8 @@ end
 	-- Execute the configured query and collect models.
 	-- For ray queries, returns a list with at most one model.
 	function b:collect(params: any?): { models: { Model }, ids: { string }? }
-		local debug = params and params.debug or false
+		-- The `hitboxes` debug flag draws every query, so a whole fight can be inspected at once.
+		local debug = (params and params.debug) or DebugConfig.isEnabled("hitboxes")
 		local collectIds = params and params.collectIds or true
 		if not shape then
 			return { models = {} }

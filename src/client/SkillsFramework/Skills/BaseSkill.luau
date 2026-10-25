@@ -8,6 +8,8 @@ local AnimationOverrideStore = require(script.Parent.Parent.Parent.Animation.Ani
 local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 local Replicator = require(script.Parent.Parent.Parent.fx.Replicator)
 local ImmediateHitFeedback = require(script.Parent.Parent.Parent.fx.ImmediateHitFeedback)
+local PredictedHits = require(script.Parent.Parent.Parent.fx.PredictedHits)
+local MeleeHits = require(ReplicatedStorage.Shared.skills.MeleeHits)
 local ActionPermissions = require(ReplicatedStorage.Shared.ActionPermissions)
 local Schema = require(ReplicatedStorage.Shared.Debug.Schema)
 local Clock = require(ReplicatedStorage.Shared.Time.Clock)
@@ -237,7 +239,6 @@ function BaseSkill:playAnimation(animKey: string, opts: { [string]: any }?): Ani
 
 	-- Bind marker events from config
 	local fxConfig = (opts and opts.fx) or self.config.fx
-	local hitSounds = (opts and opts.hitSounds) or self.config.hitSounds
 	local markers = fxConfig and fxConfig.markers
 	if markers then
 		for markerName, val in pairs(markers) do
@@ -254,24 +255,7 @@ function BaseSkill:playAnimation(animKey: string, opts: { [string]: any }?): Ani
 			local step = opts and opts.step or nil
 			local fxMapKey = if step then `{val.key or val}_step{step}` else (val.key or val)
 
-			-- Check if this is a hit marker (for immediate feedback)
-			local isHitMarker = markerName == "Impact"
-				or string.match(markerName, "_Land$") ~= nil
-				or string.match(markerName, "_Hit$") ~= nil
-				or (type(val) == "table" and val.isHitMarker == true)
-
 			self.markerEventListenerDestroyers[markerName] = self:bindMarkerEvent(markerName, function(_ctx: any)
-				-- IMMEDIATE HIT FEEDBACK: Trigger on hit markers
-				if isHitMarker then
-					local hitOpts = {
-						hitSounds = hitSounds,
-						coneAngle = self.config.hitConeAngle,
-						coneRange = self.config.hitConeRange,
-					}
-					ImmediateHitFeedback.onImpactMarker(hitOpts)
-				end
-
-				-- FX handling (existing logic)
 				if type(val) == "string" then
 					-- One-shot FX - always play locally
 					self.fxPlayer.playAttached(val, anchor)
@@ -345,6 +329,27 @@ function BaseSkill:playAnimation(animKey: string, opts: { [string]: any }?): Ani
 	local animHandler = self.animationCoordinator.playSkillAnimation(self.name, animKey, opts)
 	self.currentAnimationHandle = animHandler
 	return animHandler and animHandler:getTrack() or nil
+end
+
+-- React locally to this cast's melee hits as they land (see PredictedHits). Bound to the current
+-- attempt, so a rejected, cancelled or superseded cast stops reacting.
+function BaseSkill:predictHits(hits: { MeleeHits.Hit }, durationScale: number?)
+	local attemptId = self.currentAttemptId
+	if #hits == 0 or not attemptId then
+		return
+	end
+	PredictedHits.schedule({
+		hits = hits,
+		durationScale = durationScale or 1,
+		isCurrent = function()
+			return self.currentAttemptId == attemptId and PredictionController.isLive(attemptId)
+		end,
+		getTrack = function()
+			local handle = self.currentAnimationHandle
+			return if handle then handle:getTrack() else nil
+		end,
+		hitSounds = self.config.hitSounds,
+	})
 end
 
 function BaseSkill:bindMarkerEvent(markerName: string, callback: (ctx: any) -> ())

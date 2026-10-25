@@ -421,7 +421,9 @@ function Dispatcher:_bindEventChannel(channelName: string, definition: ChannelDe
 					warn(`Dispatcher received invalid envelope from {player.Name} on channel {channelName}`)
 					return
 				end
-				envelope.meta.playerId = envelope.meta.playerId or player.UserId
+				-- Always the remote's sender: the envelope is written by the client, so a playerId it
+				-- carries is only a claim, and handlers use this field to decide who is acting.
+				envelope.meta.playerId = player.UserId
 				self:handleIncoming(envelope, nil, { channel = channelName, transport = "event" })
 			end)
 			impl._connections[#impl._connections + 1] = connection
@@ -443,7 +445,8 @@ function Dispatcher:_bindRequestChannel(
 					warn(`Dispatcher received invalid request from {player.Name} on channel {channelName}`)
 					return nil
 				end
-				envelope.meta.playerId = envelope.meta.playerId or player.UserId
+				-- Overwritten for the same reason as on events.
+				envelope.meta.playerId = player.UserId
 				return self:_handleRequestInvocation(channelName, envelope, player)
 			end
 		end
@@ -533,11 +536,12 @@ function Dispatcher:_sendEvent(
 		remoteEvent:FireServer(envelope)
 	else
 		assert(canSendToPeer(definition, "server"), `Channel '{channelName}' disallows server emission`)
-		local targets = normalizeTargets(options and options.targets)
-		if #targets == 0 then
+		-- No targets means everyone; an explicit list, even an empty one, means exactly those players.
+		local optionTargets = options and options.targets
+		if optionTargets == nil then
 			remoteEvent:FireAllClients(envelope)
 		else
-			for _, player in ipairs(targets) do
+			for _, player in ipairs(normalizeTargets(optionTargets)) do
 				remoteEvent:FireClient(player, envelope)
 			end
 		end

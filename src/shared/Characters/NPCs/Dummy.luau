@@ -31,7 +31,9 @@ local Dummy: Types.CharacterSpec = {
 	-- Stagger rules (training dummy is easier to stagger)
 	stagger = {
 		threshold = 1, -- 1 damage triggers stagger (lower than player)
-		duration = 1.5, -- 1.5 second stagger
+		-- A flinch, not a stun: short enough that the enemy recovers around when the attacker's combo
+		-- ends, so a fight trades blows instead of alternating stunlock and standing around.
+		duration = 0.45,
 		cooldown = 0.3, -- Can be staggered every 0.3 seconds
 		maxStackDamage = 100, -- Guaranteed stagger at 100+ damage
 		canInterruptSkills = true,

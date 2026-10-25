@@ -1,4 +1,18 @@
--- EntityInfoService: Server-authoritative identities and info deltas for entities (players + NPCs)
+--!strict
+-- EntityInfoService: what each player is told about the entities around them.
+--
+-- Two streams share the EntityInfo channel:
+--
+--   Presence (`EntityInfoDelta`, PRESENCE_RATE Hz) -- every entity within the viewer's perception
+--   radius, with whatever health their PerceptionTier reveals. It decides membership, and it is the
+--   backstop for health changes the vitals stream does not report (continuous regeneration).
+--
+--   Vitals (`EntityVitals`, once per frame) -- health for entities whose pools changed this frame,
+--   sent only to viewers whose latest presence included them, at the tier that presence used. This
+--   is what lets a health bar move on the frame after a hit instead of waiting out a presence tick.
+--
+-- Presence decides who may see what; vitals never widen it, so an entity that walks into range is
+-- only reported once the next presence tick has admitted it.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -12,282 +26,177 @@ local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
 export type EntityKind = "player" | "npc"
 
+export type HealthReveal = {
+	hpPerc: number?,
+	hp: { current: number, max: number }?,
+}
+
 local EntityInfoService = {}
 
-local ENTITYINFO_CHANNEL_NAME = "EntityInfo"
-local dispatcher = Networking.server()
-local dispatcherAny = dispatcher :: any
-dispatcherAny:_ensureChannel(ENTITYINFO_CHANNEL_NAME)
+local dispatcher = Networking.server() :: any
+dispatcher:_ensureChannel("EntityInfo")
 
-local TICK_RATE = 2 -- Hz per player
-local _accum = 0
-local DEBUG_ENTITY_INFO = false -- set true to enable sample logs
-local _debugNextLogAt = 0.0
-local _debugTickCount = 0
-local _debugEntitiesFound = 0
+local PRESENCE_RATE = 2
+local DEFAULT_PERCEPTION_DISTANCE = 60
+local HEALTH_POOL = StatTypes.PoolStats.Health
 
-local function isAliveModel(mdl: Model?): boolean
-	if not mdl or not mdl.Parent then
-		return false
-	end
-	if not mdl:FindFirstAncestorOfClass("Workspace") then
-		return false
-	end
-	local hrp = mdl:FindFirstChild("HumanoidRootPart")
-	return hrp ~= nil
+-- viewer -> entityId -> reveal tier used by that viewer's latest presence.
+local viewing: { [Player]: { [string]: number } } = {}
+local dirty: { [string]: true } = {}
+
+local presenceConnection: RBXScriptConnection? = nil
+local vitalsConnection: RBXScriptConnection? = nil
+local disconnectPoolListener: (() -> ())? = nil
+local playerRemovingConnection: RBXScriptConnection? = nil
+
+local function rootOf(model: Model): BasePart?
+	local root = model:FindFirstChild("HumanoidRootPart")
+	return if root and root:IsA("BasePart") then root else nil
 end
 
-local function getKindForEntity(ent: Instance): EntityKind
-	local m: Model? = ent:IsA("Model") and ent or ent:FindFirstAncestorOfClass("Model")
-	if not m then
-		return "npc"
+-- Tier 1 reveals a fraction, tier 2 the numbers too. Nil when nothing is revealed.
+local function revealHealth(entityId: string, tier: number): HealthReveal?
+	if tier < 1 then
+		return nil
 	end
-	local player = Players:GetPlayerFromCharacter(m)
-	if player then
-		return "player"
-	else
-		return "npc"
+	local current = StatsManager.getPoolCurrentValue(entityId, HEALTH_POOL)
+	local max = StatsManager.getPoolMaxValue(entityId, HEALTH_POOL)
+	if not current or not max or max <= 0 then
+		return nil
 	end
+	local reveal: HealthReveal = { hpPerc = math.clamp(current / max, 0, 1) }
+	if tier >= 2 then
+		reveal.hp = { current = current, max = max }
+	end
+	return reveal
 end
 
-local function collectEntities(): { Model }
-	local results: { Model } = {}
-	local entities = Registrar.getAllEntities()
-	for _, entity in ipairs(entities) do
-		if isAliveModel(entity) then
-			table.insert(results, entity)
+local function perceptionOf(viewerId: string): (number, number)
+	local radius = StatsManager.getStatValue(viewerId, StatTypes.StaticStats.PerceptionDistance)
+		or DEFAULT_PERCEPTION_DISTANCE
+	local tier = StatsManager.getStatValue(viewerId, StatTypes.StaticStats.PerceptionTier) or 0
+	return radius, tier
+end
+
+type Candidate = { id: string, model: Model, root: BasePart, kind: EntityKind }
+
+local function collectCandidates(): { Candidate }
+	local candidates: { Candidate } = {}
+	for _, model in ipairs(Registrar.getAllEntities()) do
+		local id = Registrar.getEntityId(model)
+		local root = rootOf(model)
+		if id and root and model:IsDescendantOf(workspace) then
+			local kind: EntityKind = if Players:GetPlayerFromCharacter(model) then "player" else "npc"
+			table.insert(candidates, { id = id, model = model, root = root, kind = kind })
 		end
 	end
-	return results
+	return candidates
 end
 
-local function sqrDist(a: Vector3, b: Vector3): number
-	local dx = a.X - b.X
-	local dy = a.Y - b.Y
-	local dz = a.Z - b.Z
-	return dx * dx + dy * dy + dz * dz
-end
-
-local function buildPresenceRecord(model: Model)
-	local id = Registrar.getEntityId(model)
-	local hrp = model:FindFirstChild("HumanoidRootPart") :: BasePart?
-	local kind = getKindForEntity(model)
-	return {
-		id = id,
-		kind = kind,
-		name = model.Name,
-		pos = hrp and hrp.Position or Vector3.zero,
-	}
-end
-
--- Compute HP details for a model if stats are registered
-local function getHpDetails(entityId: string): (number?, number?, number?)
-	local model = Registrar.getEntityById(entityId)
-	if not model then
-		return nil, nil, nil
-	end
-	local cur = StatsManager.getPoolCurrentValue(entityId, StatTypes.PoolStats.Health)
-	local max = StatsManager.getPoolMaxValue(entityId, StatTypes.PoolStats.Health)
-
-	if not cur and not max then
-		return nil, nil, nil
-	end
-
-	local perc = math.clamp(cur / max, 0, 1)
-	return cur, max, perc
-end
-
--- Determine what details to reveal to a viewer about a model, based on Perception and distance
-local function applyReveal(
-	_viewer: Player,
-	entityId: string,
-	_modelHrp: BasePart,
-	_dist2: number,
-	item: any,
-	tier: number
-)
-	local cur: number?, max: number?, perc: number? = getHpDetails(entityId)
-	if not perc then
-		return
-	end
-	-- Tier policy:
-	--  - tier >= 1: reveal hpPerc
-	--  - tier >= 2: reveal numeric hp too
-	if tier >= 1 then
-		item.hpPerc = perc
-	end
-	if tier >= 2 and cur and max then
-		item.hp = { current = cur, max = max }
-	end
-end
-
-local function tickPlayer(player: Player)
-	local char = player.Character
-	if not char or not isAliveModel(char) then
-		return
-	end
-	local hrp = (char :: Model):FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not hrp then
+local function tickPresence(viewer: Player, candidates: { Candidate })
+	local character = viewer.Character
+	local viewerId = Registrar.getPlayerId(viewer)
+	local viewerRoot = character and rootOf(character)
+	if not viewerId or not viewerRoot then
+		viewing[viewer] = nil
 		return
 	end
 
-	local entityId = Registrar.getPlayerId(player)
-
-	local center = hrp.Position
-	local radius = (StatsManager.getStatValue(entityId, StatTypes.StaticStats.PerceptionDistance) or 60)
-	local r2 = radius * radius
-	local tier = (StatsManager.getStatValue(entityId, StatTypes.StaticStats.PerceptionTier) or 0)
+	local radius, tier = perceptionOf(viewerId)
+	local center = viewerRoot.Position
+	local seen: { [string]: number } = {}
 	local items = {}
-	local entitiesInRange = 0
-	for _, m in ipairs(collectEntities()) do
-		if m ~= char then
-			local mhrp = m:FindFirstChild("HumanoidRootPart") :: BasePart?
-			if mhrp and sqrDist(center, mhrp.Position) <= r2 then
-				local item = buildPresenceRecord(m)
-				local mEntityId = Registrar.getEntityId(m)
-				if mEntityId then
-					applyReveal(player, mEntityId, mhrp, sqrDist(center, mhrp.Position), item, tier)
-				end
-				table.insert(items, item)
-				entitiesInRange = entitiesInRange + 1
+	for _, candidate in ipairs(candidates) do
+		if candidate.model ~= character and (candidate.root.Position - center).Magnitude <= radius then
+			local item: { [string]: any } = { id = candidate.id, kind = candidate.kind, name = candidate.model.Name }
+			local reveal = revealHealth(candidate.id, tier)
+			if reveal then
+				item.hpPerc = reveal.hpPerc
+				item.hp = reveal.hp
 			end
+			table.insert(items, item)
+			seen[candidate.id] = tier
 		end
 	end
+	viewing[viewer] = seen
 
-	_debugEntitiesFound = entitiesInRange
-
-	-- Always send presence payload (even when empty) so clients can handle hide/destroy when out of range
-	dispatcherAny:emit("EntityInfoDelta", {
-		type = "presence",
-		items = items,
-		ts = os.clock(),
-	}, {
-		targets = player,
+	-- Sent even when empty, so the client can retire entities that left range.
+	dispatcher:emit("EntityInfoDelta", { type = "presence", items = items }, {
+		targets = viewer,
 		qos = "BACKGROUND",
 	})
-	-- Optional sample debug print (throttled to ~1/sec). Only prints details when we have at least one item.
-	if DEBUG_ENTITY_INFO and #items > 0 then
-		local now = os.clock()
-		if now >= _debugNextLogAt then
-			_debugNextLogAt = now + 1.0
-			local first = items[1]
-			local extra = ""
-			local fAny = first :: any
-			if fAny.hpPerc then
-				extra = string.format(" hp%%=%.0f%%", (fAny.hpPerc :: number) * 100)
+end
+
+local function flushVitals()
+	if next(dirty) == nil then
+		return
+	end
+	local changed = dirty
+	dirty = {}
+
+	for viewer, seen in pairs(viewing) do
+		local items = nil
+		for entityId in pairs(changed) do
+			local tier = seen[entityId]
+			local reveal = tier and revealHealth(entityId, tier)
+			if reveal then
+				items = items or {}
+				table.insert(items, { id = entityId, hpPerc = reveal.hpPerc, hp = reveal.hp })
 			end
-			if fAny.hp then
-				local hp = fAny.hp :: any
-				extra ..= string.format(" hp=%d/%d", hp.current, hp.max)
-			end
-			print(
-				string.format(
-					"[EntityInfo] -> %s: %d nearby, first=%s(%s)%s",
-					player.Name,
-					#items,
-					first.name,
-					first.kind,
-					extra
-				)
-			)
+		end
+		if items then
+			dispatcher:emit("EntityVitals", { items = items }, {
+				targets = viewer,
+				qos = "HIGH",
+			})
 		end
 	end
 end
 
-local _conn: RBXScriptConnection? = nil
 function EntityInfoService.start()
-	if _conn then
+	if presenceConnection then
 		return
 	end
-	_accum = 0
-	_conn = RunService.Heartbeat:Connect(function(dt)
-		_accum += dt
-		if _accum >= (1 / TICK_RATE) then
-			_accum = 0
-			_debugTickCount = _debugTickCount + 1
-			for _, plr in ipairs(Players:GetPlayers()) do
-				tickPlayer(plr)
-			end
 
-			-- Debug log every 5 seconds (non-spammy)
-			if DEBUG_ENTITY_INFO and os.clock() >= _debugNextLogAt then
-				_debugNextLogAt = os.clock() + 5.0
-				local allEntities = collectEntities()
-				print(
-					`[EntityInfoService] Tick #{_debugTickCount}: {#Players:GetPlayers()} players, {#allEntities} alive entities, last scan found {_debugEntitiesFound} in range`
-				)
-			end
+	disconnectPoolListener = StatsManager.onPoolChanged(function(entityId, poolName)
+		if poolName == HEALTH_POOL then
+			dirty[entityId] = true
 		end
 	end)
 
-	-- Handle on-demand info requests (Phase 2: return minimal info; HP reveal comes later)
-	dispatcherAny:onRequest("EntityInfoRequest", function(payload, _meta, context)
-		local player = context.player
-		if not player then
-			warn("EntityInfoService received EntityInfoRequest without player context")
-			return { ok = false, error = "no_player" }
+	local accumulator = 0
+	presenceConnection = RunService.Heartbeat:Connect(function(dt)
+		accumulator += dt
+		if accumulator < 1 / PRESENCE_RATE then
+			return
 		end
-		local playerId = Registrar.getPlayerId(player)
+		accumulator = 0
+		local candidates = collectCandidates()
+		for _, viewer in ipairs(Players:GetPlayers()) do
+			tickPresence(viewer, candidates)
+		end
+	end)
 
-		local id = payload and payload.id
-		if type(id) ~= "string" then
-			return { ok = false, error = "bad_id" }
-		end
-		local model = Registrar.getEntityById(id)
-		if not model or not model:IsDescendantOf(game) then
-			return { ok = false, error = "not_found" }
-		end
-		-- Basic presence payload
-		local kind = getKindForEntity(model)
-		local hrp = model and (model:FindFirstChild("HumanoidRootPart") :: BasePart?)
-		local res = {
-			ok = true,
-			error = "",
-			id = id,
-			kind = kind,
-			name = model and model.Name or tostring(model),
-			pos = hrp and hrp.Position or Vector3.zero,
-		}
-		-- Apply the same reveal policy for the requester
-		if player and model and hrp then
-			local vPlayer = player :: Player
-			local vChar = vPlayer.Character
-			if vChar then
-				local vHrp = vChar:FindFirstChild("HumanoidRootPart") :: BasePart?
-				if vHrp then
-					local radius2 = (
-						StatsManager.getStatValue(playerId, StatTypes.StaticStats.PerceptionDistance) or 60
-					)
-					radius2 *= radius2
-					local tier2 = (StatsManager.getStatValue(playerId, StatTypes.StaticStats.PerceptionTier) or 0)
-					if sqrDist(vHrp.Position, (hrp :: BasePart).Position) <= radius2 then
-						applyReveal(vPlayer, id, hrp :: BasePart, 0, res, tier2)
-					end
-				end
-			end
-		end
-		if DEBUG_ENTITY_INFO then
-			local extra = ""
-			if (res :: any).hpPerc then
-				extra = string.format(" hp%%=%.0f%%", ((res :: any).hpPerc :: number) * 100)
-			end
-			if (res :: any).hp then
-				local hp2 = (res :: any).hp
-				extra ..= string.format(" hp=%d/%d", hp2.current, hp2.max)
-			end
-			print(
-				string.format("[EntityInfo][REQ] %s -> id=%s %s(%s)%s", player.Name, res.id, res.name, res.kind, extra)
-			)
-		end
-		return res
+	vitalsConnection = RunService.Heartbeat:Connect(flushVitals)
+
+	playerRemovingConnection = Players.PlayerRemoving:Connect(function(player)
+		viewing[player] = nil
 	end)
 end
 
 function EntityInfoService.stop()
-	if _conn then
-		_conn:Disconnect()
-		_conn = nil
+	for _, connection in { presenceConnection, vitalsConnection, playerRemovingConnection } do
+		(connection :: RBXScriptConnection):Disconnect()
 	end
+	presenceConnection = nil
+	vitalsConnection = nil
+	playerRemovingConnection = nil
+	if disconnectPoolListener then
+		disconnectPoolListener()
+		disconnectPoolListener = nil
+	end
+	table.clear(viewing)
+	table.clear(dirty)
 end
 
 return EntityInfoService

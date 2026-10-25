@@ -5,7 +5,7 @@ registry = "test"
 [[package]]
 name = "emreb/strongest-dungeon-crawler"
 version = "0.1.0"
-dependencies = [["React", "jsdotlua/react@17.2.1"], ["ReactRoblox", "jsdotlua/react-roblox@17.2.1"]]
+dependencies = [["React", "jsdotlua/react@17.2.1"], ["ReactRoblox", "jsdotlua/react-roblox@17.2.1"], ["ProfileStore", "lm-loleris/profilestore@1.0.3"]]
 
 [[package]]
 name = "jsdotlua/boolean"
@@ -91,3 +91,8 @@ dependencies = []
 name = "jsdotlua/timers"
 version = "1.2.7"
 dependencies = [["collections", "jsdotlua/collections@1.2.7"]]
+
+[[package]]
+name = "lm-loleris/profilestore"
+version = "1.0.3"
+dependencies = []

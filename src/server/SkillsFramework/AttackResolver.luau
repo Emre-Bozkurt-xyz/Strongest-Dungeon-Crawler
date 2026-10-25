@@ -37,6 +37,7 @@ type AttackQueryContext = {
 		damages: { TypedDamage }?,
 		effectId: string?,
 		effectChance: number?,
+		knockback: { distance: number, duration: number? }?,
 		comboStep: number?,
 		isCrit: boolean?,
 	},
@@ -93,6 +94,16 @@ local function resolveAttack(ctx: AttackQueryContext): AttackQueryResult
 			effectId = baseAttack.effectId,
 			chance = chance,
 			params = {},
+		})
+	end
+
+	-- Built before modifiers run, so a modifier can scale or strip knockback like any other packet.
+	local knockback = baseAttack.knockback
+	if knockback and knockback.distance > 0 then
+		table.insert(packets, {
+			type = "knockback",
+			distance = knockback.distance,
+			duration = knockback.duration,
 		})
 	end
 

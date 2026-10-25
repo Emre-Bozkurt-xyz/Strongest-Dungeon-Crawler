@@ -88,6 +88,16 @@ function Dev.start(ctx)
 		end
 	end)
 
+	-- Sets a mastery level outright, so shape unlocks and the mastery canvas can be exercised without
+	-- earning it: ServerStorage.DevSetMastery:Fire(player, "Unarmed", 1).
+	local devSetMastery = Instance.new("BindableEvent")
+	devSetMastery.Name = "DevSetMastery"
+	devSetMastery.Parent = game:GetService("ServerStorage")
+	devSetMastery.Event:Connect(function(player: Player, track: string, level: number)
+		local masteryService = require(script.Parent.Parent.Progression.MasteryService)
+		masteryService.setLevel(player, track, level)
+	end)
+
 	-- Drops the first `count` bag items in front of the player, for checking the loot labels:
 	-- ServerStorage.DevDrop:Fire(player, 3).
 	local devDrop = Instance.new("BindableEvent")
@@ -113,7 +123,10 @@ function Dev.start(ctx)
 	end)
 end
 
-function Dev.onPlayerReady(player: Player, character: Model)
+-- Once per player session (not per respawn). Skills, test modifiers and NPCs are session state and
+-- are set up every time; the starter items and attribute point are saved, so only a new save gets
+-- them.
+function Dev.onSessionStart(player: Player, character: Model, grantStarterKit: boolean)
 	local registrar = require(script.Parent.Parent.Services.Registrar)
 	local statsManager = require(script.Parent.Parent.Stats.StatsManager)
 	local attributesManager = require(script.Parent.Parent.Stats.AttributesManager)
@@ -126,7 +139,7 @@ function Dev.onPlayerReady(player: Player, character: Model)
 	local playerId = registrar.getPlayerId(player)
 
 	if not playerId then
-		warn("Dev.onPlayerReady: No playerId for player", player.Name)
+		warn("Dev.onSessionStart: No playerId for player", player.Name)
 		return
 	end
 
@@ -146,16 +159,18 @@ function Dev.onPlayerReady(player: Player, character: Model)
 	skillsManager.addSkill(playerId, "ManaBall")
 	skillsManager.addSkill(playerId, "CascadingManaBalls")
 
-	inventoryService.addItem(playerId, "mana_potion", 5)
-	inventoryService.addItem(playerId, "iron_sword", 1, { rarity = "normal" })
-	inventoryService.addItem(playerId, "iron_sword", 1, { rarity = "magic" })
-	-- Two of each one-hander so dual-wield hand alternation can be exercised.
-	inventoryService.addItem(playerId, "crooked_wand", 1, { rarity = "magic" })
-	inventoryService.addItem(playerId, "crooked_wand", 1, { rarity = "normal" })
-	inventoryService.addItem(playerId, "iron_dagger", 1, { rarity = "magic" })
-	inventoryService.addItem(playerId, "iron_dagger", 1, { rarity = "normal" })
-	inventoryService.addItem(playerId, "round_shield", 1, { rarity = "magic" })
-	inventoryService.addItem(playerId, "leather_chest", 1, { rarity = "normal" })
+	if grantStarterKit then
+		inventoryService.addItem(playerId, "mana_potion", 5)
+		inventoryService.addItem(playerId, "iron_sword", 1, { rarity = "normal" })
+		inventoryService.addItem(playerId, "iron_sword", 1, { rarity = "magic" })
+		-- Two of each one-hander so dual-wield hand alternation can be exercised.
+		inventoryService.addItem(playerId, "crooked_wand", 1, { rarity = "magic" })
+		inventoryService.addItem(playerId, "crooked_wand", 1, { rarity = "normal" })
+		inventoryService.addItem(playerId, "iron_dagger", 1, { rarity = "magic" })
+		inventoryService.addItem(playerId, "iron_dagger", 1, { rarity = "normal" })
+		inventoryService.addItem(playerId, "round_shield", 1, { rarity = "magic" })
+		inventoryService.addItem(playerId, "leather_chest", 1, { rarity = "normal" })
+	end
 
 	statsManager.addModifier(
 		playerId,
@@ -216,7 +231,9 @@ function Dev.onPlayerReady(player: Player, character: Model)
 		)
 
 		print("Starting in 5s...")
-		attributesManager.addToAttribute(player, AttributeTypes.Attributes.Perception, 1)
+		if grantStarterKit then
+			attributesManager.addToAttribute(player, AttributeTypes.Attributes.Perception, 1)
+		end
 
 		task.delay(5, function()
 			attributesManager.applyAllScaling(player)

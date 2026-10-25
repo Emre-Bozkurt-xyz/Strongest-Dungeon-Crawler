@@ -1,5 +1,6 @@
 --!strict
 local Types = require(game:GetService("ReplicatedStorage").Shared.skills.SkillSpecTypes)
+local TripleStrikeSpec = require(game:GetService("ReplicatedStorage").Shared.skills.Specs.TripleStrike)
 
 local data: Types.ServerSkillConfig = {
     name = "TripleStrike",
@@ -10,11 +11,7 @@ local data: Types.ServerSkillConfig = {
     level = 1,
     animCategory = "melee_combo",
     cost = 20,
-    hits = {
-        { t = 0.10, yaw = 0, coneAngle = 50, coneRange = 8, damageMult = 1.2 },
-        { t = 0.25, yaw = -25, coneAngle = 50, coneRange = 8, damageMult = 0.9 },
-        { t = 0.40, yaw = 25, coneAngle = 50, coneRange = 8, damageMult = 0.9 },
-    },
+    hits = TripleStrikeSpec.hits,
     -- Phase C (D8): a dedicated sword combo -- requires a sword-class weapon in either hand.
     -- Demonstrates the "wrong_weapon_class" rejection path (see Phase C exit criterion 3).
     requirements = {

@@ -2,6 +2,9 @@
 -- Health bars over revealed enemies: name, a segmented bar in the danger colour that leaves a trail of
 -- the cells a hit took, and the exact health or, when only that is revealed, a percentage.
 --
+-- The value is always the server's. A predicted hit only jolts the bar sideways, so the strike
+-- registers on the frame it lands and the cells drop when the server confirms the damage.
+--
 -- Screen UI placed over each enemy's projected position, like the loot plates and the vitals: one
 -- size at any distance, drawn over effects. The nearest few stay at full strength and the rest step
 -- down, so a crowd stays readable. Hidden while a menu is open.
@@ -15,10 +18,11 @@ local RunService = game:GetService("RunService")
 
 local React = require(ReplicatedStorage.Packages.React)
 
-local EnemyHealthClient = require(script.Parent.Parent.controllers.EnemyHealthClient)
+local EntityStore = require(script.Parent.Parent.Parent.Entities.EntityStore)
 local SegmentedGauge = require(script.Parent.Parent.components.SegmentedGauge)
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
 local useMenuState = require(script.Parent.Parent.hooks.useMenuState)
+local useOverlayOpen = require(script.Parent.Parent.hooks.useOverlayOpen)
 
 local e = React.createElement
 
@@ -32,27 +36,52 @@ local FULL_COUNT = 6
 local MIN_STRENGTH = 0.3
 -- Alpha per second: a bar cuts in or out in about a tenth of a second.
 local ALPHA_RATE = 10
+-- Jolt on a predicted strike: pixels at its peak, seconds to settle, and oscillation rate.
+local JOLT_PIXELS = 4
+local JOLT_DURATION = 0.18
+local JOLT_FREQUENCY = 45
 
 type Placement = { position: Vector2, alpha: number }
 
-local function useEnemyHealth(): { EnemyHealthClient.Entry }
-	local entries, setEntries = React.useState(EnemyHealthClient.getSnapshot)
+local function revealed(): { EntityStore.Entry }
+	local list = {}
+	for _, entry in ipairs(EntityStore.getSnapshot()) do
+		if entry.health then
+			table.insert(list, entry)
+		end
+	end
+	return list
+end
+
+local function useEnemyHealth(): { EntityStore.Entry }
+	local entries, setEntries = React.useState(revealed)
 	React.useEffect(function()
-		local disconnect = EnemyHealthClient.onChanged(function()
-			setEntries(EnemyHealthClient.getSnapshot())
+		local disconnect = EntityStore.onChanged(function()
+			setEntries(revealed())
 		end)
-		setEntries(EnemyHealthClient.getSnapshot())
+		setEntries(revealed())
 		return disconnect
 	end, {})
 	return entries
 end
 
-local function EnemyBar(props: { entry: EnemyHealthClient.Entry, placement: any })
+local function joltOffset(id: string, now: number): number
+	local struck = EntityStore.getStruckAt(id)
+	local age = if struck then now - struck else math.huge
+	if age >= JOLT_DURATION then
+		return 0
+	end
+	local decay = 1 - age / JOLT_DURATION
+	return math.round(math.sin(age * JOLT_FREQUENCY) * JOLT_PIXELS * decay * decay)
+end
+
+local function EnemyBar(props: { entry: EntityStore.Entry, placement: any })
 	local theme = ThemeContext.useTheme()
 	local entry = props.entry
-	local value = if entry.current and entry.max
-		then `{math.floor(entry.current)}/{math.floor(entry.max)}`
-		else `{math.floor(entry.ratio * 100 + 0.5)}%`
+	local health = entry.health :: EntityStore.Health
+	local value = if health.current and health.max
+		then `{math.floor(health.current)}/{math.floor(health.max)}`
+		else `{math.floor(health.ratio * 100 + 0.5)}%`
 
 	return e("CanvasGroup", {
 		Size = UDim2.fromOffset(SIZE.X, SIZE.Y),
@@ -94,7 +123,7 @@ local function EnemyBar(props: { entry: EnemyHealthClient.Entry, placement: any 
 			Outline = e("UIStroke", { Color = theme.color.surface, Thickness = 2, Transparency = 0 }),
 		}),
 		Gauge = e(SegmentedGauge, {
-			value = entry.ratio,
+			value = health.ratio,
 			color = theme.color.danger,
 			segments = 16,
 			trail = true,
@@ -107,7 +136,8 @@ end
 local function EnemyBars()
 	local entries = useEnemyHealth()
 	local menu = useMenuState()
-	local shown = not menu.modal.open
+	local overlayOpen = useOverlayOpen()
+	local shown = not menu.modal.open and not overlayOpen
 
 	local layout, setLayout = React.useBinding({} :: { [string]: Placement })
 	local current = React.useRef(entries)
@@ -130,7 +160,8 @@ local function EnemyBars()
 			-- Projected positions, and distance order for stepping down the far ones.
 			local candidates: { { id: string, screen: Vector2, distance: number } } = {}
 			local targets: { [string]: number } = {}
-			for _, entry in ipairs(current.current :: { EnemyHealthClient.Entry }) do
+			local now = os.clock()
+			for _, entry in ipairs(current.current :: { EntityStore.Entry }) do
 				local anchor = entry.anchor
 				targets[entry.id] = 0
 				if anchor and anchor.Parent and entry.present and visible.current then
@@ -144,7 +175,7 @@ local function EnemyBars()
 					if onScreen then
 						table.insert(candidates, {
 							id = entry.id,
-							screen = Vector2.new(math.round(point.X), math.round(point.Y)),
+							screen = Vector2.new(math.round(point.X) + joltOffset(entry.id, now), math.round(point.Y)),
 							distance = (camera.CFrame.Position - world).Magnitude,
 						})
 					end

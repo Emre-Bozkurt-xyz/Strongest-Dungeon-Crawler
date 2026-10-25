@@ -7,12 +7,15 @@ local Types = require(script.Parent.Parent.BasicAttackProfileTypes)
 
 local profile: Types.BasicAttackProfile = {
 	id = "sword_light_1h",
+	displayName = "Slash",
 	weaponClasses = { "sword" },
+	cost = { resource = "Stamina", steps = { 10, 12, 15 } },
 	combo = {
 		steps = 3,
 		window = 0.55,
 		stepDurations = { 0.42, 0.4, 0.55 },
 		hitDelays = { 0.22, 0.2, 0.3 },
+		recovery = 0.35,
 	},
 	-- Phase C (D9): `hand` intentionally omitted on every step. sword_light_1h has no special
 	-- dual-wield behavior of its own, so HandResolver decides per swing -- alternating main/
@@ -22,7 +25,11 @@ local profile: Types.BasicAttackProfile = {
 	steps = {
 		{ animation = "Sword_1H_Slash_1", damageMultiplier = 1.0 },
 		{ animation = "Sword_1H_Slash_2", damageMultiplier = 1.0 },
-		{ animation = "Sword_1H_Heavy_3", damageMultiplier = 1.35 },
+		{
+			animation = "Sword_1H_Heavy_3",
+			damageMultiplier = 1.35,
+			knockback = { distance = 6, duration = 0.25 },
+		},
 	},
 	hitCone = { angle = 65, range = 6 },
 	idleAnimation = "Sword_1H_Idle",

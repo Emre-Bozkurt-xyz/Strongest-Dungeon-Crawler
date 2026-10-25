@@ -29,6 +29,7 @@ export type MovementSpec = DashSpec | RollSpec
 
 local DEFAULT_DASH_K = 6
 local DEFAULT_DASH_MIN_FACTOR = 0.15
+local DEFAULT_KNOCKBACK_DURATION = 0.25
 
 local function normalizeDirection(direction: Vector3?): Vector3
 	if typeof(direction) ~= "Vector3" then
@@ -88,6 +89,23 @@ local function buildRollSpec(params: {
 	}
 end
 
+-- A knockback is a dash the target did not choose: the same fast-off, easing-out curve. Flattened
+-- so a hit from above or below pushes the target along the ground rather than launching or burying it.
+local function buildKnockbackSpec(params: {
+	startTime: number,
+	direction: Vector3,
+	distance: number,
+	duration: number?,
+}): DashSpec
+	return buildDashSpec({
+		sourceSkill = "knockback",
+		startTime = params.startTime,
+		duration = params.duration or DEFAULT_KNOCKBACK_DURATION,
+		distance = params.distance,
+		direction = Vector3.new(params.direction.X, 0, params.direction.Z),
+	})
+end
+
 local function computeDashVelocity(spec: DashSpec, elapsed: number): Vector3
 	if spec.duration <= 0 then
 		return Vector3.zero
@@ -126,6 +144,7 @@ return {
 	DEFAULT_DASH_MIN_FACTOR = DEFAULT_DASH_MIN_FACTOR,
 	buildDashSpec = buildDashSpec,
 	buildRollSpec = buildRollSpec,
+	buildKnockbackSpec = buildKnockbackSpec,
 	computeDashVelocity = computeDashVelocity,
 	computeRollVelocity = computeRollVelocity,
 	computeVelocity = computeVelocity,

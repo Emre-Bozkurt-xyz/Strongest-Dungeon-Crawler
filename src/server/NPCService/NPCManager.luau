@@ -162,7 +162,7 @@ function NPCManager.unregister(npcModel: Model): boolean
 		StatsManager.unregister(entityId)
 	end
 
-	Registrar.unregisterEntity(entityId)
+	Registrar.unregisterEntityById(entityId)
 
 	print(`Unregistered NPC: {npcModel.Name}`)
 	return true

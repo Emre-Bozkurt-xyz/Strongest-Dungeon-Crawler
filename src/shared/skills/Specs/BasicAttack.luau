@@ -30,13 +30,11 @@ local spec: Types.SkillSpec = {
 		markers = {
 			punch_windup_start = { key = "Punch_Windup", action = "start" },
 			punch_windup_end = { key = "Punch_Windup", action = "stop" },
-			Punch_Land = { key = "Punch_Land", isHitMarker = true },
+			Punch_Land = { key = "Punch_Land" },
 		},
 	},
 	hitSounds = { "rbxassetid://9117969584" },
 	castSounds = { "rbxassetid://5835032207" },
-	hitConeAngle = 65,
-	hitConeRange = 6,
 	sfx = {
 		impact = { "Punch_Hit_SFX" },
 	},

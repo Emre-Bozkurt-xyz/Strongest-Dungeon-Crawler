@@ -43,6 +43,31 @@ local function validateProfile(def: BasicAttackProfile, sourceName: string)
 		type(def.hitCone) == "table" and type(def.hitCone.angle) == "number" and type(def.hitCone.range) == "number",
 		`BasicAttackProfile '{def.id}' missing hitCone.angle/hitCone.range`
 	)
+	assert(
+		type(def.displayName) == "string" and def.displayName ~= "",
+		`BasicAttackProfile '{def.id}' missing displayName`
+	)
+	assert(
+		type(def.cost) == "table" and type(def.cost.resource) == "string" and type(def.cost.steps) == "table",
+		`BasicAttackProfile '{def.id}' missing cost.resource/cost.steps`
+	)
+	assert(
+		#def.cost.steps == #def.steps,
+		`BasicAttackProfile '{def.id}': cost.steps has {#def.cost.steps} entries for {#def.steps} steps`
+	)
+	for _, classKey in ipairs(def.shapeFor or {}) do
+		assert(
+			classKey == BasicAttackProfileTypes.UNARMED_CLASS_KEY or ItemEnums.isWeaponClass(classKey),
+			`BasicAttackProfile '{def.id}': shapeFor '{classKey}' is not a weapon class or '{BasicAttackProfileTypes.UNARMED_CLASS_KEY}'`
+		)
+	end
+	local mastery = def.requires and def.requires.mastery
+	for track, level in pairs(mastery or {}) do
+		assert(
+			type(track) == "string" and type(level) == "number",
+			`BasicAttackProfile '{def.id}': requires.mastery must map track ids to levels`
+		)
+	end
 
 	for i, step in ipairs(def.steps) do
 		-- Phase C: `hand` may be nil (HandResolver decides at swing time -- D9) in addition to an
@@ -68,6 +93,10 @@ local function validateProfile(def: BasicAttackProfile, sourceName: string)
 		assert(
 			step.releaseMarker == nil or step.delivery == "projectile",
 			`BasicAttackProfile '{def.id}' step {i}: releaseMarker is only meaningful on delivery = 'projectile'`
+		)
+		assert(
+			step.knockback == nil or (type(step.knockback.distance) == "number" and step.knockback.distance > 0),
+			`BasicAttackProfile '{def.id}' step {i}: knockback.distance must be a positive number`
 		)
 	end
 end
@@ -115,6 +144,15 @@ assert(
 	`BasicAttackProfileRegistry: required profile '{UNARMED_PROFILE_ID}' is missing`
 )
 
+-- After every profile is loaded, so a parent can be authored in any file.
+for _, id in ipairs(orderedIds) do
+	local parent = byId[id].parent
+	assert(
+		parent == nil or byId[parent] ~= nil,
+		`BasicAttackProfile '{id}': parent '{tostring(parent)}' does not exist`
+	)
+end
+
 function BasicAttackProfileRegistry.get(id: string): BasicAttackProfile?
 	return byId[id]
 end
@@ -145,16 +183,53 @@ function BasicAttackProfileRegistry.getUnarmedProfile(): BasicAttackProfile
 	return byId[UNARMED_PROFILE_ID]
 end
 
+-- The class key the loadout's basic attack is chosen for: the main-hand weapon's class, or
+-- UNARMED_CLASS_KEY for empty hands.
+function BasicAttackProfileRegistry.classKeyOf(loadout: ItemTypes.CombatLoadoutSnapshot?): string
+	local main = loadout and loadout.main
+	return if main then main.weaponClass else BasicAttackProfileTypes.UNARMED_CLASS_KEY
+end
+
+-- Whether `profile` can be selected as the basic attack for `classKey`.
+function BasicAttackProfileRegistry.fitsClass(profile: BasicAttackProfile, classKey: string): boolean
+	if classKey == BasicAttackProfileTypes.UNARMED_CLASS_KEY and profile.id == UNARMED_PROFILE_ID then
+		return true
+	end
+	return table.find(profile.weaponClasses, classKey :: any) ~= nil
+		or (profile.shapeFor ~= nil and table.find(profile.shapeFor, classKey) ~= nil)
+end
+
+-- Every shape that can be selected for `classKey`, unlocked or not, in id order.
+function BasicAttackProfileRegistry.shapesFor(classKey: string): { BasicAttackProfile }
+	local out: { BasicAttackProfile } = {}
+	for _, id in ipairs(orderedIds) do
+		if BasicAttackProfileRegistry.fitsClass(byId[id], classKey) then
+			table.insert(out, byId[id])
+		end
+	end
+	return out
+end
+
 -- Resolve which profile applies for a given combat loadout snapshot. Never returns nil.
 --
 -- Resolution order:
---   1. no main-hand weapon -> unarmed_basic
---   2. weapon names a basicAttackProfile id that exists -> that profile
---   3. weapon names a basicAttackProfile id that does NOT exist -> warn (trap 5: loud fallback,
+--   1. the loadout carries a selected shape that exists and fits what is held -> that shape
+--      (the server has already checked it is unlocked before putting it there)
+--   2. no main-hand weapon -> unarmed_basic
+--   3. weapon names a basicAttackProfile id that exists -> that profile
+--   4. weapon names a basicAttackProfile id that does NOT exist -> warn (trap 5: loud fallback,
 --      never a silent empty combo) and fall through
---   4. weapon's class has a profile registered for it -> that profile
---   5. otherwise -> unarmed_basic
+--   5. weapon's class has a profile registered for it -> that profile
+--   6. otherwise -> unarmed_basic
 function BasicAttackProfileRegistry.resolve(loadout: ItemTypes.CombatLoadoutSnapshot?): BasicAttackProfile
+	local selected = loadout and loadout.basicAttackShape
+	if selected then
+		local shape = byId[selected]
+		if shape and BasicAttackProfileRegistry.fitsClass(shape, BasicAttackProfileRegistry.classKeyOf(loadout)) then
+			return shape
+		end
+	end
+
 	local main = loadout and loadout.main
 	if not main then
 		return byId[UNARMED_PROFILE_ID]

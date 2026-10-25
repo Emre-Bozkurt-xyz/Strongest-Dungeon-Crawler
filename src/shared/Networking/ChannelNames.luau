@@ -14,7 +14,8 @@ export type ChannelName =
 	| "Combat"
 	| "StatusEffects"
 	| "SkillSession"
-	| "TimeSync"
+	| "Loadout"
+	| "Progression"
 
 export type IntentName =
 	"DebugEchoIntent"
@@ -30,10 +31,12 @@ export type IntentName =
 	| "InventoryRequest"
 	| "InventoryCommand"
 	| "CooldownSnapshotRequest"
-	| "EntityInfoRequest"
 	| "RequestShoot"
 	| "RequestShootResponse"
-	| "TimeSyncRequest"
+	| "LoadoutSnapshot"
+	| "LoadoutCommand"
+	| "LoadoutSelectShape"
+	| "ProgressionSnapshot"
 
 export type EventName =
 	"DebugEchoEvent"
@@ -43,6 +46,7 @@ export type EventName =
 	| "SkillMetadataUpdate"
 	| "CooldownEvents"
 	| "EntityInfoDelta"
+	| "EntityVitals"
 	| "InventoryEvent"
 	| "ProjectileEvent"
 	| "FXEvent"
@@ -52,5 +56,7 @@ export type EventName =
 	| "StatusEffectRemoved"
 	| "StatusEffectBlocking"
 	| "SkillSession"
+	| "LoadoutUpdate"
+	| "ProgressionUpdate"
 
 return {}

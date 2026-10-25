@@ -28,7 +28,8 @@ local PlayerCharacter: Types.CharacterSpec = {
 	-- Stagger rules
 	stagger = {
 		threshold = 1, -- 50 damage triggers stagger
-		duration = 1.5, -- 1.5 second stagger (matches Stagger status effect)
+		-- Shorter than the 1 s cooldown below, so a player always gets a window to act between staggers.
+		duration = 0.5,
 		cooldown = 1.0, -- Can't be staggered more than once per 1 second
 		maxStackDamage = 150, -- Guaranteed stagger if hit for 150+ damage
 		canInterruptSkills = true, -- Stagger cancels active skills

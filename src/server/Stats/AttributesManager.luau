@@ -237,10 +237,53 @@ local function initializePlayerAttributes(player: Player)
 	sendFullSync(player)
 end
 
--- Clean up when player leaves
-local function cleanupPlayerAttributes(player: Player)
+-- The player has left. Called by the leave sequence (PlayerSession) after their save is written,
+-- rather than from PlayerRemoving here, which could run first and leave nothing to save.
+function AttributesManager.releasePlayer(player: Player)
 	playerAttributes[player] = nil
 	attrVersionByPlayer[player] = nil
+	pendingTraceByPlayer[player] = nil
+end
+
+-- Apply the player's saved allocation: base values and unspent points. Bonuses from gear are not
+-- part of it; they come back with the equipment that grants them.
+function AttributesManager.restoreSaved(player: Player, saved: { base: { [string]: number }?, availablePoints: number? })
+	-- PlayerAdded may have fired before this module loaded; the defaults must exist to restore onto.
+	if not playerAttributes[player] then
+		initializePlayerAttributes(player)
+	end
+	local attrs = playerAttributes[player]
+	if type(saved.base) == "table" then
+		for name, value in pairs(saved.base) do
+			local attribute = if name ~= "availableAttributePoints" then (attrs :: any)[name] else nil
+			if attribute and type(value) == "number" then
+				attribute:setBaseValue(AttributesConfig.validateAttributeValue(value))
+			end
+		end
+	end
+	if type(saved.availablePoints) == "number" then
+		attrs.availableAttributePoints = math.max(0, math.floor(saved.availablePoints))
+	end
+	AttributesManager.applyAllScaling(player)
+	sendFullSync(player)
+end
+
+-- The player's allocation in save form, or nil when they have no attributes.
+function AttributesManager.toSaved(player: Player): { base: { [string]: number }, availablePoints: number }?
+	local attrs = playerAttributes[player]
+	if not attrs then
+		return nil
+	end
+	local base: { [string]: number } = {}
+	for name, attribute in pairs(attrs :: any) do
+		if name ~= "availableAttributePoints" then
+			base[name] = attribute:getBaseValue()
+		end
+	end
+	return {
+		base = base,
+		availablePoints = attrs.availableAttributePoints,
+	}
 end
 
 -- Update a player's attribute and notify client
@@ -373,9 +416,8 @@ function AttributesManager.setProfilingEnabled(enabled: boolean)
 	profilingEnabled = enabled
 end
 
--- Connect player events
+-- Defaults on join; the saved allocation replaces them once the save loads (PlayerSession).
 Players.PlayerAdded:Connect(initializePlayerAttributes)
-Players.PlayerRemoving:Connect(cleanupPlayerAttributes)
 
 -- Request handler (C->S): return full serialized data
 dispatcherAny:onRequest("AttributesRequest", function(_payload, _meta, context)

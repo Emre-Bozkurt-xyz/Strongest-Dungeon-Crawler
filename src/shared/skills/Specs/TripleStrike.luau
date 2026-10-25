@@ -18,6 +18,13 @@ local spec: Types.SkillSpec = {
 	sfx = {
 		impact = { "TS_Hit_1", "TS_Hit_2", "TS_Hit_3" },
 	},
+	-- Read by the server's TripleStrike as well, so its damage and the client's predicted impacts
+	-- come from one timeline.
+	hits = {
+		{ t = 0.10, yaw = 0, coneAngle = 50, coneRange = 8, damageMult = 1.2 },
+		{ t = 0.25, yaw = -25, coneAngle = 50, coneRange = 8, damageMult = 0.9 },
+		{ t = 0.40, yaw = 25, coneAngle = 50, coneRange = 8, damageMult = 0.9 },
+	},
 }
 
 return spec

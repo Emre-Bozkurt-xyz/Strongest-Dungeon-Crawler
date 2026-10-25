@@ -11,6 +11,9 @@ local Registrar = require(Server.Services.Registrar)
 
 local MovementService = {}
 
+-- One knockback per entity: a new one replaces the last rather than stacking two movers.
+local activeKnockbacks: { [string]: () -> () } = {}
+
 export type DashSpec = MovementSpec.DashSpec
 export type RollSpec = MovementSpec.RollSpec
 
@@ -172,6 +175,28 @@ function MovementService.applyRoll(entityId: string, spec: RollSpec): (() -> ())
 	end)
 
 	return cleanup
+end
+
+-- Push a server-simulated entity (an NPC). A player owns their character's physics, so their
+-- knockback is applied by their own client from the HitEvent that carries it.
+function MovementService.applyKnockback(entityId: string, spec: DashSpec)
+	local previous = activeKnockbacks[entityId]
+	if previous then
+		previous()
+	end
+
+	local cleanup = MovementService.applyDash(entityId, spec)
+	if not cleanup then
+		return
+	end
+	local function release()
+		if activeKnockbacks[entityId] == release then
+			activeKnockbacks[entityId] = nil
+		end
+		cleanup()
+	end
+	activeKnockbacks[entityId] = release
+	task.delay(spec.duration, release)
 end
 
 return MovementService

@@ -1,7 +1,6 @@
 --!strict
 -- Server Bootstrap: centralizes startup order and dev hooks.
 
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -28,6 +27,8 @@ type BootstrapContext = {
 	EntityInfoService: any?,
 	TimeSyncService: any?,
 	StaggerSystem: any?,
+	PlayerDataService: any?,
+	LoadoutService: any?,
 	Dev: any?,
 }
 
@@ -64,6 +65,12 @@ function Bootstrap.startAll(): BootstrapContext
 
 	startEntry(ctx, started, "Registrar", function(context)
 		context.Registrar = require(script.Parent.Services.Registrar)
+	end)
+
+	-- Early, so a save starts loading as soon as a player joins rather than after the rest boots.
+	startEntry(ctx, started, "PlayerData", function(context)
+		context.PlayerDataService = require(script.Parent.PlayerData.PlayerDataService)
+		context.PlayerDataService.start()
 	end)
 
 	startEntry(ctx, started, "Stats", function(context)
@@ -111,6 +118,19 @@ function Bootstrap.startAll(): BootstrapContext
 		context.SkillModifierRegistry = require(script.Parent.Stats.SkillModifierRegistry)
 		Diagnostics.assert(context.SessionManager ~= nil, "SessionManager failed to load")
 	end, { "Registrar", "Stats" })
+
+	startEntry(ctx, started, "Loadout", function(context)
+		context.LoadoutService = require(script.Parent.Loadout.LoadoutService)
+		context.LoadoutService.start()
+	end, { "PlayerData", "SkillsFramework" })
+
+	startEntry(ctx, started, "Progression", function(_context)
+		require(script.Parent.Progression.MasteryService).start()
+	end, { "PlayerData", "InventoryService" })
+
+	startEntry(ctx, started, "Forms", function(_context)
+		require(script.Parent.Forms.FormService).start()
+	end, { "PlayerData", "InventoryService", "SkillsFramework", "Progression" })
 
 	startEntry(ctx, started, "CombatAndStatus", function(context)
 		context.StatusEffectsService = require(script.Parent.StatusEffects.StatusEffectsService)
@@ -164,49 +184,20 @@ function Bootstrap.startAll(): BootstrapContext
 	end, { "SkillsFramework" })
 
 	startEntry(ctx, started, "PlayerLifecycle", function(context)
-		local registrar = context.Registrar
-		local statsManager = context.StatsManager
-		local skillMetadataService = context.SkillMetadataService
-		local inventoryService = context.InventoryService
-
-		local function handleCharacter(player: Player, character: Model)
-			registrar.registerEntity(character, true)
-			task.defer(function()
-				statsManager.initializePlayerStats(player)
-				if inventoryService then
-					inventoryService.initializePlayer(player)
+		-- Dev hooks start after this entry, so they are looked up when a player arrives, not now.
+		require(script.Parent.PlayerData.PlayerSession).start({
+			onSessionStart = function(player: Player, character: Model, grantStarterKit: boolean)
+				if context.Dev and context.Dev.onSessionStart then
+					context.Dev.onSessionStart(player, character, grantStarterKit)
 				end
-				task.delay(0.5, function()
-					skillMetadataService.updateAllSkills(player)
-				end)
-				if context.Dev and context.Dev.onPlayerReady then
-					context.Dev.onPlayerReady(player, character)
+			end,
+			onLeaving = function(player: Player)
+				if context.Dev and context.Dev.onPlayerRemoving then
+					context.Dev.onPlayerRemoving(player)
 				end
-			end)
-		end
-
-		local function handlePlayer(player: Player)
-			player.CharacterAdded:Connect(function(character)
-				handleCharacter(player, character)
-			end)
-			if player.Character then
-				handleCharacter(player, player.Character)
-			end
-		end
-
-		Players.PlayerAdded:Connect(handlePlayer)
-		for _, player in ipairs(Players:GetPlayers()) do
-			handlePlayer(player)
-		end
-
-		Players.PlayerRemoving:Connect(function(player)
-			if context.Dev and context.Dev.onPlayerRemoving then
-				context.Dev.onPlayerRemoving(player)
-			end
-			statsManager.cleanupPlayerStats(player)
-			registrar.unregisterPlayer(player)
-		end)
-	end, { "Registrar", "Stats", "SkillsFramework" })
+			end,
+		})
+	end, { "Registrar", "Stats", "SkillsFramework", "InventoryService", "PlayerData" })
 
 	startEntry(ctx, started, "DevHooks", function(context)
 		local dev = require(script.Parent.dev.InitDev)

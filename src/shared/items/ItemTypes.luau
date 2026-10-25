@@ -453,6 +453,10 @@ export type CombatLoadoutSnapshot = {
 		canDualWield: boolean,
 		canRangedAttack: boolean,
 	},
+	-- The basic attack shape the player selected for what they are holding, set by the server only
+	-- once it has checked the shape fits and is unlocked. Absent means the weapon's default. Carried
+	-- here so both peers resolve the basic attack from this one snapshot.
+	basicAttackShape: string?,
 }
 
 export type InventoryCommand = {

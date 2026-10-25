@@ -19,8 +19,11 @@ export type AttackPacket = {
 	-- Heal/Drain packets
 	poolType: string?, -- "HP", "Mana", "Stamina" (for heal/drain types)
 
-	-- Knockback packets (future expansion)
-	force: number?,
+	-- Knockback packets: push the target `distance` studs over `duration` seconds. `direction` is
+	-- resolved per target when omitted -- away from the attacker -- since one attack context is
+	-- shared by every target it reaches.
+	distance: number?,
+	duration: number?,
 	direction: Vector3?,
 }
 

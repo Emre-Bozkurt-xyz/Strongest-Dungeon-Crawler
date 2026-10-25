@@ -385,6 +385,31 @@ function EquipmentVisualService.getSocketCFrame(entityId: string, slot: string, 
 	return nil
 end
 
+-- Rebuild every equipped visual on the owner's current body. For a respawn: the equipment is
+-- unchanged, so no slot event fires, but the visuals went with the old character.
+function EquipmentVisualService.refresh(entityId: string)
+	local bucket = visualsByEntity[entityId]
+	if bucket then
+		local slots = {}
+		for slot in pairs(bucket) do
+			table.insert(slots, slot)
+		end
+		for _, slot in ipairs(slots) do
+			clearVisual(entityId, slot)
+		end
+	end
+	local equipment = EquipmentRepository.get(entityId)
+	local entity = Registrar.getEntityById(entityId)
+	if not equipment or not entity then
+		return
+	end
+	for slot, uid in pairs(equipment.slots) do
+		if uid then
+			attachVisual(entity, slot, uid)
+		end
+	end
+end
+
 function EquipmentVisualService.start()
 	EquipmentRepository.onSlotChanged(onSlotChanged)
 end

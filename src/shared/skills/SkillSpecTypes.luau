@@ -15,7 +15,7 @@ export type AnimSpec = {
 
 export type FXAnchorSpec = { name: string, fallback: string? }
 export type FXMarkerAction = string
-export type FXMarkerSpec = { key: string, action: string?, isHitMarker: boolean? }
+export type FXMarkerSpec = { key: string, action: string? }
 export type FXMarkerValue = string | FXMarkerSpec
 export type FXSpec = {
 	anchor: FXAnchorSpec?,
@@ -176,8 +176,10 @@ export type SkillSpec = {
 	sfx: SFXSpec?,
 	hitSounds: { string }?,
 	castSounds: { string }?,
-	hitConeAngle: number?,
-	hitConeRange: number?,
+	-- Scripted melee hits, shared with the server so the client predicts the reaction to exactly the
+	-- hits the server resolves (see MeleeHits). The adaptive basic attack derives its hits from the
+	-- weapon profile instead.
+	hits: { HitSpec }?,
 	combo: ComboSpec?,
 	directional: DirectionalSpecMap?,
 	projectile: ProjectileSpec?,
@@ -212,7 +214,9 @@ export type HitSpec = {
 	yaw: number?,
 	coneAngle: number?,
 	coneRange: number?,
+	-- Server-only: scales the hit's damage. The client reads timing and shape alone.
 	damageMult: number?,
+	hitstop: boolean?,
 }
 
 export type ServerSkillConfig = {

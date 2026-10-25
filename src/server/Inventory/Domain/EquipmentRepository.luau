@@ -15,6 +15,10 @@ function EquipmentRepository.get(entityId: string): ItemTypes.EquipmentState?
 	return EquipmentService.get(entityId)
 end
 
+function EquipmentRepository.remove(entityId: string)
+	EquipmentService.remove(entityId)
+end
+
 function EquipmentRepository.setSlot(entityId: string, slot: string, uid: string?)
 	EquipmentService.setSlot(entityId, slot, uid)
 end

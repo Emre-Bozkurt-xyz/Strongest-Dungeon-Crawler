@@ -9,6 +9,8 @@ export type ActiveSurface = "Gameplay" | "WorldPanel" | "ModalUI"
 export type State = {
 	cameraMode: CameraMode,
 	modalOpen: boolean,
+	-- A full-screen overlay specifically (not the menu): the HUD hides under one.
+	overlayOpen: boolean,
 	precisionFocusHeld: boolean,
 	cursorUnlocked: boolean,
 	lookInputSuppressed: boolean,
@@ -23,12 +25,16 @@ local changeEvent = Instance.new("BindableEvent")
 local initialized = false
 local rawCameraMode: CameraMode = "OverShoulder"
 local rawModalOpen = false
+-- Full-screen overlays (the mastery canvas) open independently of the menu, each under its own name,
+-- so one closing never releases the input another still holds.
+local rawOverlays: { [string]: boolean } = {}
 local rawPrecisionFocusHeld = false
 local lastAppliedCursorUnlocked = nil :: boolean?
 
 local currentState: State = {
 	cameraMode = rawCameraMode,
 	modalOpen = rawModalOpen,
+	overlayOpen = false,
 	precisionFocusHeld = rawPrecisionFocusHeld,
 	cursorUnlocked = false,
 	lookInputSuppressed = false,
@@ -42,6 +48,7 @@ local function cloneState(state: State): State
 	return {
 		cameraMode = state.cameraMode,
 		modalOpen = state.modalOpen,
+		overlayOpen = state.overlayOpen,
 		precisionFocusHeld = state.precisionFocusHeld,
 		cursorUnlocked = state.cursorUnlocked,
 		lookInputSuppressed = state.lookInputSuppressed,
@@ -55,6 +62,7 @@ end
 local function statesEqual(a: State, b: State): boolean
 	return a.cameraMode == b.cameraMode
 		and a.modalOpen == b.modalOpen
+		and a.overlayOpen == b.overlayOpen
 		and a.precisionFocusHeld == b.precisionFocusHeld
 		and a.cursorUnlocked == b.cursorUnlocked
 		and a.lookInputSuppressed == b.lookInputSuppressed
@@ -65,8 +73,10 @@ local function statesEqual(a: State, b: State): boolean
 end
 
 local function deriveState(): State
-	local allowsModalInteraction = rawModalOpen
-	local allowsWorldPanelInteraction = (not rawModalOpen) and rawPrecisionFocusHeld
+	local overlayOpen = next(rawOverlays) ~= nil
+	local modalOpen = rawModalOpen or overlayOpen
+	local allowsModalInteraction = modalOpen
+	local allowsWorldPanelInteraction = (not modalOpen) and rawPrecisionFocusHeld
 	local cursorUnlocked = allowsModalInteraction or allowsWorldPanelInteraction
 	local lookInputSuppressed = rawCameraMode == "OverShoulder" and cursorUnlocked
 	local gameplayBlocked = allowsModalInteraction
@@ -76,7 +86,8 @@ local function deriveState(): State
 
 	return {
 		cameraMode = rawCameraMode,
-		modalOpen = rawModalOpen,
+		modalOpen = modalOpen,
+		overlayOpen = overlayOpen,
 		precisionFocusHeld = rawPrecisionFocusHeld,
 		cursorUnlocked = cursorUnlocked,
 		lookInputSuppressed = lookInputSuppressed,
@@ -135,6 +146,20 @@ function InteractionStateController.setModalOpen(open: boolean)
 	rawModalOpen = nextOpen
 	rawPrecisionFocusHeld = false
 	recompute("modal_open")
+end
+
+-- Open or close a named full-screen overlay. Input is modal while the menu or any overlay is open.
+function InteractionStateController.setOverlayOpen(name: string, open: boolean)
+	if (rawOverlays[name] == true) == open then
+		return
+	end
+	if open then
+		rawOverlays[name] = true
+	else
+		rawOverlays[name] = nil
+	end
+	rawPrecisionFocusHeld = false
+	recompute("overlay_open")
 end
 
 function InteractionStateController.setPrecisionFocusHeld(held: boolean)

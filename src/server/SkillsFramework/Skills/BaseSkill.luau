@@ -15,9 +15,12 @@ local AttackTypes = require(ReplicatedStorage.Shared.skills.AttackTypes)
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
 local CombatLoadoutService = require(Server.Inventory.CombatLoadout.CombatLoadoutService)
+local Clock = require(ReplicatedStorage.Shared.Time.Clock)
 
 local BaseSkill = {}
 BaseSkill.__index = BaseSkill
+
+local MAX_INPUT_LEAD = 0.2
 
 local DEBUG_PHASE3 = false -- Phase 3: Track dual-system operation
 
@@ -452,6 +455,7 @@ function BaseSkill:resolveAttack(base: {
 			damages = base.damages,
 			effectId = base.effectId,
 			effectChance = base.effectChance,
+			knockback = base.knockback,
 			comboStep = base.comboStep,
 			isCrit = base.isCrit or false,
 		},
@@ -460,16 +464,19 @@ function BaseSkill:resolveAttack(base: {
 	-- Resolve through AttackResolver (will apply modifiers once registry exists)
 	local result = AttackResolver.resolve(queryCtx)
 
-	-- Convert query result to AttackContext
+	-- The resolver's metadata carries what modifiers decided (crit, step); which skill made the attack
+	-- is this skill's to say, so it is filled in whatever the resolver returned.
+	local metadata = result.metadata or {
+		isCrit = base.isCrit or false,
+		comboStep = base.comboStep,
+	}
+	metadata.skillId = metadata.skillId or self.name
+	metadata.tags = metadata.tags or (self.config and self.config.tags or nil)
+
 	return {
 		packets = result.packets,
 		sourceId = self.casterId,
-		metadata = result.metadata or {
-			skillId = self.name,
-			tags = self.config and self.config.tags or nil,
-			isCrit = base.isCrit or false,
-			comboStep = base.comboStep,
-		},
+		metadata = metadata,
 	}
 end
 
@@ -656,6 +663,26 @@ function BaseSkill:getCasterOriginCFrame(yaw: number?): CFrame?
 		return nil
 	end
 	return root.CFrame * CFrame.Angles(0, math.rad(yaw or 0), 0)
+end
+
+-- How far into the cast the caster already is when its request is handled: the time since the
+-- input was pressed, on the server's clock. Subtracting it from authored delays lands hits on the
+-- frame the caster's own animation reaches them, instead of half a round trip later.
+--
+-- The client stamps `inputTime`, so it is capped at the player's measured ping as well as an
+-- absolute ceiling: a forged timestamp can only shave off latency the player really has. NPC casts
+-- carry no input time and get none.
+function BaseSkill:resolveInputLead(requestData: any?): number
+	local inputTime = requestData and requestData.inputTime
+	if type(inputTime) ~= "number" or inputTime ~= inputTime then
+		return 0
+	end
+	local player = Registrar.getPlayerById(self.casterId)
+	if not player then
+		return 0
+	end
+	local elapsed = Clock.localNow() - inputTime
+	return math.clamp(elapsed, 0, math.min(MAX_INPUT_LEAD, player:GetNetworkPing()))
 end
 
 function BaseSkill:getExecutionToken(): string?

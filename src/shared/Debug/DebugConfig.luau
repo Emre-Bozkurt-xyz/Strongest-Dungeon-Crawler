@@ -18,6 +18,7 @@ local flags: { [string]: boolean } = {
 	bootstrap = true,
 	cancelDebug = false,
 	combat = false,
+	hitboxes = false,
 	stagger = false,
 	projectiles = false,
 	inputFlow = false,

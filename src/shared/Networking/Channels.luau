@@ -69,11 +69,11 @@ local Channels: { [Names.ChannelName]: ChannelDefinition } = {
 	EntityInfo = {
 		remote = "EntityInfo",
 		remoteEvent = "EntityInfoEvent",
-		remoteFunction = "EntityInfoRequest",
-		direction = "bidirectional",
-		qos = "BACKGROUND",
-		intents = { "EntityInfoRequest" },
-		events = { "EntityInfoDelta" },
+		remoteFunction = nil,
+		direction = "server_to_client",
+		qos = "HIGH",
+		intents = nil,
+		events = { "EntityInfoDelta", "EntityVitals" },
 	},
 	Inventory = {
 		remote = "Inventory",
@@ -130,14 +130,23 @@ local Channels: { [Names.ChannelName]: ChannelDefinition } = {
 		intents = nil,
 		events = { "SkillSession" },
 	},
-	TimeSync = {
-		remote = "TimeSync",
-		remoteEvent = nil,
-		remoteFunction = "TimeSyncRequest",
+	Loadout = {
+		remote = "Loadout",
+		remoteEvent = "LoadoutEvent",
+		remoteFunction = "LoadoutRequest",
 		direction = "bidirectional",
 		qos = "HIGH",
-		intents = { "TimeSyncRequest" },
-		events = nil,
+		intents = { "LoadoutSnapshot", "LoadoutCommand", "LoadoutSelectShape" },
+		events = { "LoadoutUpdate" },
+	},
+	Progression = {
+		remote = "Progression",
+		remoteEvent = "ProgressionEvent",
+		remoteFunction = "ProgressionRequest",
+		direction = "bidirectional",
+		qos = "NORMAL",
+		intents = { "ProgressionSnapshot" },
+		events = { "ProgressionUpdate" },
 	},
 }
 

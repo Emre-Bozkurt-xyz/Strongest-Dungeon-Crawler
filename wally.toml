@@ -9,3 +9,7 @@ realm = "shared"
 # useSyncExternalStore does not exist here, which is why store hooks use useState + useEffect.
 React = "jsdotlua/react@17.2.1"
 ReactRoblox = "jsdotlua/react-roblox@17.2.1"
+[server-dependencies]
+# Session-locked player saves: one server owns a player's data at a time, with autosave and a flush
+# on shutdown. See docs/planning/progression-direction.md, build order step 1.
+ProfileStore = "lm-loleris/profilestore@1.0.3"

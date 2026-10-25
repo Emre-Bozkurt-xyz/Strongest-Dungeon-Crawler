@@ -13,7 +13,7 @@ local ItemUtils = require(ReplicatedStorage.Shared.items.ItemUtils)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 
 local Registrar = require(ServerScriptService.Server.Services.Registrar)
-local DataManager = require(ServerScriptService.Server.Services.DataManager)
+local PlayerDataSchema = require(ServerScriptService.Server.PlayerData.PlayerDataSchema)
 local ItemInstances = require(script.Parent.Domain.ItemInstanceRepository)
 local InventoryRepository = require(script.Parent.Domain.InventoryRepository)
 local EquipmentRepository = require(script.Parent.Domain.EquipmentRepository)
@@ -210,26 +210,71 @@ function InventoryService.getSnapshot(entityId: string): ItemTypes.InventorySnap
 	})
 end
 
-function InventoryService.initializePlayer(player: Player)
+-- Restore the saved item `uid`, or nil when the save has no usable entry for it or the item no
+-- longer exists in the game.
+local function restoreSavedItem(items: { [string]: any }, uid: string): string?
+	local entry = items[uid]
+	if type(entry) ~= "table" or type(entry.itemId) ~= "string" or type(entry.stackSize) ~= "number" then
+		warn(`InventoryService: saved item {uid} is missing or malformed; dropped`)
+		return nil
+	end
+	local meta = if type(entry.meta) == "table" then entry.meta else nil
+	local inst = ItemInstances.restore(uid, entry.itemId, entry.stackSize, meta)
+	if not inst then
+		warn(`InventoryService: saved item '{entry.itemId}' no longer exists; dropped`)
+		return nil
+	end
+	return inst.uid
+end
+
+local function restoreSaved(entityId: string, inv: ItemTypes.InventoryState, saved: PlayerDataSchema.SavedInventory)
+	if type(saved.capacity) == "number" and saved.capacity >= 1 then
+		inv.capacity = math.floor(saved.capacity)
+	end
+	local items = if type(saved.items) == "table" then saved.items else {}
+	-- An item is restored once. A save naming the same uid twice keeps the first place it appears,
+	-- rather than duplicating the item.
+	local restored: { [string]: boolean } = {}
+	local function take(uid: any): string?
+		if type(uid) ~= "string" or uid == "" or restored[uid] then
+			return nil
+		end
+		local restoredUid = restoreSavedItem(items, uid)
+		if restoredUid then
+			restored[restoredUid] = true
+		end
+		return restoredUid
+	end
+
+	if type(saved.slots) == "table" then
+		for slot = 1, inv.capacity do
+			inv.slots[slot] = take(saved.slots[slot])
+		end
+	end
+	if type(saved.equipment) == "table" then
+		for slot, uid in pairs(saved.equipment) do
+			local restoredUid = if type(slot) == "string" then take(uid) else nil
+			if restoredUid then
+				EquipmentRepository.setSlot(entityId, slot, restoredUid)
+			end
+		end
+	end
+	rebuildStacks(inv)
+end
+
+-- Restore the player's inventory and equipment from their save, tell their client, and apply what
+-- the equipment grants (stats, skills).
+function InventoryService.initializePlayer(player: Player, saved: PlayerDataSchema.SavedInventory?)
 	local entityId = Registrar.getPlayerId(player)
 	if not entityId then
 		return
 	end
 
-	local saved = DataManager.loadInventory(entityId)
-	if saved and type(saved) == "table" then
-		local inv = InventoryService.ensureInventory(entityId)
-		if type(saved.capacity) == "number" then
-			inv.capacity = saved.capacity
-		end
-		if type(saved.slots) == "table" then
-			inv.slots = saved.slots :: { [number]: string? }
-		end
-		rebuildStacks(inv)
-	else
-		InventoryService.ensureInventory(entityId)
-	end
+	local inv = InventoryService.ensureInventory(entityId)
 	EquipmentRepository.ensure(entityId)
+	if saved then
+		restoreSaved(entityId, inv, saved)
+	end
 
 	local snapshot = InventoryService.getSnapshot(entityId)
 	InventoryReplicationService.emitDelta(entityId, { kind = "inventory_capacity", capacity = snapshot.inventory.capacity })
@@ -244,6 +289,75 @@ function InventoryService.initializePlayer(player: Player)
 	end
 	InventoryReplicationService.emitSnapshot(entityId, snapshot)
 	recomputeEquipmentDerived(entityId)
+end
+
+-- The owner's inventory and equipment in save form, or nil when they have none.
+function InventoryService.serialize(entityId: string): PlayerDataSchema.SavedInventory?
+	local inv = InventoryRepository.get(entityId)
+	if not inv then
+		return nil
+	end
+	local items: { [string]: PlayerDataSchema.SavedItem } = {}
+	local function keep(uid: string)
+		local inst = ItemInstances.get(uid)
+		if inst then
+			items[uid] = {
+				itemId = inst.itemId,
+				stackSize = inst.stackSize,
+				meta = if inst.meta then PlayerDataSchema.saveable(inst.meta, `items.{uid}.meta`) else nil,
+			}
+		end
+	end
+
+	local slots: { string } = {}
+	for slot = 1, inv.capacity do
+		local uid = inv.slots[slot]
+		slots[slot] = uid or ""
+		if uid then
+			keep(uid)
+		end
+	end
+
+	local equipment: { [string]: string } = {}
+	local equip = EquipmentRepository.get(entityId)
+	if equip then
+		for slot, uid in pairs(equip.slots) do
+			if uid then
+				equipment[slot] = uid
+				keep(uid)
+			end
+		end
+	end
+
+	return {
+		capacity = inv.capacity,
+		slots = slots,
+		equipment = equipment,
+		items = items,
+	}
+end
+
+-- The owner has left: drop their inventory, equipment and the items held in them. Their save must
+-- already have been written.
+function InventoryService.releasePlayer(entityId: string)
+	local inv = InventoryRepository.get(entityId)
+	if inv then
+		for _, uid in pairs(inv.slots) do
+			if uid then
+				ItemInstances.remove(uid)
+			end
+		end
+	end
+	local equip = EquipmentRepository.get(entityId)
+	if equip then
+		for _, uid in pairs(equip.slots) do
+			if uid then
+				ItemInstances.remove(uid)
+			end
+		end
+	end
+	InventoryRepository.remove(entityId)
+	EquipmentRepository.remove(entityId)
 end
 
 function InventoryService.addItem(entityId: string, itemId: string, count: number, meta: ItemTypes.ItemMeta?): boolean

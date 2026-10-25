@@ -25,6 +25,7 @@ local HandResolver = require(ReplicatedStorage.Shared.skills.HandResolver)
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local EntityUtils = require(ReplicatedStorage.Shared.EntityUtils)
 local AttackResolver = require(script.Parent.Parent.AttackResolver)
+local MeleeHits = require(ReplicatedStorage.Shared.skills.MeleeHits)
 local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
 
 -- `both` never appears here; projectile steps resolve a single concrete hand.
@@ -76,13 +77,29 @@ local function casterOriginCFrame(skill: any): CFrame?
 	return root.CFrame
 end
 
-function BasicAttack:use(requestData: any?): any
-	-- Resolve before delegating: BaseComboSkill:use() reads self.config.combo for step
-	-- count/timing, so it must already reflect the current loadout's profile by the time it runs.
-	local loadout = CombatLoadoutService.get(self.casterId)
-	local profile = BasicAttackProfileRegistry.resolve(loadout)
+-- Point this skill's config at the shape the caster's loadout resolves to now: its combo (step
+-- count, timing, window) and its cost.
+function BasicAttack:applyResolvedShape(): BasicAttackProfileTypes.BasicAttackProfile
+	local profile = BasicAttackProfileRegistry.resolve(CombatLoadoutService.get(self.casterId))
 	self._activeProfile = profile
 	self.config.combo = profile.combo
+	-- Read by BaseSkill:applyResourceCost when BaseComboSkill.use charges the step.
+	self.config.costs = profile.cost.steps
+	self.config.baseResource = profile.cost.resource
+	return profile
+end
+
+-- Called by SkillsManager before it reads the combo config to open or advance a chain. Without
+-- it, SkillsManager would read the config as the previous swing left it, and the first chain after
+-- a weapon or shape change would run on the old shape's step count and window.
+function BasicAttack:resolveComboConfig(): BasicAttackProfileTypes.BasicAttackComboSpec
+	return self:applyResolvedShape().combo
+end
+
+function BasicAttack:use(requestData: any?): any
+	-- Resolved again here, not only in resolveComboConfig: use() must never run on a stale shape,
+	-- whoever calls it.
+	local profile = self:applyResolvedShape()
 
 	-- onComboStep runs later on a hit delay and receives no request data of its own.
 	self._aimRequestData = requestData
@@ -116,16 +133,19 @@ function BasicAttack:applyConeStep(step: number, coneAngle: number, coneRange: n
 		:factionRelation("enemy")
 		:playersOnly(false)
 		:cone(coneAngle, coneRange)
-		:collect({ collectIds = true, debug = true })
+		:collect({ collectIds = true })
 
 	local targetIds = targets.ids
 	if not targetIds then
 		return
 	end
 
+	local profile = self._activeProfile
+	local stepSpec = profile and (profile.steps[step] or profile.steps[#profile.steps])
 	local attack = self:resolveAttack({
 		damages = damages,
 		comboStep = step,
+		knockback = stepSpec and stepSpec.knockback,
 	})
 
 	for _, targetEntityId in ipairs(targetIds) do
@@ -289,8 +309,7 @@ function BasicAttack:onComboStep(step: number)
 
 	local stepSpec = profile.steps[step] or profile.steps[#profile.steps]
 	local mult = stepSpec.damageMultiplier
-	local coneAngle = stepSpec.coneAngle or profile.hitCone.angle
-	local coneRange = stepSpec.coneRange or profile.hitCone.range
+	local coneAngle, coneRange = MeleeHits.profileCone(profile, step)
 
 	-- D9: resolve which hand actually swings this step. An authored hand on the step always wins;
 	-- otherwise HandResolver alternates between both hands when dual-wielding one-handed weapons,

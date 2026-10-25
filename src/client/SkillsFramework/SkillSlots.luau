@@ -1,33 +1,22 @@
 --!strict
--- SkillSlots: Multi-profile skill slot management.
--- A "profile" (aka skill set) is an independent sparse array mapping slot index -> skillName.
--- Player starts with 1 profile (default shows Punch in slot 1). Additional profiles can be unlocked.
--- Profiles can be cycled (e.g., via LeftAlt) with no cooldown restrictions.
--- Sparse design: slot indices do NOT need to be contiguous; UI should only render filled slots.
--- NOTE: Previous logicalSize hint removed; profiles are purely sparse maps now.
--- API:
---   SkillSlots.createProfile(initialSlotCount?: number) -> profileId
---   SkillSlots.unlockProfile(initialSlotCount?: number) -> profileId (alias)
---   SkillSlots.cycleProfile(delta?: number) -- default delta=1 forward
---   SkillSlots.getActiveProfileId() -> number
---   SkillSlots.setActiveProfile(profileId: number)
---   (Deprecated) SkillSlots.setSlotCount(n) -- now no-op except firing slotsChanged (legacy compatibility)
---   SkillSlots.assign(slotIndex, skillName)
---   SkillSlots.clear(slotIndex)
---   SkillSlots.get(slotIndex) -> string?
---   SkillSlots.getAll() -> {string?} (deprecated dense list of filled skills only)
---   SkillSlots.getFilledSlots() -> { { index, skill } }
---   SkillSlots.serialize() -> serialized table
---   SkillSlots.load(dataTable)
---   SkillSlots.activate(slotIndex)
---   SkillSlots.profileCount() -> number
---   SkillSlots.onProfileChanged(cb(profileId)) -> () -> ()
---   SkillSlots.onSlotsChanged(cb(profileId)) -> () -> ()  -- any assign/clear/resize in that profile
--- Future extension: persistence (serialize/deserialize), per-slot metadata (cooldowns, icons), profile naming.
--- Dependencies kept minimal: only requires SkillsClient to actually fire skill usage.
+-- SkillSlots: the client's mirror of the player's skill slot sets, and what fires a slot's skill.
+--
+-- The server owns the sets and keeps them in the player's save (LoadoutService). Commands apply here
+-- first, with the same rules the server uses (LoadoutRules), so assigning a skill or cycling sets in
+-- a fight responds at once; the request follows. The server's answer replaces the mirror only once
+-- no newer command is still in flight -- otherwise a slow answer to an earlier command would briefly
+-- undo a later one. The last answer always carries the full authoritative loadout, so the mirror
+-- converges even when the server refuses something it accepted locally.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SkillsClient = require(script.Parent.SkillsClient)
-local DebugConfig = require(game:GetService("ReplicatedStorage").Shared.Debug.DebugConfig)
+local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
+local Networking = require(ReplicatedStorage.Shared.Networking)
+local LoadoutTypes = require(ReplicatedStorage.Shared.skills.LoadoutTypes)
+local LoadoutRules = require(ReplicatedStorage.Shared.skills.LoadoutRules)
+
+type Loadout = LoadoutTypes.Loadout
 
 -- Temporary diagnostics: activate/release return silently when a slot is empty, which looks
 -- identical to a dead keybind. Gated on the existing `inputFlow` flag.
@@ -37,124 +26,140 @@ local function logFlow(...: any)
 	end
 end
 
+local dispatcher = Networking.client() :: any
+
 local SkillSlots = {}
 
--- Internal structures
-type SlotArray = { [number]: string? }
+export type FilledSlot = { index: number, skill: string }
 
-local profiles: { [number]: { slots: SlotArray } } = {}
-local activeProfile = 1
-local nextProfileId = 1
+local loadout: Loadout? = nil
+local inFlight = 0
 
--- Event signal helpers (lightweight custom)
-type Callback<T...> = (T...) -> ()
-local profileChanged: { Callback<number> } = {}
-local slotsChanged: { Callback<number> } = {}
+type Callback = (setIndex: number) -> ()
+local activeSetChanged: { Callback } = {}
+local slotsChanged: { Callback } = {}
 
-local function fire(list: { any }, ...: any)
+local function fire(list: { Callback }, setIndex: number)
 	for _, cb in ipairs(list) do
-		task.spawn(cb, ...)
+		task.spawn(cb, setIndex)
 	end
 end
 
-local function ensureProfile(id: number)
-	local p = profiles[id]
-	if not p then
-		p = { slots = {} }
-		profiles[id] = p
-	end
-	return p
-end
-
-local function createProfileInternal(): number
-	local id = nextProfileId
-	nextProfileId += 1
-	ensureProfile(id)
-	return id
-end
-
-function SkillSlots.assign(index: number, skillName: string)
-	if index < 1 then
-		error("SkillSlots.assign: index < 1")
-	end
-	local p = ensureProfile(activeProfile)
-	p.slots[index] = skillName
-	fire(slotsChanged, activeProfile)
-end
-
-function SkillSlots.clear(index: number)
-	local p = profiles[activeProfile]
-	if not p then
-		return
-	end
-	if index < 1 then
-		return
-	end
-	if p.slots[index] == nil then
-		return
-	end
-	p.slots[index] = nil
-	fire(slotsChanged, activeProfile)
-end
-
-function SkillSlots.get(index: number): string?
-	local p = profiles[activeProfile]
-	if not p then
-		return nil
-	end
-	if index < 1 then
-		return nil
-	end
-	return p.slots[index]
-end
-
--- Deprecated: getAll with contiguous empty slots; kept for backward compatibility returning a dense array of filled entries only.
-function SkillSlots.getAll(): { string? }
-	local p = profiles[activeProfile]
-	local out: { string? } = {}
-	if not p then
-		return out
-	end
-	-- Collect filled slots only (order by index ascending)
-	local indices: { number } = {}
-	for idx, skill in pairs(p.slots) do
-		if type(idx) == "number" and skill ~= nil then
-			table.insert(indices, idx)
+local function subscribe(list: { Callback }, cb: Callback): () -> ()
+	table.insert(list, cb)
+	return function()
+		local index = table.find(list, cb)
+		if index then
+			table.remove(list, index)
 		end
 	end
-	table.sort(indices)
-	for i, slotIndex in ipairs(indices) do
-		out[i] = p.slots[slotIndex]
-	end
-	return out
 end
 
--- Preferred: explicit filled slot enumeration preserving actual indices.
-export type FilledSlot = { index: number, skill: string }
+local function replace(newLoadout: Loadout)
+	local previousActive = loadout and loadout.activeSet
+	loadout = newLoadout
+	if previousActive ~= newLoadout.activeSet then
+		fire(activeSetChanged, newLoadout.activeSet)
+	end
+	fire(slotsChanged, newLoadout.activeSet)
+end
+
+local function adoptServerLoadout(raw: any)
+	local sanitized = LoadoutRules.sanitize(raw)
+	if sanitized and inFlight == 0 then
+		replace(sanitized)
+	end
+end
+
+local function resync()
+	local ok, raw = pcall(function()
+		return dispatcher:request("LoadoutSnapshot", {})
+	end)
+	if ok then
+		adoptServerLoadout(raw)
+	else
+		warn("SkillSlots: loadout snapshot request failed:", raw)
+	end
+end
+
+local function send(command: LoadoutTypes.LoadoutCommand)
+	local current = loadout
+	if not current then
+		logFlow(`SkillSlots: '{command.kind}' ignored, loadout not loaded yet`)
+		return
+	end
+	local ok, reason = LoadoutRules.apply(current, command)
+	if not ok then
+		logFlow(`SkillSlots: '{command.kind}' refused locally ({reason})`)
+		return
+	end
+	if command.kind == "setActive" then
+		fire(activeSetChanged, current.activeSet)
+	end
+	fire(slotsChanged, current.activeSet)
+
+	inFlight += 1
+	task.spawn(function()
+		local requestOk, response = pcall(function()
+			return dispatcher:request("LoadoutCommand", command)
+		end)
+		inFlight -= 1
+		if not requestOk or type(response) ~= "table" then
+			warn("SkillSlots: LoadoutCommand failed:", response)
+			if inFlight == 0 then
+				resync()
+			end
+			return
+		end
+		if response.ok == false then
+			warn(`SkillSlots: server refused '{command.kind}': {response.error}`)
+		end
+		adoptServerLoadout(response.loadout)
+	end)
+end
+
+local function activeSlots(): { string }?
+	local current = loadout
+	if not current then
+		return nil
+	end
+	local set = current.sets[current.activeSet]
+	return set and set.slots
+end
+
+function SkillSlots.isLoaded(): boolean
+	return loadout ~= nil
+end
+
+-- The skill in `index` of the active set, or nil when the slot is empty or nothing has loaded.
+function SkillSlots.get(index: number): string?
+	local slots = activeSlots()
+	local skill = slots and slots[index]
+	if skill == nil or skill == LoadoutTypes.EMPTY then
+		return nil
+	end
+	return skill
+end
+
+-- The active set's filled slots, in slot order.
 function SkillSlots.getFilledSlots(): { FilledSlot }
-	local p = profiles[activeProfile]
 	local list: { FilledSlot } = {}
-	if not p then
+	local slots = activeSlots()
+	if not slots then
 		return list
 	end
-	for idx, skill in pairs(p.slots) do
-		if type(idx) == "number" and skill ~= nil then
-			table.insert(list, { index = idx, skill = skill :: string })
+	for index, skill in ipairs(slots) do
+		if skill ~= LoadoutTypes.EMPTY then
+			table.insert(list, { index = index, skill = skill })
 		end
 	end
-	table.sort(list, function(a, b)
-		return a.index < b.index
-	end)
 	return list
 end
 
 function SkillSlots.activate(index: number)
 	local skill = SkillSlots.get(index)
 	if not skill then
-		local p = profiles[activeProfile]
-		logFlow(
-			`activate({index}): NO SKILL in profile {activeProfile} (profile exists={p ~= nil}, filled slots={#SkillSlots.getFilledSlots()})`
-		)
+		logFlow(`activate({index}): NO SKILL in set {SkillSlots.getActiveSet()} (loaded={loadout ~= nil})`)
 		return
 	end
 	logFlow(`activate({index}): -> SkillsClient.useSkill('{skill}')`)
@@ -164,159 +169,64 @@ end
 function SkillSlots.release(index: number)
 	local skill = SkillSlots.get(index)
 	if not skill then
-		logFlow(`release({index}): NO SKILL in profile {activeProfile}`)
+		logFlow(`release({index}): NO SKILL in set {SkillSlots.getActiveSet()}`)
 		return
 	end
 	logFlow(`release({index}): -> SkillsClient.releaseSkill('{skill}')`)
 	SkillsClient.releaseSkill(skill)
 end
 
-function SkillSlots.profileCount(): number
-	return nextProfileId - 1
+-- Put `skill` in `slot` of `set` (the active set when omitted), moving it out of any other slot in
+-- that set.
+function SkillSlots.assign(slot: number, skill: string, set: number?)
+	send({ kind = "assign", set = set or SkillSlots.getActiveSet(), slot = slot, skill = skill })
 end
 
-function SkillSlots.getActiveProfileId(): number
-	return activeProfile
+function SkillSlots.clear(slot: number, set: number?)
+	send({ kind = "clear", set = set or SkillSlots.getActiveSet(), slot = slot })
 end
 
-function SkillSlots.setActiveProfile(id: number)
-	if id == activeProfile then
+function SkillSlots.setCount(): number
+	return if loadout then #loadout.sets else 0
+end
+
+function SkillSlots.getActiveSet(): number
+	return if loadout then loadout.activeSet else 1
+end
+
+function SkillSlots.setActiveSet(set: number)
+	if loadout and set == loadout.activeSet then
 		return
 	end
-	if not profiles[id] then
-		return
-	end
-	activeProfile = id
-	fire(profileChanged, activeProfile)
+	send({ kind = "setActive", set = set })
 end
 
-function SkillSlots.cycleProfile(delta: number?)
-	delta = delta or 1
-	local count = SkillSlots.profileCount()
+function SkillSlots.cycleSet(delta: number?)
+	local count = SkillSlots.setCount()
 	if count <= 1 then
 		return
 	end
-	local d = delta :: number
-	local target = activeProfile + d
-	if target < 1 then
-		target = count
-	elseif target > count then
-		target = 1
-	end
-	SkillSlots.setActiveProfile(target)
+	local target = (SkillSlots.getActiveSet() - 1 + (delta or 1)) % count + 1
+	SkillSlots.setActiveSet(target)
 end
 
-function SkillSlots.createProfile(): number
-	local id = createProfileInternal()
-	fire(profileChanged, activeProfile) -- slight nudge so UI can know total count changed
-	return id
+function SkillSlots.onActiveSetChanged(cb: Callback): () -> ()
+	return subscribe(activeSetChanged, cb)
 end
 
-SkillSlots.unlockProfile = SkillSlots.createProfile
-
-function SkillSlots.onProfileChanged(cb: (number) -> ())
-	table.insert(profileChanged, cb)
-	return function()
-		for i, f in ipairs(profileChanged) do
-			if f == cb then
-				table.remove(profileChanged, i)
-				break
-			end
-		end
-	end
+-- Any change to slots, in any set, including the first load.
+function SkillSlots.onSlotsChanged(cb: Callback): () -> ()
+	return subscribe(slotsChanged, cb)
 end
 
-function SkillSlots.onSlotsChanged(cb: (number) -> ())
-	table.insert(slotsChanged, cb)
-	return function()
-		for i, f in ipairs(slotsChanged) do
-			if f == cb then
-				table.remove(slotsChanged, i)
-				break
-			end
-		end
+-- Connected before the snapshot request, so a save that finishes loading while the request is out
+-- is not missed: whichever arrives first fills the mirror.
+dispatcher:on("LoadoutUpdate", function(payload: any)
+	if type(payload) == "table" then
+		adoptServerLoadout(payload.loadout)
 	end
-end
+end)
 
--- Bootstrap: create initial profile 1 and set defaults
-createProfileInternal()
-SkillSlots.setActiveProfile(1)
--- Skill assignments are now handled in dev/init for easier iteration.
-
--- Public: explicit API to expand beyond default 5 via assign or setSlotCount.
-
--- Serialization / Deserialization
--- Shape:
--- {
---   active = number,
---   profiles = {
---       [id] = { slots = { [slotIndex] = skillName } }
---   }
--- }
-
-function SkillSlots.serialize(): { [string]: any }
-	local dataProfiles: { [number]: any } = {}
-	for id, prof in pairs(profiles) do
-		local copySlots: { [number]: string } = {}
-		for idx, skill in pairs(prof.slots) do
-			if skill then
-				copySlots[idx] = skill
-			end
-		end
-		dataProfiles[id] = { slots = copySlots }
-	end
-	return {
-		active = activeProfile,
-		profiles = dataProfiles,
-	}
-end
-
-function SkillSlots.load(data: any)
-	if type(data) ~= "table" then
-		return
-	end
-	if type(data.profiles) ~= "table" then
-		return
-	end
-	profiles = {}
-	nextProfileId = 1
-	for id, prof in pairs(data.profiles) do
-		if type(id) == "number" and type(prof) == "table" then
-			local newId = id
-			if newId >= nextProfileId then
-				nextProfileId = newId + 1
-			end
-			local slotMap: SlotArray = {}
-			local slotSrc = prof.slots
-			if type(slotSrc) == "table" then
-				for sIdx, sName in pairs(slotSrc) do
-					if type(sIdx) == "number" and type(sName) == "string" then
-						slotMap[sIdx] = sName
-					end
-				end
-			end
-			profiles[newId] = { slots = slotMap }
-		end
-	end
-	if type(data.active) == "number" and profiles[data.active] then
-		activeProfile = data.active
-	else
-		activeProfile = 1
-	end
-	fire(profileChanged, activeProfile)
-	fire(slotsChanged, activeProfile)
-end
-
--- Cooldown stubs (future expansion): You can layer a cooldown tracker keyed by skill or by (profile, slotIndex).
--- Placeholder API for future integration.
-function SkillSlots.getCooldown(slotIndex: number): number?
-	slotIndex = slotIndex
-	return nil
-end
-
-function SkillSlots.setCooldown(slotIndex: number, _remaining: number)
-	slotIndex = slotIndex
-	-- Intentionally no-op for now.
-end
+task.spawn(resync)
 
 return SkillSlots

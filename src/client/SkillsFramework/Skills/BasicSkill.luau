@@ -1,4 +1,7 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local BaseSkill = require(script.Parent.BaseSkill)
+local MeleeHits = require(ReplicatedStorage.Shared.skills.MeleeHits)
 local SkillPacer = require(script.Parent.Parent.SkillPacer)
 local SkillMetadataClient = require(script.Parent.Parent.SkillMetadataClient)
 local ProjectilesClient = require(script.Parent.Parent.Parent.Services.ProjectilesClient)
@@ -58,6 +61,11 @@ function BasicSkill:use()
 		duration = predictedDuration, -- may be nil, AnimationPlayer will use default
 		token = attemptId,
 	})
+
+	if self.config.hits then
+		local _tempo, durationScale = self:predictTiming()
+		self:predictHits(MeleeHits.fromSpecs(self.config.hits), durationScale)
+	end
 
 	-- REQUEST server validation with callbacks
 	self:requestUseAsync(function(_data)

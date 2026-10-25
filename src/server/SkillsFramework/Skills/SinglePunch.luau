@@ -54,7 +54,7 @@ function SinglePunch:use(requestData)
 				:casterEntityId(self.casterId)
 				:factionRelation("enemy")
 				:cone(angle, range)
-				:collect({ collectIds = true, debug = true })
+				:collect({ collectIds = true })
 			-- Apply to all targets
 			for _, targetEntityId in ipairs(targets.ids) do
 				CombatService.applyAttack(targetEntityId, attack, self.casterId)

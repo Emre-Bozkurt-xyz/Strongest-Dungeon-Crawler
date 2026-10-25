@@ -1,4 +1,5 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local BaseSkill = require(script.Parent.BaseSkill)
 local SkillPacer = require(script.Parent.Parent.SkillPacer)
@@ -6,6 +7,7 @@ local SkillMetadataClient = require(script.Parent.Parent.SkillMetadataClient)
 local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
 local CombatLoadoutMirror = require(script.Parent.Parent.Parent.Inventory.CombatLoadoutMirror)
 local AimResolver = require(script.Parent.Parent.AimResolver)
+local MeleeHits = require(ReplicatedStorage.Shared.skills.MeleeHits)
 local AnimationPlayer = require(script.Parent.Parent.Parent.fx.AnimationPlayer)
 local AnimationOverrideStore = require(script.Parent.Parent.Parent.Animation.AnimationOverrideStore)
 local Networking = require(ReplicatedStorage.Shared.Networking)
@@ -24,6 +26,27 @@ local function debugLog(...)
 	end
 end
 
+-- A press arriving up to this long before it could be accepted is held and fired at that moment,
+-- rather than dropped for being a few frames early. Earlier than this it is dropped, so a stray
+-- early click does not commit the player to a swing they have since moved on from.
+local INPUT_BUFFER = 0.25
+-- A held press fires this long after its moment rather than on it. The server opens the same
+-- window on its own clock, and a press landing exactly on the edge can reach it a hair early.
+local BUFFER_RELEASE_MARGIN = 0.03
+-- Rejections that clear by themselves shortly -- the current step or another action finishing, or
+-- the server confirming the previous step -- and so are worth holding a press through.
+local BUFFERABLE: { [string]: boolean } = {
+	combo_busy = true,
+	combo_complete = true,
+	combo_pending = true,
+	locked = true,
+}
+
+type BufferedPress = {
+	releaseAt: number,
+	expiresAt: number,
+}
+
 local BasicComboSkill = {}
 BasicComboSkill.__index = BasicComboSkill
 setmetatable(BasicComboSkill, { __index = BaseSkill })
@@ -33,7 +56,83 @@ function BasicComboSkill.new(name: string?, config: any?)
 	setmetatable(self, BasicComboSkill)
 	self._comboIdleTrack = nil :: AnimationTrack?
 	self._comboIdleToken = nil :: string?
+	self._bufferedPress = nil :: BufferedPress?
+	self._bufferConn = nil :: RBXScriptConnection?
+	self._replayingBuffer = false
 	return self
+end
+
+function BasicComboSkill:_clearBufferedPress()
+	self._bufferedPress = nil
+	if self._bufferConn then
+		self._bufferConn:Disconnect()
+		self._bufferConn = nil
+	end
+end
+
+-- Retry the held press each frame from its release time until it is accepted, refused for a reason
+-- that will not clear, or expires.
+function BasicComboSkill:_runBufferedPress()
+	if self._bufferConn then
+		return
+	end
+	self._bufferConn = RunService.Heartbeat:Connect(function()
+		local press = self._bufferedPress
+		local t = os.clock()
+		if not press or t > press.expiresAt then
+			self:_clearBufferedPress()
+			return
+		end
+		if t < press.releaseAt then
+			return
+		end
+		self._replayingBuffer = true
+		local ok, err = pcall(self.use, self)
+		self._replayingBuffer = false
+		if not ok then
+			self:_clearBufferedPress()
+			warn("BasicComboSkill: buffered press failed:", err)
+		end
+	end)
+end
+
+-- Hold a refused press if it will be accepted soon; otherwise report the refusal.
+function BasicComboSkill:_bufferOrReject(reason: string?)
+	local bufferable = reason ~= nil and BUFFERABLE[reason] == true
+
+	-- A replayed press that is still refused keeps waiting on its original deadline, silently.
+	if self._replayingBuffer then
+		if not bufferable then
+			self:_clearBufferedPress()
+		end
+		return
+	end
+
+	if not bufferable then
+		self:_clearBufferedPress()
+		self:showRejectionFeedback(reason :: any)
+		return
+	end
+
+	-- When the refusal names the moment it lifts, wait for that moment; otherwise (awaiting the
+	-- server, another action) poll from now.
+	local t = os.clock()
+	local releaseAt = t
+	local combo = SkillPacer.getComboState(self.name)
+	if combo then
+		if reason == "combo_busy" and combo.windowOpensAt then
+			releaseAt = combo.windowOpensAt + BUFFER_RELEASE_MARGIN
+		elseif reason == "combo_complete" then
+			releaseAt = combo.chainEndsAt + BUFFER_RELEASE_MARGIN
+		end
+	end
+	if releaseAt - t > INPUT_BUFFER then
+		self:showRejectionFeedback(reason :: any)
+		return
+	end
+
+	self._bufferedPress = { releaseAt = releaseAt, expiresAt = releaseAt + INPUT_BUFFER }
+	self:_runBufferedPress()
 end
 
 function BasicComboSkill:_stopComboIdle()
@@ -140,9 +239,6 @@ function BasicComboSkill:use()
 	-- server-replicated skill metadata, only combo/anim shape branches on adaptiveBasicAttack.
 	local metadata = SkillMetadataClient.get(self.name)
 
-	-- Any idle from the previous step belongs to a swing that is now over.
-	self:_stopComboIdle()
-
 	local comboSteps
 	local comboConfig
 	local activeProfile = nil
@@ -185,7 +281,7 @@ function BasicComboSkill:use()
 	local canAdvance, comboReason, predictedStep, hasActiveCombo = SkillPacer.canAdvanceCombo(self.name, totalSteps)
 	debugLog("canAdvance:", canAdvance, "reason:", comboReason or "none")
 	if not canAdvance then
-		self:showRejectionFeedback(comboReason :: any)
+		self:_bufferOrReject(comboReason)
 		return
 	end
 
@@ -199,13 +295,18 @@ function BasicComboSkill:use()
 	local canUse, rejectionReason = self:canUseLocally(predictedStep, hasActiveCombo)
 	debugLog("canUseLocally:", canUse, "reason:", rejectionReason or "none")
 	if not canUse then
-		self:showRejectionFeedback(rejectionReason :: any)
+		self:_bufferOrReject(rejectionReason)
 		return
 	end
+
+	self:_clearBufferedPress()
+	-- Any idle from the previous step belongs to a swing that is now over.
+	self:_stopComboIdle()
 
 	local _tempo, durationScale = self:predictTiming()
 	local timing = SkillPacer.computeComboTiming(predictedStep, totalSteps, comboConfig, durationScale)
 	local predictedStepDuration = timing.stepDuration
+	local holdDuration = timing.holdDuration
 	local windowOpensAt = timing.windowOpensAt
 	local windowExpiresAt = timing.windowExpiresAt
 
@@ -217,7 +318,7 @@ function BasicComboSkill:use()
 		totalSteps,
 		windowOpensAt,
 		windowExpiresAt,
-		predictedStepDuration,
+		holdDuration,
 		cooldown,
 		gcd
 	)
@@ -240,13 +341,18 @@ function BasicComboSkill:use()
 		totalSteps = totalSteps,
 		windowOpensAt = windowOpensAt,
 		windowExpiresAt = windowExpiresAt,
-	}, predictedDuration, { comboActive = hasActiveCombo })
+	}, holdDuration > 0 and holdDuration or nil, { comboActive = hasActiveCombo })
 
 	-- PLAY ANIMATION IMMEDIATELY with predicted timing (instant feedback, no server wait)
 	self:playAnimation(animKey, {
 		duration = predictedDuration, -- may be nil, AnimationPlayer will use default
 		step = predictedStep,
 	})
+
+	local predictedHit = activeProfile and MeleeHits.forProfileStep(activeProfile, predictedStep)
+	if predictedHit then
+		self:predictHits({ predictedHit }, durationScale)
+	end
 
 	-- Bound after playAnimation, which is what creates the track the marker lives on.
 	local activeStepSpec = activeProfile and activeProfile.steps[predictedStep]
@@ -292,7 +398,7 @@ function BasicComboSkill:use()
 				)
 			)
 		end
-		SkillPacer.confirmComboStep(self.name, serverStep, totalSteps, predictedStepDuration)
+		SkillPacer.confirmComboStep(self.name, serverStep, totalSteps, holdDuration)
 
 	end, function(reason)
 		-- Server rejected (rare - only on desync or edge cases)

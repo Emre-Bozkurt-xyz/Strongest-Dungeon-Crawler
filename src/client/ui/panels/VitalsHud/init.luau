@@ -15,6 +15,7 @@ local React = require(ReplicatedStorage.Packages.React)
 local DevTuningService = require(script.Parent.Parent.Parent.dev.DevTuningService)
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
 local useMenuState = require(script.Parent.Parent.hooks.useMenuState)
+local useOverlayOpen = require(script.Parent.Parent.hooks.useOverlayOpen)
 local useSpring = require(script.Parent.Parent.hooks.useSpring)
 local useStats = require(script.Parent.Parent.hooks.useStats)
 local Selector = require(script.Parent.Parent.selectors.systemStatus)
@@ -41,6 +42,7 @@ end
 local function VitalsHud()
 	local theme = ThemeContext.useTheme()
 	local menu = useMenuState()
+	local overlayOpen = useOverlayOpen()
 	local vitals = Selector.buildVitals(useStats())
 
 	local health = findVital(vitals, "HP")
@@ -64,7 +66,7 @@ local function VitalsHud()
 		end
 	end, { depleted })
 
-	local shown = awake and not menu.modal.open
+	local shown = awake and not menu.modal.open and not overlayOpen
 	local opacity = useSpring(if shown then 1 else 0, theme.motion.settle)
 	local size = Vector2.new(DevTuningService.get("VitalsHud.width"), DevTuningService.get("VitalsHud.height"))
 	local position = useVitalsAnchor(size)

@@ -79,9 +79,10 @@ function Bootstrap.startAll(): BootstrapContext
 		local Inputs = require(script.Parent.Inputs)
 		local MenuOrchestrator = require(script.Parent.ui.menu.MenuOrchestrator)
 		local InventoryClient = require(script.Parent.Inventory.InventoryClient)
-		local EnemyHealthClient = require(script.Parent.ui.controllers.EnemyHealthClient)
+		local EntityStore = require(script.Parent.Entities.EntityStore)
 		local DamageNumberController = require(script.Parent.ui.DamageNumberController)
 		local StaggerController = require(script.Parent.ui.controllers.StaggerController)
+		local KnockbackClient = require(script.Parent.Movement.KnockbackClient)
 		local LootClient = require(script.Parent.ui.controllers.LootClient)
 		Diagnostics.assert(StatsClient ~= nil, "StatsClient failed to load")
 		Diagnostics.assert(AttributesClient ~= nil, "AttributesClient failed to load")
@@ -91,6 +92,7 @@ function Bootstrap.startAll(): BootstrapContext
 
 		DamageNumberController.init()
 		StaggerController.init()
+		KnockbackClient.init()
 
 		local player = Players.LocalPlayer
 
@@ -142,7 +144,7 @@ function Bootstrap.startAll(): BootstrapContext
 			end
 		end)
 
-		EnemyHealthClient.start()
+		EntityStore.start()
 	end, { "SessionMirror" })
 
 	startEntry(ctx, started, "DevHooks", function(context)

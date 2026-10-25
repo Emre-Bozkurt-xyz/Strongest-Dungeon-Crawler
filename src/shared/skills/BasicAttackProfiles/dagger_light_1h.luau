@@ -10,18 +10,22 @@ local Types = require(script.Parent.Parent.BasicAttackProfileTypes)
 
 local profile: Types.BasicAttackProfile = {
 	id = "dagger_light_1h",
+	displayName = "Stab",
 	weaponClasses = { "dagger" },
+	cost = { resource = "Stamina", steps = { 10, 12, 15 } },
 	combo = {
 		steps = 3,
 		window = 0.45,
 		stepDurations = { 0.28, 0.26, 0.34 },
 		hitDelays = { 0.14, 0.13, 0.18 },
+		recovery = 0.2,
 	},
 	-- `hand` omitted so HandResolver alternates when dual-wielding (D9).
+	-- The closing slash only nudges: no heavy finisher, so it should not open as much space as one.
 	steps = {
 		{ animation = "Dagger_1H_Stab_1", damageMultiplier = 0.85 },
 		{ animation = "Dagger_1H_Stab_2", damageMultiplier = 0.85 },
-		{ animation = "Dagger_1H_Slash_3", damageMultiplier = 1.1 },
+		{ animation = "Dagger_1H_Slash_3", damageMultiplier = 1.1, knockback = { distance = 3.5, duration = 0.2 } },
 	},
 	hitCone = { angle = 45, range = 4.5 },
 	idleAnimation = "Dagger_1H_Idle",

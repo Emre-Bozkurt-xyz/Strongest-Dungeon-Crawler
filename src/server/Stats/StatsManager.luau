@@ -149,6 +149,36 @@ function StatsManager.onDelta(callback: (string, Delta) -> ())
 	end
 end
 
+-- Discrete pool writes for any entity, players and NPCs alike, so observers such as entity vitals
+-- can react on the frame a hit lands. Continuous regeneration writes pools directly and is not
+-- reported here; at its rate it would turn every observer into a per-frame stream.
+local poolListeners: { (entityId: string, poolName: string) -> () } = {}
+
+function StatsManager.onPoolChanged(callback: (entityId: string, poolName: string) -> ()): () -> ()
+	table.insert(poolListeners, callback)
+	return function()
+		local index = table.find(poolListeners, callback)
+		if index then
+			table.remove(poolListeners, index)
+		end
+	end
+end
+
+local function notifyPoolChanged(entityId: string, poolName: string)
+	for _, cb in ipairs(poolListeners) do
+		local ok, err = pcall(cb, entityId, poolName)
+		if not ok then
+			warn("[StatsManager] pool listener error:", err)
+		end
+	end
+end
+
+local function notifyIfPool(entityId: string, stats: any, statName: string)
+	if StatTypeUtil.isPoolStat(stats[statName]) then
+		notifyPoolChanged(entityId, statName)
+	end
+end
+
 -- Helper: send a delta to a player
 local function sendStatDelta(entityId: string, deltaType: string, target: string, data: any)
 	if not Registrar.isPlayerEntity(entityId) then
@@ -361,6 +391,7 @@ function StatsManager.setBaseStat(entityId: string, statName: StatType, newValue
 
 	stat:setBaseValue(validatedValue)
 	StatsMediator.invalidateStat(entityId, statName)
+	notifyIfPool(entityId, stats, statName)
 	if Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.BASE_VALUE_CHANGED, statName, { baseValue = validatedValue })
 	end
@@ -508,6 +539,9 @@ function StatsManager.addToPool(entityId: string, poolName: PoolType, amount: nu
 	end
 
 	local added = pool:addToCurrentValue(amount)
+	if added then
+		notifyPoolChanged(entityId, poolName)
+	end
 	if added and Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, poolName, {
 			currentValue = pool:getCurrentValue(),
@@ -533,6 +567,9 @@ function StatsManager.removeFromPool(
 		return context.pool:removeFromCurrentValue(finalAmount, context.stats)
 	end)
 
+	if executed and removed ~= nil then
+		notifyPoolChanged(entityId, context.currentPoolName)
+	end
 	if executed and removed ~= nil and Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, context.currentPoolName, {
 			currentValue = context.pool:getCurrentValue(),
@@ -809,6 +846,7 @@ function StatsManager.addModifier(entityId: string, statType: StatType, modifier
 	stat:addModifier(modifier)
 	StatsMediator.invalidateStat(entityId, statType)
 	StatsManager.invalidateAllCaches(entityId)
+	notifyIfPool(entityId, stats, statType)
 	if Registrar.isPlayerEntity(entityId) then
 		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.MODIFIER_ADDED, statType, modifier)
 	end
@@ -829,6 +867,7 @@ function StatsManager.removeModifier(entityId: string, statType: StatType, sourc
 	if removed then
 		StatsMediator.invalidateStat(entityId, statType)
 		StatsManager.invalidateAllCaches(entityId)
+		notifyIfPool(entityId, stats, statType)
 		if Registrar.isPlayerEntity(entityId) then
 			sendStatDelta(entityId, StatTypeUtil.DeltaTypes.MODIFIER_REMOVED, statType, { source_id = source_id })
 		end
@@ -851,6 +890,7 @@ function StatsManager.updateModifier(entityId: string, statType: StatType, sourc
 	if success then
 		StatsMediator.invalidateStat(entityId, statType)
 		StatsManager.invalidateAllCaches(entityId)
+		notifyIfPool(entityId, stats, statType)
 		if Registrar.isPlayerEntity(entityId) then
 			sendStatDelta(
 				entityId,

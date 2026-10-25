@@ -17,6 +17,8 @@ local SkillModifierRegistry = require(ServerScriptService.Server.Stats.SkillModi
 local SkillsConfig = require(script.Parent.SkillsConfig)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local SkillQueryTypes = require(ReplicatedStorage.Shared.skills.SkillQueryTypes)
+local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
+local CombatLoadoutService = require(ServerScriptService.Server.Inventory.CombatLoadout.CombatLoadoutService)
 
 type SkillData = SkillsConfig.SkillData
 type PoolType = StatTypes.PoolType
@@ -174,11 +176,31 @@ local function calculateCost(entityId: string, skillName: string, skillData: Ski
 	return cost, costResource, comboCosts
 end
 
+local function isAdaptiveBasicAttack(skillData: SkillData): boolean
+	local requirements = (skillData :: any).requirements
+	return requirements ~= nil and requirements.weapon ~= nil and requirements.weapon.mode == "adaptive"
+end
+
+-- The adaptive basic attack's combo and cost belong to the shape its caster currently resolves,
+-- not to its static data, so its metadata is computed from that shape -- the same one
+-- BasicAttack:use charges for.
+local function withResolvedShape(entityId: string, skillData: SkillData): SkillData
+	local shape = BasicAttackProfileRegistry.resolve(CombatLoadoutService.get(entityId))
+	local data = table.clone(skillData :: any)
+	data.combo = shape.combo
+	data.costs = shape.cost.steps
+	data.baseResource = shape.cost.resource
+	return data :: any
+end
+
 -- Calculate full metadata for a skill
 local function calculateMetadata(entityId: string, skillName: string): { [string]: any }?
 	local skillData = SkillsConfig.skills[skillName]
 	if not skillData then
 		return nil
+	end
+	if isAdaptiveBasicAttack(skillData) then
+		skillData = withResolvedShape(entityId, skillData)
 	end
 
 	local cost, costResource, comboCosts = calculateCost(entityId, skillName, skillData)

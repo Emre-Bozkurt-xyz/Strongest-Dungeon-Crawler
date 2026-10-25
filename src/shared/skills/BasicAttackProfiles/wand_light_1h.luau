@@ -16,7 +16,9 @@ local Types = require(script.Parent.Parent.BasicAttackProfileTypes)
 
 local profile: Types.BasicAttackProfile = {
 	id = "wand_light_1h",
+	displayName = "Mana Bolt",
 	weaponClasses = { "wand" },
+	cost = { resource = "Stamina", steps = { 10, 12 } },
 	combo = {
 		steps = 2,
 		window = 0.65,

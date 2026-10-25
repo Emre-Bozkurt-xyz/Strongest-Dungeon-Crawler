@@ -1,12 +1,11 @@
 --!strict
--- ImmediateHitFeedback: Client-side immediate feedback for hits
--- Plays flash, sound, camera shake on animation markers WITHOUT waiting for server
--- Server HitEvent is only used for damage numbers and authoritative stagger
+-- ImmediateHitFeedback: the feedback pieces played without waiting on the server -- target flash,
+-- hit and cast sounds. When they play is decided by callers (PredictedHits for the caster's own
+-- melee, StaggerController for the local player being hit).
 
 local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 
-local ClientHitDetection = require(script.Parent.ClientHitDetection)
 local Replicator = require(script.Parent.Replicator)
 
 local ImmediateHitFeedback = {}
@@ -72,68 +71,11 @@ local function pickRandomSound(sounds: { string }?): string?
 	return sounds[math.random(1, #sounds)]
 end
 
-export type HitFeedbackOptions = {
-	-- Detection options
-	origin: CFrame?, -- Override origin (defaults to character)
-	coneAngle: number?, -- Cone angle in degrees
-	coneRange: number?, -- Cone range in studs
-
-	-- Feedback options
-	hitSounds: { string }?, -- Array of hit sound IDs to choose from
-	flashTargets: boolean?, -- Whether to flash hit targets (default true)
-
-	-- Replication
-	replicateSound: boolean?, -- Replicate sound to other players (default true)
-}
-
 export type CastSoundOptions = {
 	castSounds: { string }?, -- Array of cast sound IDs
 	position: Vector3?, -- Position to play at (defaults to character)
 	replicateSound: boolean?, -- Replicate to other players (default true)
 }
-
--- Play immediate hit feedback on an animation marker
--- This does client-side hit detection and plays flash/sound/shake
-function ImmediateHitFeedback.onImpactMarker(opts: HitFeedbackOptions?)
-	local options: HitFeedbackOptions = opts or {} :: HitFeedbackOptions
-
-	-- Perform client-side hit detection
-	local result = ClientHitDetection.queryCone({
-		origin = options.origin,
-		angleDeg = options.coneAngle,
-		range = options.coneRange,
-	})
-
-	if not result.hit then
-		-- No targets detected - still play a "whiff" sound?
-		-- For now, just skip feedback
-		return
-	end
-
-	-- Flash targets
-	local shouldFlash = options.flashTargets ~= false -- default true
-	if shouldFlash then
-		for _, target in ipairs(result.targets) do
-			flashModel(target, false)
-		end
-	end
-
-	-- Play hit sound at primary target position
-	local hitSounds = options.hitSounds or DEFAULT_HIT_SOUNDS
-	local soundId = pickRandomSound(hitSounds)
-	if soundId and result.position then
-		Replicator.playSoundAt(soundId, result.position)
-
-		-- Replicate to other players
-		local shouldReplicate = options.replicateSound ~= false
-		if shouldReplicate then
-			Replicator.emitSFX({
-				soundId = soundId,
-				position = result.position,
-			})
-		end
-	end
-end
 
 -- Play immediate cast sound when skill starts
 function ImmediateHitFeedback.onCastStart(opts: CastSoundOptions?): BasePart?

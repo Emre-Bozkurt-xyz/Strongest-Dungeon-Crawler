@@ -8,6 +8,10 @@ function ItemInstanceRepository.create(itemId: string, stackSize: number, meta: 
 	return ItemInstances.create(itemId, stackSize, meta)
 end
 
+function ItemInstanceRepository.restore(uid: string, itemId: string, stackSize: number, meta: { [string]: any }?)
+	return ItemInstances.restore(uid, itemId, stackSize, meta)
+end
+
 function ItemInstanceRepository.get(uid: string)
 	return ItemInstances.get(uid)
 end

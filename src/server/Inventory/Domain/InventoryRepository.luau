@@ -38,6 +38,10 @@ function InventoryRepository.set(entityId: string, state: ItemTypes.InventorySta
 	inventories[entityId] = state
 end
 
+function InventoryRepository.remove(entityId: string)
+	inventories[entityId] = nil
+end
+
 function InventoryRepository.findEmptySlot(inv: ItemTypes.InventoryState): number?
 	for i = 1, inv.capacity do
 		if inv.slots[i] == nil then

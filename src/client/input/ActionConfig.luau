@@ -108,6 +108,15 @@ addAction("Core", {
 	consume = true,
 })
 
+-- The mastery canvas, a full-screen overlay rather than a menu view.
+addAction("Core", {
+	name = "MasteryCanvas",
+	bindings = {
+		{ key = Enum.KeyCode.M, type = "press" },
+	},
+	consume = true,
+})
+
 -- Precision Focus: temporary cursor-driven interaction with world panels.
 addAction("Interaction", {
 	name = "PrecisionFocus",

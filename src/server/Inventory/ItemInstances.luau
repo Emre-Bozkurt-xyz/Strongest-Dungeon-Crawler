@@ -48,6 +48,33 @@ function ItemInstances.create(itemId: string, stackSize: number, meta: ItemTypes
 	return instance
 end
 
+-- Bring back an item from a save, under its saved uid and with its saved meta: unlike `create`, no
+-- rolls and no defaults, since those were applied when the item was first made. Nil when the item
+-- no longer exists in the game (its definition was removed).
+function ItemInstances.restore(
+	uid: string,
+	itemId: string,
+	stackSize: number,
+	meta: ItemTypes.ItemMeta?
+): ItemTypes.ItemInstance?
+	local def = Registry.get(itemId)
+	if not def then
+		return nil
+	end
+	local size = math.max(1, math.floor(stackSize))
+	if def.stackLimit and def.stackLimit > 0 then
+		size = math.min(size, def.stackLimit)
+	end
+	local instance: ItemTypes.ItemInstance = {
+		uid = uid,
+		itemId = itemId,
+		stackSize = size,
+		meta = if meta and next(meta) ~= nil then meta else nil,
+	}
+	itemsByUid[uid] = instance
+	return instance
+end
+
 function ItemInstances.get(uid: string): ItemTypes.ItemInstance?
 	return itemsByUid[uid]
 end

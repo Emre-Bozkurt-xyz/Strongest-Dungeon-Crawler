@@ -46,6 +46,12 @@ function EquipmentService.get(ownerId: string): ItemTypes.EquipmentState?
 	return equipmentByOwner[ownerId]
 end
 
+-- Drops the owner's equipment state outright. No slot-changed events: the owner is gone, so there
+-- is no body to update and no client to tell.
+function EquipmentService.remove(ownerId: string)
+	equipmentByOwner[ownerId] = nil
+end
+
 function EquipmentService.canEquip(itemId: string, slot: string): boolean
 	local def = Registry.get(itemId)
 	if not def then

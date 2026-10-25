@@ -1,5 +1,5 @@
 --!strict
--- Unarmed BasicAttackProfile. Reproduces Punch's original 3-step jab/cross/heavy combo exactly
+-- Unarmed BasicAttackProfile. Punch's 3-step jab/cross/heavy combo
 -- (see src/server/SkillsFramework/Skills/Punch.luau and its SkillsData/ClientSpec) plus the
 -- unarmed base damage/speed/range absorbed from the Phase A CombatConfig stepping stone
 -- (see src/shared/Config/CombatConfig.luau, deleted in this phase).
@@ -12,18 +12,26 @@ local Types = require(script.Parent.Parent.BasicAttackProfileTypes)
 
 local profile: Types.BasicAttackProfile = {
 	id = "unarmed_basic",
+	displayName = "Punches",
 	weaponClasses = {},
+	cost = { resource = "Stamina", steps = { 10, 12, 15 } },
 	combo = {
 		steps = 3,
 		window = 0.6,
 		stepDurations = { 0.45, 0.4, 0.5 },
 		hitDelays = { 0.32, 0.27, 0.35 },
-		stepDelays = { 0.1, 0.1, 1.5 },
+		recovery = 0.3,
 	},
 	steps = {
 		{ hand = "main", animation = "Punch_Combo_1", damageMultiplier = 0.8, coneRange = 4.5 },
 		{ hand = "main", animation = "Punch_Combo_2", damageMultiplier = 0.9, coneRange = 4.5 },
-		{ hand = "main", animation = "Punch_Combo_3", damageMultiplier = 1.25, coneRange = 6 },
+		{
+			hand = "main",
+			animation = "Punch_Combo_3",
+			damageMultiplier = 1.25,
+			coneRange = 6,
+			knockback = { distance = 6, duration = 0.25 },
+		},
 	},
 	hitCone = { angle = 65, range = 6 },
 	idleAnimation = "Punch_Idle",

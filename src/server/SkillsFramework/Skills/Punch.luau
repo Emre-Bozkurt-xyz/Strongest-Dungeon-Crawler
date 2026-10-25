@@ -51,7 +51,7 @@ function Punch:onComboStep(step: number)
 			:factionRelation("enemy")
 			:playersOnly(false)
 			:cone(65, coneRange)
-			:collect({ collectIds = true, debug = true })
+			:collect({ collectIds = true })
 
 		-- Build attack composition (damage + potential effects via resolver later)
 		local attack = self:resolveAttack({

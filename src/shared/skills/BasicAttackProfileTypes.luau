@@ -32,7 +32,17 @@ export type BasicAttackComboSpec = {
 	stepDurations: { number }?,
 	hitDelays: { number }?,
 	stepDelays: { number }?,
+	-- End lag after the final step's animation, before the chain releases the caster. Separate from
+	-- `stepDurations` because those set the animation's playback length; folding end lag into them
+	-- would slow the finisher's swing and push its visible impact past its hit delay.
 	recovery: number?,
+}
+
+-- Push a struck target directly away from the attacker. `distance` in studs, covered over
+-- `duration` seconds on a decaying curve (fast off the hit, easing out).
+export type BasicAttackKnockback = {
+	distance: number,
+	duration: number?,
 }
 
 export type BasicAttackStepSpec = {
@@ -59,6 +69,9 @@ export type BasicAttackStepSpec = {
 	-- weapon declares no projectile.
 	coneAngle: number?,
 	coneRange: number?,
+	-- Usually only on a finisher: pushing the target out of reach is what ends one exchange and
+	-- makes the next one a choice -- step back in, or reach for a skill.
+	knockback: BasicAttackKnockback?,
 }
 
 export type BasicAttackHitCone = {
@@ -75,12 +88,41 @@ export type BasicAttackUnarmedBase = {
 	range: number,
 }
 
+-- What one swing of each step costs. Part of the form rather than the skill: a more elaborate form
+-- costs more, and a caster's form may spend mana where a fighter's spends stamina.
+export type BasicAttackCost = {
+	-- A pool name ("Stamina", "Mana", ...).
+	resource: string,
+	-- One entry per combo step.
+	steps: { number },
+}
+
+-- What a player must have reached to select this shape. Checked against their saved progression;
+-- an unmet requirement keeps the shape out of selection, never out of the registry.
+export type BasicAttackRequirements = {
+	-- Mastery track id -> minimum level.
+	mastery: { [string]: number }?,
+}
+
+-- A profile is a *shape* in the progression model (docs/planning/progression-direction.md): how the
+-- basic attack is delivered with a class of weapon. Each weapon class has one default shape; the
+-- rest are alternatives a player selects once unlocked.
 export type BasicAttackProfile = {
 	id: string,
-	-- Weapon classes (WeaponConfig.class values, e.g. "sword") that resolve to this profile when
-	-- the equipped weapon does not name a basicAttackProfile explicitly, or names an unknown one.
-	-- Empty for unarmed_basic: it is only ever reached via the no-weapon / unknown-id fallback path.
+	-- Shown to the player wherever the shape is chosen or described.
+	displayName: string,
+	-- Weapon classes (WeaponConfig.class values, e.g. "sword") this is the DEFAULT shape for: what
+	-- resolves when the player has selected nothing, or the weapon names an unknown profile. Empty
+	-- for unarmed_basic, which is the default for empty hands. At most one default per class.
 	weaponClasses: { ItemTypes.WeaponClass },
+	-- Class keys (a weapon class, or UNARMED_CLASS_KEY) this can be SELECTED for without being their
+	-- default. A default is always selectable for its own classes.
+	shapeFor: { string }?,
+	-- The shape this one branches from in its mastery tree. Lineage only: it does not change how
+	-- the shape resolves.
+	parent: string?,
+	requires: BasicAttackRequirements?,
+	cost: BasicAttackCost,
 	combo: BasicAttackComboSpec,
 	steps: { BasicAttackStepSpec },
 	-- Required even on all-projectile profiles: it is the geometry the projectile-step fallback
@@ -92,6 +134,10 @@ export type BasicAttackProfile = {
 	idleAnimation: string?,
 	unarmedBase: BasicAttackUnarmedBase?,
 }
+
+-- The class key for empty hands, alongside the weapon classes, wherever shapes are selected or
+-- looked up per class.
+Types.UNARMED_CLASS_KEY = "unarmed"
 
 -- Runtime constants for the unions above, so profile authoring gets autocomplete and typo
 -- checking the same way ItemEnums provides it for item authoring.

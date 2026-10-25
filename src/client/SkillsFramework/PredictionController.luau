@@ -50,4 +50,10 @@ function PredictionController.reject(attemptId: string?, reason: string?, skillN
 	end
 end
 
+-- Still worth reacting to: neither rejected by the server nor already finished.
+function PredictionController.isLive(attemptId: string?): boolean
+	local record = attemptId and AttemptStore.get(attemptId)
+	return record ~= nil and record.state ~= "rejected" and record.state ~= "completed"
+end
+
 return PredictionController

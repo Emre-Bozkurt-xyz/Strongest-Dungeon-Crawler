@@ -42,7 +42,7 @@ local function resolveStepDuration(
 	totalSteps: number,
 	comboConfig: any,
 	durationScale: number?
-): (number, number, number)
+): (number, number, number, number)
 	local scale = durationScale or 1
 	local baseHitDelay = comboConfig and comboConfig.hitDelays and comboConfig.hitDelays[step] or 0
 	local baseStepDelay = comboConfig and comboConfig.stepDelays and comboConfig.stepDelays[step] or 0
@@ -51,13 +51,17 @@ local function resolveStepDuration(
 	if comboConfig and comboConfig.stepDurations and comboConfig.stepDurations[step] then
 		baseStepDuration = comboConfig.stepDurations[step]
 	else
-		baseStepDuration = baseHitDelay + (step == totalSteps and baseRecovery or 0)
+		baseStepDuration = baseHitDelay
 	end
 
 	local stepDuration = math.max(baseStepDuration * scale, 0)
 	local stepDelay = baseStepDelay * scale
 	local hitDelay = baseHitDelay * scale
-	return stepDuration, stepDelay, hitDelay
+	-- Mirrors BaseComboSkill: the final step holds the caster for its end lag after the animation.
+	local holdDuration = if step == totalSteps
+		then math.max(stepDuration, hitDelay) + baseRecovery * scale
+		else stepDuration
+	return stepDuration, stepDelay, hitDelay, holdDuration
 end
 
 local function getState(skillName: string): SkillState
@@ -379,7 +383,10 @@ function SkillPacer.confirmComboStep(
 end
 
 export type ComboTiming = {
+	-- How long the step's animation plays.
 	stepDuration: number,
+	-- How long the step occupies the caster: the animation, plus end lag on the final step.
+	holdDuration: number,
 	stepDelay: number,
 	hitDelay: number,
 	window: number,
@@ -393,7 +400,8 @@ function SkillPacer.computeComboTiming(
 	comboConfig: any,
 	durationScale: number?
 ): ComboTiming
-	local stepDuration, stepDelay, hitDelay = resolveStepDuration(step, totalSteps, comboConfig or {}, durationScale)
+	local stepDuration, stepDelay, hitDelay, holdDuration =
+		resolveStepDuration(step, totalSteps, comboConfig or {}, durationScale)
 	local baseWindow = comboConfig and comboConfig.window or 0
 	local window = baseWindow * (durationScale or 1)
 
@@ -407,6 +415,7 @@ function SkillPacer.computeComboTiming(
 
 	return {
 		stepDuration = stepDuration,
+		holdDuration = holdDuration,
 		stepDelay = stepDelay,
 		hitDelay = hitDelay,
 		window = window,
@@ -516,7 +525,9 @@ function SkillPacer.clearServerPending(skillName: string, step: number?)
 	end
 	if typeof(step) == "number" then
 		pendingSteps[step] = nil
-	else
+	end
+	-- Gates test for the table's presence, so an emptied one must go or it reads as still pending.
+	if typeof(step) ~= "number" or next(pendingSteps) == nil then
 		pendingStepsBySkill[skillName] = nil
 	end
 	pendingAt[skillName] = now()

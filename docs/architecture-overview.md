@@ -38,7 +38,7 @@ What it does
 - Creates singletons for client/server dispatchers (`Networking.client()` / `.server()`).
 
 Key files
-- `Channels.luau`: canonical channel definitions (Skills, Stats, FX, SkillSession, TimeSync, etc).
+- `Channels.luau`: canonical channel definitions (Skills, Stats, FX, SkillSession, EntityInfo, etc).
 - `Dispatcher.luau`: envelope + QoS + request/response dispatch.
 - `ChannelRegistry.luau`: loads channel definitions at startup.
 
@@ -79,6 +79,8 @@ Path: `src/server/init.server.luau`
 The server startup does the following:
 - Runs a bootstrap registry (`src/server/Bootstrap.luau`) that defines ordered startup for core systems.
 - Starts RegenerationService, SessionManager heartbeat, EntityInfoService, and TimeSyncService via the bootstrap.
+  TimeSyncService publishes `ServerClockBias` (server `os.clock()` minus `workspace:GetServerTimeNow()`)
+  on ReplicatedStorage; the client's `TimeSync` adds it to `GetServerTimeNow()` to read server time.
 - Initializes NPCManager and component updates via the bootstrap.
 
 Potential improvement
@@ -94,9 +96,10 @@ Responsibilities
 Current design choices
 - Stores EntityId on models as an attribute.
 - Uses CollectionService tag "Entity".
-
-Potential improvement
-- `getEntityId(model)` and `getPlayerId(player)` currently scan maps linearly. Maintain reverse maps (model -> id, player -> id) to avoid O(n) scans.
+- Lookups are O(1) in both directions (reverse maps).
+- A player keeps one EntityId for the whole session: a respawned character takes over the id of the
+  one it replaces. Everything keyed by entity id (inventory, equipment, stats, skills, cooldowns)
+  therefore belongs to the player and survives death. The id ends only when the player leaves.
 
 ### 3.3 Stats system
 Path: `src/server/Stats/`
@@ -191,6 +194,55 @@ What it does
 Key decisions
 - Registrar owns entity identity; EntityInfoService only reads from Registrar and does not maintain separate id maps.
 
+### 3.8a Player data, session lifecycle and loadout
+Paths: `src/server/PlayerData/`, `src/server/Loadout/LoadoutService.luau`
+
+What it does
+- `PlayerDataService` loads each player's save on join through ProfileStore (`ServerPackages`),
+  keyed by UserId. ProfileStore session-locks, autosaves and flushes on shutdown; without DataStore
+  access it falls back to an in-memory store by itself.
+- `PlayerDataSchema` defines the save (`version`, `loadout`, `inventory`, `attributes`,
+  `starterKitGranted`, reserved `progression`), its migrations, and `saveable` (a JSON-safe copy).
+- `PlayerSession` owns the order of a player's lifecycle:
+  - first character: stats, wait for the save, restore attributes and inventory/equipment, then
+    the starter kit once per save;
+  - later characters (respawn): refill Health/Mana/Stamina, clear status effects, cancel the
+    in-progress skill, move equipment visuals to the new body;
+  - leaving: write the save (`PlayerDataService.release`), then let services drop the player.
+- `LoadoutService` owns the skill slot sets inside the save and answers `LoadoutCommand` requests.
+
+Key decisions
+- Two ways state reaches the save: services that live in it (loadout) change
+  `PlayerDataService.get(player)` directly; services with their own live state (inventory,
+  attributes) are written in by a serializer just before every save and on release.
+- Nothing is written back until the player's state has been restored from the save, so an autosave
+  or early leave can never replace a save with not-yet-loaded empty state.
+- Saved attributes are the player's allocation only (base values, unspent points); bonuses from gear
+  come back with the equipment.
+- Loadout rules (`shared/skills/LoadoutRules`) are shared so the client's optimistic change matches
+  the server's; the server adds the ownership check.
+
+### 3.8b Forms (basic attack shapes)
+Paths: `src/server/Forms/FormService.luau`, `src/shared/skills/BasicAttackProfileRegistry.luau`
+
+What it does
+- A basic attack profile is a *shape*: how the basic attack is delivered with a class of weapon,
+  including what each step costs. Each weapon class has one default; alternatives declare
+  `shapeFor` and `requires` (mastery levels).
+- `FormService` keeps the player's selection per class key (weapon class or `unarmed`) in their
+  save, validates `LoadoutSelectShape` requests, and is the combat loadout's shape selector.
+
+Key decisions
+- The selected shape travels in `CombatLoadoutSnapshot.basicAttackShape`, set only when it fits what
+  is held and is unlocked. `BasicAttackProfileRegistry.resolve` honours it, so client prediction and
+  server execution still resolve from one snapshot and the client never needs mastery data.
+- Unlocks are derived from saved mastery levels, never stored.
+- Cost lives on the shape: `BasicAttack:applyResolvedShape` sets the charged cost, and
+  `SkillMetadataService` computes the client's cost preview from the same shape, refreshed whenever
+  the combat loadout changes.
+- `SkillsManager` asks a skill to `resolveComboConfig()` (when it has one) before opening or
+  advancing a chain, so a chain always uses the current shape's step count and window.
+
 ### 3.9 Projectile system
 Path: `src/server/Services/ProjectileService.luau`
 
@@ -226,13 +278,15 @@ Core components
 - `AttemptStore.luau`: tracks predicted attempts and reconciliation.
 - `PredictionController.luau`: centralizes prediction lifecycle (attempts + session prediction).
 - `SkillMetadataClient.luau`: caches server-computed metadata.
+- `SkillSlots.luau`: mirror of the server-owned skill slot sets; applies commands optimistically
+  and fires the skill in a slot.
 
 Key decisions
 - Client predicts skill execution and plays FX/animation immediately.
 - Client uses local pacing; server validates only for correctness.
 - Session events reconcile client state but do not drive local gating.
 - ActionPermissions on client only mirrors status-effect blocking; SkillPacer owns execution gating.
-- SkillPacer is the sole local gate for execution timing; early inputs are rejected until the window opens.
+- SkillPacer is the sole local gate for execution timing. Combo skills hold a press arriving shortly before the window opens and fire it when it does (`BasicComboSkill` input buffer).
 - Skill metadata is refreshed on stats/attributes/skill-mediator changes and periodically; updates carry per-skill versions to avoid stale overwrites.
 
 Potential improvement

@@ -177,7 +177,11 @@ function SkillsManager.useSkill(caster: Caster, skillName: string, requestData: 
 	end
 
 	local skillCfg = skill.config or SkillsConfig.skills[skillName]
-	local comboCfg = skillCfg and skillCfg.combo
+	-- A skill whose combo depends on the caster's current state (the adaptive basic attack's shape)
+	-- refreshes it first, so the chain is opened and advanced with this use's step count and window.
+	local comboCfg = if type(skill.resolveComboConfig) == "function"
+		then skill:resolveComboConfig()
+		else skillCfg and skillCfg.combo
 	debugLog("Has comboCfg:", comboCfg ~= nil)
 
 	-- Check if entity can cast (pass combo info for chaining support)
@@ -437,7 +441,6 @@ function SkillsManager.getSkillConfig(caster: Caster, skillName: string)
 end
 
 dispatcher:onRequest("SkillRequestUse", function(requestData, _meta, context)
-	print("Received: ", requestData)
 	local player = context.player
 	if not player then
 		return { success = false, error = "no_player" }
@@ -469,7 +472,6 @@ dispatcher:onRequest("SkillRequestUse", function(requestData, _meta, context)
 end)
 
 dispatcher:onRequest("SkillRequestStart", function(requestData, _meta, context)
-	print("Received: ", requestData)
 	local player = context.player
 	if not player then
 		return { success = false, error = "no_player" }
@@ -500,7 +502,6 @@ dispatcher:onRequest("SkillRequestStart", function(requestData, _meta, context)
 end)
 
 dispatcher:onRequest("SkillRequestRelease", function(requestData, _meta, context)
-	print("Received: ", requestData)
 	local player = context.player
 	if not player then
 		return { success = false, error = "no_player" }

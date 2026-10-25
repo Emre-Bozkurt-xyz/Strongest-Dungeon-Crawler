@@ -23,6 +23,7 @@ local VitalsHud = require(script.Parent.Parent.panels.VitalsHud)
 local NearbyLoot = require(script.Parent.Parent.panels.NearbyLoot)
 local Notifications = require(script.Parent.Parent.panels.Notifications)
 local EnemyBars = require(script.Parent.Parent.panels.EnemyBars)
+local MasteryCanvas = require(script.Parent.Parent.panels.MasteryCanvas)
 
 local entries: { ScreenEntry } = {
 	-- First, so the player's own readouts draw over a crowd of enemy bars.
@@ -41,6 +42,12 @@ local entries: { ScreenEntry } = {
 	{
 		id = "NearbyLoot",
 		component = NearbyLoot,
+	},
+	-- Over the whole HUD, which it dims, but under the notices so a mastery-up shows on top.
+	{
+		id = "MasteryCanvas",
+		component = MasteryCanvas,
+		zIndex = 40,
 	},
 	{
 		id = "Notifications",

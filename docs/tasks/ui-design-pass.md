@@ -341,7 +341,7 @@ states dim. A cooldown ending plays one pulse (`hooks/useReadyPulse`): a flash a
 **Combat feedback — rebuilt in code.** The last UI cloned from Studio templates
 (`Assets/WorldUI`, not in the repo) is gone.
 
-- **Enemy bars** (`panels/EnemyBars`, store `controllers/EnemyHealthClient`): screen UI over each
+- **Enemy bars** (`panels/EnemyBars`, store `Entities/EntityStore`): screen UI over each
   revealed enemy -- name, exact health or a percentage depending on what is revealed, and a segmented
   danger-coloured bar that trails damage. Same rules as the old OverheadHealthService: hidden 1s
   after an enemy leaves the presence feed, dropped after 4s; the nearest six at full strength, the

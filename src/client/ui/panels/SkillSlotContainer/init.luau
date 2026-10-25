@@ -17,6 +17,7 @@ local useSkillSlots = require(script.Parent.Parent.hooks.useSkillSlots)
 local useGlobalCooldown = require(script.Parent.Parent.hooks.useGlobalCooldown)
 local useCastBlocked = require(script.Parent.Parent.hooks.useCastBlocked)
 local useActiveSkill = require(script.Parent.Parent.hooks.useActiveSkill)
+local useOverlayOpen = require(script.Parent.Parent.hooks.useOverlayOpen)
 local Selector = require(script.Parent.Parent.selectors.skillSlots)
 local SkillBar = require(script.SkillBar)
 
@@ -27,14 +28,22 @@ local function SkillSlotContainer()
 	local gcdProgress = useGlobalCooldown()
 	local castBlocked = useCastBlocked()
 	local activeSkill = useActiveSkill()
+	-- Stays up under the menu, which sits beside the character, but not under a full-screen overlay.
+	local overlayOpen = useOverlayOpen()
 
 	local slots = Selector.buildSlots(filled)
 
-	return e(SkillBar, {
-		slots = slots,
-		gcdProgress = gcdProgress,
-		castBlocked = castBlocked,
-		activeSkill = activeSkill,
+	return e("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Visible = not overlayOpen,
+	}, {
+		Bar = e(SkillBar, {
+			slots = slots,
+			gcdProgress = gcdProgress,
+			castBlocked = castBlocked,
+			activeSkill = activeSkill,
+		}),
 	})
 end
 

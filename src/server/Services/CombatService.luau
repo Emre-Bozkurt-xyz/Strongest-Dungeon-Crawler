@@ -2,6 +2,7 @@
 -- Combat utility to apply damage using entityId-based architecture
 -- All damage flows through the Stats system using entityIds as the source of truth
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = game:GetService("ServerScriptService").Server
 
@@ -12,11 +13,29 @@ local AttackTypes = require(ReplicatedStorage.Shared.skills.AttackTypes)
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local StaggerSystem = require(script.Parent.StaggerSystem)
 local Registrar = require(script.Parent.Registrar)
+local MovementService = require(Server.Movement.MovementService)
+local MovementSpec = require(ReplicatedStorage.Shared.Movement.MovementSpec)
+local Clock = require(ReplicatedStorage.Shared.Time.Clock)
 local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
 
 local dispatcher = Networking.server() :: any
 
 local CombatService = {}
+
+export type HitListener = (
+	sourceEntityId: string,
+	targetEntityId: string,
+	result: AttackResult,
+	metadata: AttackTypes.AttackMetadata
+) -> ()
+
+local hitListeners: { HitListener } = {}
+
+-- Called after an attack has landed on a target and dealt damage. For systems that react to hits
+-- (mastery progress) without CombatService knowing about them.
+function CombatService.onHit(listener: HitListener)
+	table.insert(hitListeners, listener)
+end
 
 export type DamageEffect = { id: string, chance: number?, params: any? }
 
@@ -55,7 +74,36 @@ export type AttackResult = DamageResult & {
 	blocked: boolean, -- Was attack blocked by shield/guard
 	totalDamage: number, -- Sum of all damage types
 	staggerApplied: boolean?, -- Was stagger applied to target
+	knockback: Knockback?, -- Push applied to the target, resolved to a world direction
 }
+
+export type Knockback = {
+	direction: Vector3,
+	distance: number,
+	duration: number?,
+}
+
+local function rootOf(entityId: string): BasePart?
+	local entity = Registrar.getEntityById(entityId)
+	return entity and entity:FindFirstChild("HumanoidRootPart") :: BasePart?
+end
+
+-- Straight away from the attacker, along the ground. Falls back to the attacker's facing when the
+-- two are stacked on top of each other.
+local function awayFromSource(sourceEntityId: string, targetEntityId: string): Vector3?
+	local sourceRoot = rootOf(sourceEntityId)
+	local targetRoot = rootOf(targetEntityId)
+	if not sourceRoot or not targetRoot then
+		return nil
+	end
+	local delta = targetRoot.Position - sourceRoot.Position
+	local flat = Vector3.new(delta.X, 0, delta.Z)
+	if flat.Magnitude < 1e-3 then
+		local look = sourceRoot.CFrame.LookVector
+		flat = Vector3.new(look.X, 0, look.Z)
+	end
+	return if flat.Magnitude > 1e-3 then flat.Unit else nil
+end
 
 local function resolveStatic(name: string): any
 	return (StatTypes.StaticStats :: any)[name]
@@ -396,7 +444,39 @@ local function applyDamagePacket(
 	return _applyDamageInternal(targetEntityId, packet.amount or 0, sourceEntityId, opts)
 end
 
--- Broadcast hit event to clients for damage numbers
+-- Players a hit is worth telling about: everyone near the target, plus the two involved wherever
+-- they are. Hit events drive damage numbers, flashes and stagger, none of which anyone farther
+-- away can see.
+local HIT_RELEVANCE_RADIUS = 150
+
+local function hitAudience(sourceEntityId: string, targetEntityId: string): { Player }
+	local audience: { Player } = {}
+	local included: { [Player]: true } = {}
+	local function include(player: Player?)
+		if player and not included[player] then
+			included[player] = true
+			table.insert(audience, player)
+		end
+	end
+	include(Registrar.getPlayerById(sourceEntityId))
+	include(Registrar.getPlayerById(targetEntityId))
+
+	local target = Registrar.getEntityById(targetEntityId)
+	local targetRoot = target and target:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if targetRoot then
+		for _, player in ipairs(Players:GetPlayers()) do
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root and (root.Position - targetRoot.Position).Magnitude <= HIT_RELEVANCE_RADIUS then
+				include(player)
+			end
+		end
+	end
+	return audience
+end
+
+-- Broadcast the outcome of a hit for damage numbers, flashes and stagger. Only what clients draw;
+-- the internal breakdown (mitigation, absorption, mediator metadata) stays on the server.
 local function broadcastHit(
 	sourceEntityId: string,
 	targetEntityId: string,
@@ -410,12 +490,25 @@ local function broadcastHit(
 		)
 	end
 
+	local audience = hitAudience(sourceEntityId, targetEntityId)
+	if #audience == 0 then
+		return
+	end
 	dispatcher:emit("HitEvent", {
 		sourceId = sourceEntityId,
 		targetId = targetEntityId,
-		result = attackResult,
-		skillId = skillId, -- Pass skill ID for sound selection
-		timestamp = os.clock(),
+		skillId = skillId,
+		result = {
+			totalDamage = attackResult.totalDamage,
+			byType = attackResult.byType,
+			crit = attackResult.crit,
+			dodged = attackResult.dodged,
+			blocked = attackResult.blocked,
+			staggerApplied = attackResult.staggerApplied,
+			knockback = attackResult.knockback,
+		},
+	}, {
+		targets = audience,
 	})
 end
 
@@ -512,8 +605,34 @@ function CombatService.applyAttack(
 				})
 				StatsManager.addToPool(sourceEntityId, poolType, amount)
 			end
-			-- Note: knockback packet type not yet implemented
+		elseif packet.type == "knockback" then
+			-- Damage packets come first, so a dodge is already known: a dodged blow moves no one.
+			if invuln or attackResult.dodged then
+				continue
+			end
+			local distance = packet.distance or 0
+			local direction = packet.direction or awayFromSource(sourceEntityId, targetEntityId)
+			if distance > 0 and direction then
+				attackResult.knockback = {
+					direction = direction,
+					distance = distance,
+					duration = packet.duration,
+				}
+			end
 		end
+	end
+
+	local knockback = attackResult.knockback
+	if knockback and not Registrar.isPlayerEntity(targetEntityId) then
+		MovementService.applyKnockback(
+			targetEntityId,
+			MovementSpec.buildKnockbackSpec({
+				startTime = Clock.localNow(),
+				direction = knockback.direction,
+				distance = knockback.distance,
+				duration = knockback.duration,
+			})
+		)
 	end
 
 	-- Apply stagger if damage was dealt (before broadcasting so client gets the flag)
@@ -542,6 +661,12 @@ function CombatService.applyAttack(
 		or (attackResult.effectsApplied and #attackResult.effectsApplied > 0)
 	then
 		broadcastHit(sourceEntityId, targetEntityId, attackResult, attack.metadata.skillId)
+	end
+
+	if attackResult.totalDamage > 0 then
+		for _, listener in ipairs(hitListeners) do
+			task.spawn(listener, sourceEntityId, targetEntityId, attackResult, attack.metadata)
+		end
 	end
 
 	return attackResult

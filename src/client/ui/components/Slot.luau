@@ -58,7 +58,8 @@ local function Slot(props: Props)
 
 	local well: { [string]: any } = {
 		Outline = e("UIStroke", {
-			Color = if lit then theme.color.stroke else theme.color.socketStroke,
+			-- White at rest, the focus colour only while hovered or selected.
+			Color = if lit then theme.color.strokeStrong else theme.color.socketStroke,
 			Thickness = if props.selected then theme.metrics.strokeThick else theme.metrics.strokeThin,
 			Transparency = if lit then 0 elseif socket then 0.5 else 0.35,
 			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,

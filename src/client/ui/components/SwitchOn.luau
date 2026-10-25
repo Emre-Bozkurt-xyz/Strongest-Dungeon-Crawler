@@ -81,7 +81,7 @@ local function SwitchOn(props: Props)
 			Size = frame:map(function(f: Curve.Frame)
 				return UDim2.fromOffset(width * f.lineLength, LINE_THICKNESS)
 			end),
-			BackgroundColor3 = theme.color.accent,
+			BackgroundColor3 = theme.color.stroke,
 			BackgroundTransparency = frame:map(function(f: Curve.Frame)
 				return f.lineTransparency
 			end),

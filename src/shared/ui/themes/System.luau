@@ -1,17 +1,20 @@
 --!strict
--- The default theme: the System as cyan light on near-black navy (docs/tasks/ui-design-pass.md).
+-- The default theme: the System as white light on near-black, with cyan for focus
+-- (docs/tasks/ui-design-pass.md).
 
 local build = require(script.Parent.ThemeBuilder)
 
 return build("System", "System", {
-	void = Color3.fromRGB(4, 9, 18),
-	deep = Color3.fromRGB(11, 26, 46),
-	line = Color3.fromRGB(73, 210, 255),
-	lineDim = Color3.fromRGB(31, 110, 150),
+	-- A trace of blue left in the surfaces, so they read as cool glass rather than flat grey.
+	void = Color3.fromRGB(5, 8, 13),
+	deep = Color3.fromRGB(16, 21, 30),
+	line = Color3.fromRGB(222, 228, 234),
+	lineDim = Color3.fromRGB(104, 113, 124),
+	focus = Color3.fromRGB(73, 210, 255),
 	glow = Color3.fromRGB(168, 240, 255),
-	ink = Color3.fromRGB(232, 247, 255),
-	inkMuted = Color3.fromRGB(126, 166, 189),
-	inkFaint = Color3.fromRGB(74, 106, 128),
+	ink = Color3.fromRGB(238, 242, 246),
+	inkMuted = Color3.fromRGB(146, 156, 168),
+	inkFaint = Color3.fromRGB(86, 94, 106),
 	alert = Color3.fromRGB(255, 77, 97),
 	warn = Color3.fromRGB(255, 192, 77),
 	ok = Color3.fromRGB(92, 255, 176),

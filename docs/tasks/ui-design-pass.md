@@ -365,6 +365,14 @@ sweep makes one sound. Every cue is from Roblox's own UI library (licensed for a
   by rarity so a rare drop sounds like one.
 - Ids, volumes and pitches are config; swapping a sound is one line.
 
+**White chrome, cyan for focus.** All-cyan chrome read as too blue and too "tech". Structure
+(brackets, rules, outlines, the switch-on line, slot corners) is now neutral white on near-neutral
+dark surfaces, and the skin's colour is kept for focus only: hover and selection outlines, the
+current tab, points waiting to be spent, the selected loot row. The palette gained `focus` beside
+`line`; `stroke` is white and `strokeStrong`/`accent` are the focus colour, so components needed
+almost no changes. A skin now supplies its colour as `focus` (System Violet: violet focus, white
+chrome). Mana is drawn in the magic rarity blue, stamina in green, HP in white.
+
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
 item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them

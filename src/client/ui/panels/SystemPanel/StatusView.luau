@@ -406,7 +406,7 @@ local function StatusTab(props: { view: Selector.SystemView, onSpend: (attribute
 	}
 	local poolLooks = {
 		HP = { caption = "HEALTH", icon = HEART_ICON, color = theme.color.textHeading },
-		MP = { caption = "MANA", icon = DROPLET_ICON, color = theme.color.accent },
+		MP = { caption = "MANA", icon = DROPLET_ICON, color = theme.rarity.magic },
 		Stamina = { caption = "STAMINA", icon = nil, color = theme.color.success },
 	}
 	for index, vital in ipairs(view.vitals) do

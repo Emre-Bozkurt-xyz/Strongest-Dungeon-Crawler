@@ -7,8 +7,9 @@ local build = require(script.Parent.ThemeBuilder)
 return build("SystemViolet", "System Violet", {
 	void = Color3.fromRGB(10, 4, 22),
 	deep = Color3.fromRGB(30, 14, 56),
-	line = Color3.fromRGB(176, 128, 255),
-	lineDim = Color3.fromRGB(92, 58, 150),
+	line = Color3.fromRGB(232, 226, 242),
+	lineDim = Color3.fromRGB(116, 104, 136),
+	focus = Color3.fromRGB(176, 128, 255),
 	glow = Color3.fromRGB(222, 200, 255),
 	ink = Color3.fromRGB(243, 236, 255),
 	inkMuted = Color3.fromRGB(164, 146, 196),

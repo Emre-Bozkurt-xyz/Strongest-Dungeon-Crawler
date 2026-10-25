@@ -185,6 +185,7 @@ function VitalsBlock.render(props: Props)
 				label = "STA",
 				thickness = 0.12,
 				textSize = theme.type.label,
+				color = theme.color.success,
 				size = UDim2.fromOffset(RING_SIZE, RING_SIZE),
 				layoutOrder = 2,
 			})

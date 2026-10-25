@@ -2,8 +2,9 @@
 -- Builds a full theme in the System style from a small palette.
 --
 -- The System is projected light on near-black: surfaces are dark and translucent, and everything
--- meaningful -- edges, text, state -- is drawn in light. A skin that keeps that language but changes
--- its colour (System Violet) only supplies a palette; one that restyles the chrome can override
+-- meaningful -- edges, text, state -- is drawn in light. Structure is drawn in neutral white light and
+-- the skin's colour is kept for focus (hover, selection, what wants attention), so colour always means
+-- something rather than tinting the whole panel. A skin only supplies a palette; one that restyles the chrome can override
 -- `chrome` after building. Not a theme itself, so the registry skips it.
 
 local ThemeTypes = require(script.Parent.ThemeTypes)
@@ -12,9 +13,11 @@ export type Palette = {
 	-- Surfaces, darkest first.
 	void: Color3,
 	deep: Color3,
-	-- The light everything interactive is drawn in, a dimmer rest state, and a bright lit state.
+	-- Neutral light the structure is drawn in (brackets, rules, outlines), and a dimmer rest state.
 	line: Color3,
 	lineDim: Color3,
+	-- The skin's colour, for focus only, and its bright lit state.
+	focus: Color3,
 	glow: Color3,
 	ink: Color3,
 	inkMuted: Color3,
@@ -45,7 +48,7 @@ local function build(id: string, label: string, p: Palette): ThemeTypes.Theme
 
 		skillSlotSurface = p.void,
 		skillSlotStroke = p.lineDim,
-		skillSlotActiveStroke = p.glow,
+		skillSlotActiveStroke = p.focus,
 		cooldownRadialTint = p.line,
 		gcdScrim = Color3.new(0, 0, 0),
 		gcdAccent = p.line,
@@ -54,7 +57,7 @@ local function build(id: string, label: string, p: Palette): ThemeTypes.Theme
 		iconCooldownTint = p.inkMuted,
 
 		stroke = p.line,
-		strokeStrong = p.glow,
+		strokeStrong = p.focus,
 
 		textHeading = p.ink,
 		textPrimary = p.ink,
@@ -62,8 +65,8 @@ local function build(id: string, label: string, p: Palette): ThemeTypes.Theme
 		textDisabled = p.inkFaint,
 		textOnAccent = p.void,
 
-		accent = p.line,
-		accentFrom = p.line,
+		accent = p.focus,
+		accentFrom = p.focus,
 		accentTo = p.glow,
 		danger = p.alert,
 		success = p.ok,

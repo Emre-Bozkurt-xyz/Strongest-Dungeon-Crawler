@@ -21,8 +21,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local React = require(ReplicatedStorage.Packages.React)
 
 local PanelShell = require(script.Parent.Parent.Parent.components.PanelShell)
+local PoolMeter = require(script.Parent.Parent.Parent.components.PoolMeter)
 local StatList = require(script.Parent.Parent.Parent.components.StatList)
-local VitalsBlock = require(script.Parent.Parent.Parent.components.VitalsBlock)
 local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
 local useSpring = require(script.Parent.Parent.Parent.hooks.useSpring)
 local UISound = require(script.Parent.Parent.Parent.UISound)
@@ -45,7 +45,11 @@ local StatusView = {}
 -- Logical pixels.
 local TITLE_HEIGHT = 34
 local IDENTITY_HEIGHT = 120
-local VITALS_SCALE = 1.55
+local IDENTITY_WIDTH = 300
+local POOL_GAP = 14
+
+local HEART_ICON = "rbxassetid://100398419080154"
+local DROPLET_ICON = "rbxassetid://109364647302001"
 local ATTRIBUTE_HEIGHT = 92
 local STAT_ROW_HEIGHT = 22
 
@@ -245,20 +249,22 @@ local function Identity(props: { identity: Selector.IdentityView })
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 	}, {
+		-- Right-aligned against the divider, so the level and what it qualifies read as one unit.
 		LevelCaption = e(Caption, {
 			text = "LEVEL",
-			size = UDim2.fromOffset(120, 16),
+			size = UDim2.fromOffset(112, 16),
 			position = UDim2.fromOffset(0, 18),
+			alignX = Enum.TextXAlignment.Right,
 		}),
 		LevelValue = e("TextLabel", {
 			Text = tostring(identity.level or 1),
-			Size = UDim2.fromOffset(120, 64),
+			Size = UDim2.fromOffset(112, 64),
 			Position = UDim2.fromOffset(0, 38),
 			BackgroundTransparency = 1,
 			FontFace = theme.face.display,
 			TextSize = 58,
 			TextColor3 = theme.color.textHeading,
-			TextXAlignment = Enum.TextXAlignment.Left,
+			TextXAlignment = Enum.TextXAlignment.Right,
 		}),
 		Divider = e("Frame", {
 			Size = UDim2.new(0, 1, 1, -28),
@@ -361,25 +367,20 @@ local function AttributeCell(props: {
 			TextColor3 = theme.color.textPrimary,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}),
+		-- An indicator, not a button: the whole cell is what is clicked.
 		Plus = if props.enabled
 			then e("TextLabel", {
 				Text = "+",
-				Size = UDim2.fromOffset(20, 20),
-				AnchorPoint = Vector2.new(1, 1),
-				Position = UDim2.new(1, -8, 1, -10),
+				Size = UDim2.fromOffset(16, 16),
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -8, 0, 10),
 				BackgroundTransparency = 1,
 				FontFace = theme.face.mono,
 				TextSize = theme.type.body,
-				TextColor3 = theme.color.accent,
-			}, {
-				Stroke = e("UIStroke", {
-					Color = theme.color.accent,
-					Thickness = 1,
-					Transparency = glow:map(function(v: number)
-						return 0.5 - 0.5 * v
-					end),
-					ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-				}),
+				TextColor3 = theme.color.textHeading,
+				TextTransparency = glow:map(function(v: number)
+					return 0.25 - 0.25 * v
+				end),
 			})
 			else nil,
 	})
@@ -396,6 +397,32 @@ local function StatusTab(props: { view: Selector.SystemView, onSpend: (attribute
 			Padding = UDim.new(0, 10),
 		}),
 	}
+	local pools: { [string]: any } = {
+		Layout = e("UIListLayout", {
+			FillDirection = Enum.FillDirection.Vertical,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Padding = UDim.new(0, POOL_GAP),
+		}),
+	}
+	local poolLooks = {
+		HP = { caption = "HEALTH", icon = HEART_ICON, color = theme.color.textHeading },
+		MP = { caption = "MANA", icon = DROPLET_ICON, color = theme.color.accent },
+		Stamina = { caption = "STAMINA", icon = nil, color = theme.color.success },
+	}
+	for index, vital in ipairs(view.vitals) do
+		local look = poolLooks[vital.label]
+		if look then
+			pools[vital.label] = e(PoolMeter.render, {
+				icon = look.icon,
+				caption = look.caption,
+				current = vital.current,
+				max = vital.max,
+				color = look.color,
+				layoutOrder = index,
+			})
+		end
+	end
+
 	for index, row in ipairs(view.attributes) do
 		cells[row.id] = e(AttributeCell, {
 			row = row,
@@ -417,23 +444,20 @@ local function StatusTab(props: { view: Selector.SystemView, onSpend: (attribute
 			BackgroundTransparency = 1,
 		}, {
 			Identity = e("Frame", {
-				Size = UDim2.fromOffset(330, IDENTITY_HEIGHT),
+				Size = UDim2.fromOffset(IDENTITY_WIDTH, IDENTITY_HEIGHT),
 				AnchorPoint = Vector2.new(0, 0.5),
 				Position = UDim2.fromScale(0, 0.5),
 				BackgroundTransparency = 1,
 			}, {
 				View = e(Identity, { identity = view.identity }),
 			}),
-			-- The HUD strip's vitals, scaled up: the same block, so the two always agree.
-			Vitals = e("Frame", {
-				Size = UDim2.fromOffset((728 - 360) / VITALS_SCALE, VitalsBlock.HEIGHT),
+			-- The pools as panel-sized meters, stacked and centred beside the identity.
+			Pools = e("Frame", {
+				Size = UDim2.new(1, -(IDENTITY_WIDTH + 48), 0, 3 * PoolMeter.HEIGHT + 2 * POOL_GAP),
 				AnchorPoint = Vector2.new(1, 0.5),
 				Position = UDim2.fromScale(1, 0.5),
 				BackgroundTransparency = 1,
-			}, {
-				Scale = e("UIScale", { Scale = VITALS_SCALE }),
-				Block = e(VitalsBlock.render, { vitals = view.vitals }),
-			}),
+			}, pools),
 		}),
 		Divider = e("Frame", {
 			Size = UDim2.new(1, 0, 0, 1),

@@ -275,8 +275,11 @@ they are stored as percentage points.
 - The card and list keep clear of the bottom of the screen, where the skill bar sits.
 
 **System panel — two tabs.** Raw stats on the first view were clutter. STATUS is the at-a-glance
-view: level/class/title, the vitals (scaled-up VitalsBlock), and the five attributes as cells, which
-are where points are spent (`+` only while points are available). STATS holds every number in
+view: level (right-aligned against the divider) beside class/title, the pools as panel-sized
+`components/PoolMeter` rows (a continuous bar with tenth marks; the HUD's segmented gauge reads as a
+barcode at this size), and the five attributes as cells, which are where points are spent (a small
+white `+` indicator at each cell's top right, only while points are available). HP is white
+everywhere, MP blue, stamina green; the damage trail is grey so it reads apart from a white fill. STATS holds every number in
 groups: Pools (from the vitals), Recovery, Offense, and an attribute breakdown (total, base+bonus).
 Tabs sit in the title row drawn as panel titles; POINTS shows on both.
 

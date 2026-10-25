@@ -162,7 +162,7 @@ function VitalsBlock.render(props: Props)
 					icon = HEART_ICON,
 					caption = "HP",
 					vital = health,
-					color = theme.color.accent,
+					color = theme.color.textHeading,
 					gaugeHeight = 6,
 					trail = true,
 					layoutOrder = 1,

@@ -3,7 +3,7 @@
 -- readout projected for the player rather than a generic health bar.
 --
 -- The fill springs to its value, and an optional trail follows on a slower spring, so cells lost to
--- a hit stay lit in white for a moment before going dark. Both are bindings mapped per cell, so the
+-- a hit stay lit in grey for a moment before going dark. Both are bindings mapped per cell, so the
 -- animation never re-renders the gauge.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -75,7 +75,8 @@ local function SegmentedGauge(props: Props)
 				if s == "fill" then
 					return color
 				elseif s == "trail" then
-					return theme.color.textPrimary
+					-- Grey, so it reads apart from a white fill.
+					return theme.color.textMuted
 				end
 				return theme.color.gaugeTrack
 			end),

@@ -20,6 +20,10 @@ local UISound = require(script.Parent.Parent.UISound)
 
 local e = React.createElement
 
+-- Pixels the slot's longer side grows by when lit. Fixed rather than a fraction of the slot, so a tall
+-- body socket lifts as little as a ring socket and never grows onto its neighbours.
+local LIFT = 4
+
 export type Props = {
 	icon: string?,
 	-- An ItemGlyphs id, drawn in the rarity colour when the item has no icon.
@@ -51,6 +55,8 @@ local function Slot(props: Props)
 	local hovered, setHovered = React.useState(false)
 	local lit = hovered or props.selected == true
 	local lift = useSpring(if lit then 1 else 0, theme.motion.snap)
+	-- The slot's unscaled size; AbsoluteSize includes the lift, so it is divided back out.
+	local base, setBase = React.useBinding(0)
 
 	local socket = props.variant == "socket"
 	local tint = if props.rarity then (theme.rarity :: any)[props.rarity] else nil
@@ -70,8 +76,8 @@ local function Slot(props: Props)
 			edgeTransparency = 1,
 		}),
 		Scale = e("UIScale", {
-			Scale = lift:map(function(v: number)
-				return 1 + 0.06 * v
+			Scale = React.joinBindings({ lift = lift, base = base }):map(function(v: { lift: number, base: number })
+				return if v.base > 0 then 1 + v.lift * LIFT / v.base else 1
 			end),
 		}),
 	}
@@ -188,6 +194,10 @@ local function Slot(props: Props)
 		end,
 		[React.Event.MouseLeave] = function()
 			setHovered(false)
+		end,
+		[React.Change.AbsoluteSize] = function(rbx: GuiObject)
+			local scale = 1 + lift:getValue() * LIFT / math.max(base:getValue(), 1)
+			setBase(math.max(rbx.AbsoluteSize.X, rbx.AbsoluteSize.Y) / scale)
 		end,
 	}, well)
 end

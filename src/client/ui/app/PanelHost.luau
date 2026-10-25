@@ -15,6 +15,10 @@
 --
 -- A panel switches on rather than fading in (shared/ui/SwitchOn, timed by theme.transitions): this
 -- host draws those frames onto a clip band and two light lines.
+--
+-- A `fitContent` surface is only partly used: its panel is top-anchored and as tall as its content.
+-- The host measures that height and runs the band and lines over it alone, so a short panel switches
+-- on at its own size instead of drawing lines across empty surface.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -49,6 +53,8 @@ type Surface = {
 	gui: SurfaceGui,
 	group: CanvasGroup,
 	clip: Frame,
+	canvas: Frame,
+	canvasHeight: number,
 	lines: { Frame },
 	mountRoot: GuiObject,
 }
@@ -115,7 +121,7 @@ local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): Su
 	canvas.BorderSizePixel = 0
 	canvas.Parent = clip
 
-	local accent = Themes.getDefault().color.accent
+	local chrome = Themes.getDefault().color.stroke
 	local lines = {}
 	for index = 1, 2 do
 		local line = Instance.new("Frame")
@@ -123,7 +129,7 @@ local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): Su
 		line.AnchorPoint = Vector2.new(0.5, 0.5)
 		line.Position = UDim2.fromScale(0.5, 0.5)
 		line.Size = UDim2.new(1, 0, 0, LINE_THICKNESS)
-		line.BackgroundColor3 = accent
+		line.BackgroundColor3 = chrome
 		line.BackgroundTransparency = 1
 		line.BorderSizePixel = 0
 		line.ZIndex = 10
@@ -132,7 +138,15 @@ local function buildSurface(entry: PanelRegistry.PanelEntry, part: BasePart): Su
 		table.insert(lines, line)
 	end
 
-	local surface: Surface = { gui = gui, group = group, clip = clip, lines = lines, mountRoot = canvas }
+	local surface: Surface = {
+		gui = gui,
+		group = group,
+		clip = clip,
+		canvas = canvas,
+		canvasHeight = canvasHeight,
+		lines = lines,
+		mountRoot = canvas,
+	}
 
 	-- A surface declaring a logical width is authored in that many pixels across, scaled up to fill
 	-- the real canvas. The canvas keeps its resolution, so text stays sharp, while the panel lays out in
@@ -173,6 +187,10 @@ function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
 	self._transition = nil :: RBXScriptConnection?
 	-- Band height, 0..1, kept between transitions so a reversal starts from where the last one was.
 	self._band = 0
+	self._frame = SwitchOn.CLOSED
+	-- The fraction of the surface's height the panel uses, from the top.
+	self._fit = 1
+	self._fitConnections = {} :: { RBXScriptConnection }
 	self._hasContent = false
 	self._followTarget = nil :: BasePart?
 
@@ -183,7 +201,12 @@ function PanelHost.new(entry: PanelRegistry.PanelEntry): PanelHostType
 	self._gui = surface.gui
 	self._group = surface.group
 	self._clip = surface.clip
+	self._canvas = surface.canvas
+	self._canvasHeight = surface.canvasHeight
 	self._lines = surface.lines
+	if entry.surface.fitContent then
+		self:_watchFit(mountRoot)
+	end
 
 	-- Parented up front so placement and the first transition have somewhere to run. It is invisible
 	-- until setVisible, since GroupTransparency starts at 1.
@@ -243,14 +266,52 @@ function PanelHost.isVisible(self: any): boolean
 	return self._visible
 end
 
+-- Tracks how tall the mounted panel is. Content is top-anchored, so its height is its bottom edge.
+-- Nothing mounted (after a close) keeps the last fit, so the next opening starts at the right size.
+function PanelHost._watchFit(self: any, mountRoot: GuiObject)
+	local function measure()
+		local tallest = 0
+		for _, child in ipairs(mountRoot:GetChildren()) do
+			if child:IsA("GuiObject") then
+				tallest = math.max(tallest, child.AbsoluteSize.Y)
+			end
+		end
+		local full = self._canvas.AbsoluteSize.Y
+		if tallest <= 0 or full <= 0 then
+			return
+		end
+		local fit = math.clamp(tallest / full, MIN_BAND, 1)
+		if math.abs(fit - self._fit) > 1e-4 then
+			self._fit = fit
+			self:_draw(self._frame)
+		end
+	end
+	local function watch(child: Instance)
+		if child:IsA("GuiObject") then
+			table.insert(self._fitConnections, child:GetPropertyChangedSignal("AbsoluteSize"):Connect(measure))
+			measure()
+		end
+	end
+	table.insert(self._fitConnections, mountRoot.ChildAdded:Connect(watch))
+	for _, child in ipairs(mountRoot:GetChildren()) do
+		watch(child)
+	end
+end
+
 function PanelHost._draw(self: any, frame: SwitchOn.Frame)
 	local height = math.max(frame.band, MIN_BAND)
+	local fit = self._fit
 	self._band = frame.band
-	self._clip.Size = UDim2.fromScale(1, height)
+	self._frame = frame
+	-- The band opens from the middle of the used part of the surface. The canvas stays where it is
+	-- on the surface, so it is offset by however far the band's centre sits above the surface's.
+	self._clip.Position = UDim2.fromScale(0.5, fit / 2)
+	self._clip.Size = UDim2.fromScale(1, height * fit)
+	self._canvas.Position = UDim2.new(0.5, 0, 0.5, self._canvasHeight * (1 - fit) / 2)
 	self._group.GroupTransparency = frame.transparency
 	for index, line in ipairs(self._lines) do
 		local edge = if index == 1 then -0.5 else 0.5
-		line.Position = UDim2.fromScale(0.5, 0.5 + edge * height)
+		line.Position = UDim2.fromScale(0.5, fit / 2 + edge * height * fit)
 		line.Size = UDim2.new(frame.lineLength, 0, 0, LINE_THICKNESS)
 		line.BackgroundTransparency = frame.lineTransparency
 	end
@@ -367,6 +428,11 @@ function PanelHost.destroy(self: any)
 		return
 	end
 	self._destroyed = true
+
+	for _, connection in ipairs(self._fitConnections) do
+		connection:Disconnect()
+	end
+	table.clear(self._fitConnections)
 
 	local running = self._transition
 	if running then

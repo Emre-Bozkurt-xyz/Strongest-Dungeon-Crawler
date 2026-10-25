@@ -21,6 +21,9 @@ local e = React.createElement
 export type Props = {
 	-- Frame size within the surface. Defaults to filling it.
 	inset: UDim2?,
+	-- A fixed height in pixels, top-anchored and full width, for a panel sized by its content (a
+	-- `fitContent` surface). Takes precedence over `inset`.
+	height: number?,
 	layout: ("stack" | "free")?,
 	-- Space between stacked blocks. Ignored when layout is "free".
 	gap: number?,
@@ -31,6 +34,15 @@ export type Props = {
 }
 
 local function PanelShell(props: Props)
+	if props.height then
+		return e(PanelFrame, {
+			size = UDim2.new(1, 0, 0, props.height),
+			layout = props.layout,
+			gap = props.gap,
+			padding = props.padding,
+			fillTransparency = props.transparency,
+		}, props.children)
+	end
 	return e(PanelFrame, {
 		size = props.inset,
 		position = if props.inset then UDim2.fromScale(0.5, 0.5) else nil,

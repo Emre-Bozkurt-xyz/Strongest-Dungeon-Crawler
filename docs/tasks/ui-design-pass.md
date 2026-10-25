@@ -373,6 +373,11 @@ current tab, points waiting to be spent, the selected loot row. The palette gain
 almost no changes. A skin now supplies its colour as `focus` (System Violet: violet focus, white
 chrome). Mana is drawn in the magic rarity blue, stamina in green, HP in white.
 
+**Inventory sized by its rows.** The panel is as tall as its grid needs (minimum two rows, at most
+what the surface holds), top-anchored so the title never moves, instead of one row floating at the
+top of a tall empty panel. The surface is marked `fitContent`: PanelHost measures the mounted panel's
+height and runs the switch-on band and lines over that part of the surface only.
+
 **Placeholder icons — live** (decision 7). `glyphs/ItemGlyphs` holds 21 line-art glyphs as point
 lists (weapon kinds, offhands, armour pieces, jewellery, flask, gem, scroll, box) and picks one per
 item from its weapon class, offhand type, equipment class or category. `components/Glyph` draws them

@@ -1,5 +1,10 @@
 --!strict
--- Title row with the fullness count, category tabs, then a scrolling slot grid taking the rest.
+-- Title row with the fullness count, category tabs, then the slot grid.
+--
+-- The panel is as tall as its rows (a `fitContent` surface): a light bag is a short panel that grows
+-- as it fills, rather than one row floating at the top of a tall empty one. It never drops below
+-- MIN_ROWS, so switching to a sparse category does not collapse it to a sliver, and stops at what the
+-- surface holds, past which the grid scrolls.
 --
 -- Laid out in logical pixels (PanelRegistry gives this surface `logicalWidth`), which come out at
 -- roughly one screen pixel each at 1080p staging, so sizes here are what the player sees. The panel
@@ -34,6 +39,22 @@ local TITLE_HEIGHT = 34
 local TABS_HEIGHT = 32
 local CELL = 56
 local GAP = 8
+local PADDING = 20
+local STACK_GAP = 10
+
+-- The surface, in logical pixels (PanelRegistry: 768 across, 6.478 x 3.549 studs).
+local LOGICAL_WIDTH = 768
+local LOGICAL_HEIGHT = math.floor(768 * 3.549 / 6.478)
+
+local CHROME_HEIGHT = 2 * PADDING + TITLE_HEIGHT + STACK_GAP + TABS_HEIGHT + STACK_GAP
+local COLUMNS = math.floor((LOGICAL_WIDTH - 2 * PADDING - 2 * GAP + GAP) / (CELL + GAP))
+local MIN_ROWS = 2
+
+local function gridHeight(rows: number): number
+	return rows * CELL + (rows - 1) * GAP + 2 * GAP
+end
+
+local MAX_ROWS = math.floor((LOGICAL_HEIGHT - CHROME_HEIGHT - 2 * GAP + GAP) / (CELL + GAP))
 
 local function InventoryView(props: Props)
 	local theme = ThemeContext.useTheme()
@@ -53,7 +74,9 @@ local function InventoryView(props: Props)
 		})
 	end
 
-	return e(PanelShell, { padding = 20, gap = 10 }, {
+	local rows = math.clamp(math.ceil(#props.view.slots / COLUMNS), MIN_ROWS, MAX_ROWS)
+
+	return e(PanelShell, { padding = PADDING, gap = STACK_GAP, height = CHROME_HEIGHT + gridHeight(rows) }, {
 		Title = e("Frame", {
 			Size = UDim2.new(1, 0, 0, TITLE_HEIGHT),
 			BackgroundTransparency = 1,

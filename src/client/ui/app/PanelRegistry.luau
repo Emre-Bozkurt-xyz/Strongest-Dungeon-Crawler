@@ -28,6 +28,9 @@ export type SurfaceConfig = {
 	-- Optional. Lay the panel out in this many logical pixels across instead of canvas pixels; see
 	-- PanelHost. Set so one logical pixel is about one screen pixel at 1080p staging.
 	logicalWidth: number?,
+	-- The panel draws itself top-anchored and only as tall as its content, and the host fits the
+	-- switch-on to that height rather than the whole surface; see PanelHost.
+	fitContent: boolean?,
 }
 
 -- How WorldGUIManager should place the panel. Passed through to `registerPanel` untouched, so the
@@ -122,6 +125,7 @@ local entries: { PanelEntry } = {
 			pixelsPerStud = 200,
 			scale = MENU_PANEL_SCALE,
 			logicalWidth = 768,
+			fitContent = true,
 		},
 		placement = menuRigPlacement(),
 		isVisible = function(state)

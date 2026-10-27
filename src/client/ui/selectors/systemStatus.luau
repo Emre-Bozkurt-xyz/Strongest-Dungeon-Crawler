@@ -14,7 +14,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local ClientSpec = require(ReplicatedStorage.Shared.stats.ClientSpec)
+local CharacterXP = require(ReplicatedStorage.Shared.progression.CharacterXP)
 local AttributesClient = require(script.Parent.Parent.Parent.AttributesClient)
+local ProgressionClient = require(script.Parent.Parent.Parent.Progression.ProgressionClient)
 
 local Selector = {}
 
@@ -36,11 +38,14 @@ export type AttributeRow = {
 	total: number,
 }
 
--- Level, class and title. Nothing feeds these yet -- no progression system exists -- but they are
--- part of the panel's layout and are shown as placeholders rather than omitted, so the block does
--- not collapse and the intent stays visible.
+-- Level, class and title. The level comes from character XP; nothing feeds class and title yet,
+-- but they are part of the panel's layout and are shown as placeholders rather than omitted, so the
+-- block does not collapse and the intent stays visible.
 export type IdentityView = {
 	level: number?,
+	-- XP into the level and what the next needs; nil `xpNeeded` at the cap.
+	xp: number?,
+	xpNeeded: number?,
 	class: string?,
 	title: string?,
 }
@@ -164,7 +169,26 @@ function Selector.buildVitals(stats: StatTypes.PlayerStats?): { VitalView }
 	return vitals
 end
 
-function Selector.buildView(stats: StatTypes.PlayerStats?, attributes: AttributesClient.AttributesData?): SystemView
+-- Class and title stay placeholders until classes exist.
+function Selector.buildIdentity(progression: ProgressionClient.Snapshot?): IdentityView
+	if not progression then
+		return { level = nil, xp = nil, xpNeeded = nil, class = nil, title = nil }
+	end
+	local progress = CharacterXP.progressOf(progression.characterXp)
+	return {
+		level = progress.level,
+		xp = math.floor(progress.into),
+		xpNeeded = progress.needed,
+		class = nil,
+		title = nil,
+	}
+end
+
+function Selector.buildView(
+	stats: StatTypes.PlayerStats?,
+	attributes: AttributesClient.AttributesData?,
+	progression: ProgressionClient.Snapshot?
+): SystemView
 	local vitals = Selector.buildVitals(stats)
 
 	local attributeRows: { AttributeRow } = {}
@@ -184,8 +208,7 @@ function Selector.buildView(stats: StatTypes.PlayerStats?, attributes: Attribute
 	end
 
 	return {
-		-- Placeholders until a progression system exists to fill them.
-		identity = { level = nil, class = nil, title = nil },
+		identity = Selector.buildIdentity(progression),
 		vitals = vitals,
 		availableAP = if attributes then attributes.availableAP else 0,
 		attributes = attributeRows,

@@ -143,6 +143,11 @@ local function shouldExclude(model: Model, opts: QueryOptions?): boolean
 		return true -- Exclude non-registered entities
 	end
 
+	-- A dead NPC lingers briefly before it is removed (NPCDeath); nothing hits it meanwhile.
+	if model:GetAttribute("Dead") == true then
+		return true
+	end
+
 	-- Exclude caster if requested
 	if opts.casterEntityId and targetEntityId == opts.casterEntityId then
 		if not opts.includeCaster then

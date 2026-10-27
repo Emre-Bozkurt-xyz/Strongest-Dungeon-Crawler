@@ -4,7 +4,7 @@
 --
 -- A player's selection is kept per class key (a weapon class, or "unarmed") in their save, so
 -- changing weapons brings back the shape last chosen for that weapon. What is unlocked is never
--- stored: it is derived from saved mastery levels each time, so changing a requirement needs no
+-- stored: it is derived from saved mastery XP each time, so changing a requirement needs no
 -- save migration.
 --
 -- The chosen shape reaches combat through the combat loadout snapshot. This service decides it at
@@ -26,6 +26,7 @@ local Registrar = require(Server.Services.Registrar)
 local CombatLoadoutService = require(Server.Inventory.CombatLoadout.CombatLoadoutService)
 local SkillMetadataService = require(Server.SkillsFramework.SkillMetadataService)
 local MasteryService = require(Server.Progression.MasteryService)
+local ProgressionSync = require(Server.Progression.ProgressionSync)
 
 type PlayerSaveData = PlayerDataService.PlayerSaveData
 type Shape = BasicAttackProfileTypes.BasicAttackProfile
@@ -94,7 +95,7 @@ function FormService.select(player: Player, classKey: any, shapeId: any): (boole
 	if shapeId == "" then
 		data.progression.shapes[classKey] = nil
 		FormService.refresh(player)
-		MasteryService.publish(player, nil)
+		ProgressionSync.publish(player, nil)
 		return true, nil
 	end
 	local shape = if type(shapeId) == "string" then BasicAttackProfileRegistry.get(shapeId) else nil
@@ -109,7 +110,7 @@ function FormService.select(player: Player, classKey: any, shapeId: any): (boole
 	end
 	data.progression.shapes[classKey] = shape.id
 	FormService.refresh(player)
-	MasteryService.publish(player, nil)
+	ProgressionSync.publish(player, nil)
 	return true, nil
 end
 

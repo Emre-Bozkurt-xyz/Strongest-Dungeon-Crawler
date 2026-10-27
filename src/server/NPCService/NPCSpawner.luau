@@ -169,10 +169,11 @@ local function resolveParent(explicitParent: Instance?, fallback: Instance?): In
 	return Workspace
 end
 
--- What fighting this NPC teaches, as attributes on the model for MasteryService to read. A
--- placeholder until area level, enemy type and rank exist (docs/planning/progression-direction.md,
--- "Character XP from enemies"):
+-- What fighting this NPC teaches, as attributes on the model for MasteryService and
+-- CharacterService to read. A placeholder until area level, enemy type and rank exist
+-- (docs/planning/progression-direction.md, "Character XP from enemies"):
 --   progression = { masteryValue = 40 }  -- mastery XP for removing all of its health
+--   progression = { xp = 12 }            -- character XP for killing it, shared by contribution
 --   progression = { training = true }    -- a training target: flat training XP only
 local function applyProgression(model: Model, specOptions: { [string]: any })
 	local progression = specOptions.progression
@@ -182,8 +183,24 @@ local function applyProgression(model: Model, specOptions: { [string]: any })
 	if type(progression.masteryValue) == "number" then
 		model:SetAttribute("MasteryValue", progression.masteryValue)
 	end
+	if type(progression.xp) == "number" then
+		model:SetAttribute("XPValue", progression.xp)
+	end
 	if progression.training == true then
 		model:SetAttribute("TrainingTarget", true)
+	end
+end
+
+-- What NPCDeath needs when this NPC's health runs out: whether it dies at all (`immortal` in the
+-- spec: it resets instead, like a training dummy), and where and after how long it comes back
+-- (`respawnDelay` in the spawn options; without one it does not).
+local function applyLifecycle(model: Model, specOptions: { [string]: any }, settings: { [string]: any })
+	if specOptions.immortal == true then
+		model:SetAttribute("Immortal", true)
+	end
+	if type(settings.respawnDelay) == "number" then
+		model:SetAttribute("RespawnDelay", settings.respawnDelay)
+		model:SetAttribute("SpawnCFrame", model:GetPivot())
 	end
 end
 
@@ -235,6 +252,7 @@ function NPCSpawner.spawn(prefabName: string, options: { [string]: any }?): (Mod
 
 	local specOptions = readSpecByName(prefabName)
 	applyProgression(clone, specOptions)
+	applyLifecycle(clone, specOptions, settings)
 	local handles = attachComponents(clone, prefabName, specOptions, settings.components)
 
 	return clone, handles
@@ -268,6 +286,7 @@ function NPCSpawner.spawnAtMarker(
 
 	local specOptions = readSpecByName(prefabName)
 	applyProgression(clone, specOptions)
+	applyLifecycle(clone, specOptions, settings)
 	local handles = attachComponents(clone, prefabName, specOptions, settings.components)
 
 	return clone, handles

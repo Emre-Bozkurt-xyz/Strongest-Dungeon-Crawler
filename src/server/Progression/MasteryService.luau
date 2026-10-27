@@ -3,9 +3,9 @@
 -- XP from use"; docs/tasks/mastery-model-v2.md).
 --
 -- XP lives in the player's save per track and branch (`progression.masteries[track].branches`) and
--- is changed there directly; levels and unlocks are derived from it (shared/progression). The owning
--- client is sent its progression -- branch XP and its form selections, which the mastery canvas
--- draws together -- whenever any of it changes, at most once per frame.
+-- is changed there directly; levels and unlocks are derived from it (shared/progression). Branch XP
+-- and form selections reach the owning client through ProgressionSync, as its "masteries" and
+-- "shapes" sections.
 --
 -- Where XP comes from:
 --   * A use (a cast, or one combo step) gives a little flat XP to its track while the track is below
@@ -20,7 +20,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
-local Networking = require(ReplicatedStorage.Shared.Networking)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
 local MasteryTrees = require(ReplicatedStorage.Shared.progression.MasteryTrees)
@@ -36,18 +35,12 @@ local CombatService = require(Server.Services.CombatService)
 local StatsManager = require(Server.Stats.StatsManager)
 local CombatLoadoutService = require(Server.Inventory.CombatLoadout.CombatLoadoutService)
 local BaseSkill = require(Server.SkillsFramework.Skills.BaseSkill)
+local ProgressionSync = require(script.Parent.ProgressionSync)
 
 type PlayerSaveData = PlayerDataService.PlayerSaveData
 
-local dispatcher = Networking.server() :: any
-
 local BASIC_ATTACK_SKILL = "BasicAttack"
 local BRANCHES = { "trunk", "a", "b" }
-
-export type LevelUp = {
-	track: string,
-	level: number,
-}
 
 -- What a use feeds: a track, the branches it splits between, and the skill's tier.
 type Credit = {
@@ -59,9 +52,6 @@ type Credit = {
 local MasteryService = {}
 
 local unlockListeners: { (Player) -> () } = {}
-
--- Per player: the level-ups to announce in the next publish, gathered over one frame.
-local pendingPublish: { [Player]: { LevelUp } } = {}
 
 local function branchesOf(data: PlayerSaveData, trackId: string): { [string]: number }
 	local masteries = data.progression.masteries
@@ -101,51 +91,6 @@ function MasteryService.masteriesOf(data: PlayerSaveData): { [string]: { [string
 	return out
 end
 
--- What the owning client is told: every track's branch XP, and its form selections.
-function MasteryService.snapshot(player: Player): { [string]: any }?
-	local data = PlayerDataService.get(player)
-	if not data then
-		return nil
-	end
-	local masteries: { [string]: any } = {}
-	for trackId, branches in pairs(MasteryService.masteriesOf(data)) do
-		masteries[trackId] = { branches = branches }
-	end
-	return {
-		masteries = masteries,
-		shapes = table.clone(data.progression.shapes),
-	}
-end
-
--- Send the player their progression now. `levelUps` are announced by the client.
-function MasteryService.publish(player: Player, levelUps: { LevelUp }?)
-	local payload = MasteryService.snapshot(player)
-	if not payload then
-		return
-	end
-	payload.levelUps = levelUps
-	dispatcher:emit("ProgressionUpdate", payload, { targets = { player } })
-end
-
--- Publish at the end of the frame, so a hit that feeds several tracks sends one update.
-local function schedulePublish(player: Player, levelUp: LevelUp?)
-	local pending = pendingPublish[player]
-	if not pending then
-		pending = {}
-		pendingPublish[player] = pending
-		task.defer(function()
-			local levelUps = pendingPublish[player]
-			pendingPublish[player] = nil
-			if levelUps and player.Parent then
-				MasteryService.publish(player, if #levelUps > 0 then levelUps else nil)
-			end
-		end)
-	end
-	if levelUp then
-		table.insert(pending, levelUp)
-	end
-end
-
 -- Called when anything a player could select may have opened or closed.
 function MasteryService.onUnlocksChanged(listener: (Player) -> ())
 	table.insert(unlockListeners, listener)
@@ -181,7 +126,10 @@ function MasteryService.grant(player: Player, trackId: string, branch: string, a
 			task.spawn(listener, player)
 		end
 	end
-	schedulePublish(player, if levelAfter ~= levelBefore then { track = trackId, level = levelAfter } else nil)
+	ProgressionSync.schedule(
+		player,
+		if levelAfter ~= levelBefore then { kind = "masteryLevel", track = trackId, level = levelAfter } else nil
+	)
 	return added
 end
 
@@ -196,7 +144,7 @@ function MasteryService.setBranchXp(player: Player, trackId: string, branch: str
 	for _, listener in ipairs(unlockListeners) do
 		task.spawn(listener, player)
 	end
-	schedulePublish(player, nil)
+	ProgressionSync.schedule(player, nil)
 end
 
 -- What a use of `skillName` by `casterId` feeds, or nil for skills that teach nothing.
@@ -291,14 +239,15 @@ function MasteryService.start()
 	CombatService.onHit(onHit)
 	BaseSkill.onUsed(onUsed)
 
-	dispatcher:onRequest("ProgressionSnapshot", function(_payload, _meta, context)
-		local player = context.player
-		return if player then MasteryService.snapshot(player) else nil
+	ProgressionSync.addSection("masteries", function(data)
+		local masteries: { [string]: any } = {}
+		for trackId, branches in pairs(MasteryService.masteriesOf(data)) do
+			masteries[trackId] = { branches = branches }
+		end
+		return masteries
 	end)
-
-	-- After the request above, which creates the channel this emits on.
-	PlayerDataService.onLoaded(function(player)
-		MasteryService.publish(player, nil)
+	ProgressionSync.addSection("shapes", function(data)
+		return table.clone(data.progression.shapes)
 	end)
 end
 

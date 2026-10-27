@@ -266,6 +266,19 @@ local function Identity(props: { identity: Selector.IdentityView })
 			TextColor3 = theme.color.textHeading,
 			TextXAlignment = Enum.TextXAlignment.Right,
 		}),
+		-- Progress into the level, small under the number it qualifies.
+		LevelXp = if identity.xp
+			then e("TextLabel", {
+				Text = if identity.xpNeeded then `{identity.xp} / {identity.xpNeeded} XP` else "MAX",
+				Size = UDim2.fromOffset(112, 14),
+				Position = UDim2.fromOffset(0, 100),
+				BackgroundTransparency = 1,
+				FontFace = theme.face.mono,
+				TextSize = theme.type.label,
+				TextColor3 = theme.color.textMuted,
+				TextXAlignment = Enum.TextXAlignment.Right,
+			})
+			else nil,
 		Divider = e("Frame", {
 			Size = UDim2.new(0, 1, 1, -28),
 			Position = UDim2.fromOffset(128, 14),

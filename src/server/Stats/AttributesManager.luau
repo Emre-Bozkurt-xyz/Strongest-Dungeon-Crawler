@@ -152,13 +152,18 @@ local function sendFullSync(player: Player)
 	if not attrs then
 		return
 	end
+	-- A full sync is a change like any other and takes the next version: the client drops anything
+	-- not newer than what it has, so re-sending the current version made every sync after the
+	-- first one invisible (level-up points never showed).
+	local ver = (attrVersionByPlayer[player] or 0) + 1
+	attrVersionByPlayer[player] = ver
 	local delta: Delta = {
 		system = "attributes",
 		type = "full_sync",
 		target = "ALL_DATA",
 		data = AttributesManager.serializeAttributes(attrs),
 		timestamp = os.clock(),
-		version = attrVersionByPlayer[player] or 0,
+		version = ver,
 	}
 	local profileToken = profileBegin("sendFullSync")
 	dispatcherAny:emit("AttributesDelta", delta, {

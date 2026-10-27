@@ -41,6 +41,8 @@ return {
 	}),
 	-- Hits teach only the flat training amount, and only while a mastery is below the training cap.
 	progression = { training = true },
+	-- Refills instead of dying when its health runs out (NPCDeath).
+	immortal = true,
 	damageable = {
 		configure = function(stats)
 			local healthPool = stats[StatTypes.PoolStats.Health]

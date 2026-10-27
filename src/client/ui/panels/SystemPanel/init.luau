@@ -13,6 +13,7 @@ local React = require(ReplicatedStorage.Packages.React)
 -- `panels` and Parent.Parent is `ui`. StatusView, being a child, needs one more level than this.
 local useStats = require(script.Parent.Parent.hooks.useStats)
 local useAttributes = require(script.Parent.Parent.hooks.useAttributes)
+local useProgression = require(script.Parent.Parent.hooks.useProgression)
 local AttributeActions = require(script.Parent.Parent.actions.AttributeActions)
 local Selector = require(script.Parent.Parent.selectors.systemStatus)
 local StatusView = require(script.StatusView)
@@ -20,7 +21,8 @@ local StatusView = require(script.StatusView)
 local function SystemPanel()
 	local stats = useStats()
 	local attributes = useAttributes()
-	local view = Selector.buildView(stats, attributes)
+	local progression = useProgression()
+	local view = Selector.buildView(stats, attributes, progression)
 	local tab, setTab = React.useState("status" :: StatusView.Tab)
 
 	return React.createElement(StatusView.render, {

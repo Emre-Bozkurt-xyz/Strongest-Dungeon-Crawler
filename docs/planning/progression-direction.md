@@ -403,6 +403,9 @@ rather than replace the mechanism:
    the tree; the canvas drawing the new trees with branch progress. Not yet: attunement, attribute
    requirements (shown, not enforced), passive effects, and real enemy values (NPC specs carry a
    placeholder `progression.masteryValue`).
+   *Also done (2026-10-26, `docs/tasks/character-level-and-npc-death.md`):* the character level
+   stream's first source -- NPCs can now die (and respawn), kill XP is shared by the health each
+   player removed, levels grant attribute points, and STATUS shows the real level.
 4. **Infusions and named combinations,** including new on-hit mechanics (e.g. the crescent).
 5. **Unique-weapon forms.**
 

@@ -54,10 +54,17 @@ export type SavedAttributes = {
 	availablePoints: number?,
 }
 
+-- The character level stream, separate from mastery. Only total XP is saved; the level is derived
+-- from it (shared/progression/CharacterXP).
+export type CharacterData = {
+	xp: number,
+}
+
 export type PlayerSaveData = {
 	version: number,
 	loadout: LoadoutTypes.Loadout,
 	progression: ProgressionData,
+	character: CharacterData,
 	inventory: SavedInventory,
 	attributes: SavedAttributes,
 	-- Set once the starting items have been handed out, so a returning player is not given them
@@ -129,6 +136,7 @@ function PlayerDataSchema.template(): PlayerSaveData
 			shapes = {},
 			infusion = "",
 		},
+		character = { xp = 0 },
 		inventory = {
 			capacity = 30,
 			slots = {},

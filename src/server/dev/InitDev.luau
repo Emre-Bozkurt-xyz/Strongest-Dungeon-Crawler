@@ -98,6 +98,49 @@ function Dev.start(ctx)
 		masteryService.setBranchXp(player, track, branch, xp)
 	end)
 
+	-- Lands a plain physical hit from the player on the nearest NPC named `npcName`, through the real
+	-- combat path, so kills and what follows them (contribution, character XP, death, respawn) can be
+	-- exercised without walking up to it: ServerStorage.DevHit:Fire(player, "Slime", 50).
+	local devHit = Instance.new("BindableEvent")
+	devHit.Name = "DevHit"
+	devHit.Parent = game:GetService("ServerStorage")
+	devHit.Event:Connect(function(player: Player, npcName: string, amount: number)
+		local registrar = require(script.Parent.Parent.Services.Registrar)
+		local combatService = require(script.Parent.Parent.Services.CombatService)
+		local playerId = registrar.getPlayerId(player)
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not playerId or not root then
+			return
+		end
+		local nearest, nearestDistance = nil, math.huge
+		for _, entity in ipairs(registrar.getAllEntities()) do
+			local entityRoot = entity:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local position = if entityRoot then entityRoot.Position else entity:GetPivot().Position
+			local distance = (position - root.Position).Magnitude
+			if entity.Name == npcName and entity:GetAttribute("Dead") ~= true and distance < nearestDistance then
+				nearest, nearestDistance = entity, distance
+			end
+		end
+		local targetId = nearest and registrar.getEntityId(nearest)
+		if not targetId then
+			warn("[DevHit] No living NPC named", npcName)
+			return
+		end
+		combatService.applyAttack(targetId, {
+			packets = { { type = "damage", damageType = "Physical", amount = amount } },
+			sourceId = playerId,
+			metadata = { skillId = "DevHit" },
+		}, playerId)
+	end)
+
+	-- Adds character XP outright: ServerStorage.DevGrantXP:Fire(player, 500).
+	local devGrantXp = Instance.new("BindableEvent")
+	devGrantXp.Name = "DevGrantXP"
+	devGrantXp.Parent = game:GetService("ServerStorage")
+	devGrantXp.Event:Connect(function(player: Player, amount: number)
+		require(script.Parent.Parent.Progression.CharacterService).grant(player, amount)
+	end)
+
 	-- Drops the first `count` bag items in front of the player, for checking the loot labels:
 	-- ServerStorage.DevDrop:Fire(player, 3).
 	local devDrop = Instance.new("BindableEvent")
@@ -148,6 +191,7 @@ function Dev.onSessionStart(player: Player, character: Model, grantStarterKit: b
 	})
 	npcSpawner.spawn("Slime", {
 		position = Vector3.new(100, 5, 0),
+		respawnDelay = 10,
 	})
 
 	-- Phase B: BasicAttack replaces Punch as the bound offensive primitive (D6, adaptive per

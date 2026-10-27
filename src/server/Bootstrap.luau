@@ -125,7 +125,9 @@ function Bootstrap.startAll(): BootstrapContext
 	end, { "PlayerData", "SkillsFramework" })
 
 	startEntry(ctx, started, "Progression", function(_context)
+		require(script.Parent.Progression.ProgressionSync).start()
 		require(script.Parent.Progression.MasteryService).start()
+		require(script.Parent.Progression.CharacterService).start()
 	end, { "PlayerData", "InventoryService" })
 
 	startEntry(ctx, started, "Forms", function(_context)
@@ -154,6 +156,7 @@ function Bootstrap.startAll(): BootstrapContext
 		context.NPCSpawner = require(script.Parent.NPCService.NPCSpawner)
 		Diagnostics.assert(context.NPCManager ~= nil, "NPCManager failed to load")
 		context.NPCManager.initialize()
+		require(script.Parent.NPCService.NPCDeath).start()
 		RunService.Heartbeat:Connect(function(dt)
 			context.ComponentManager.updateAll(dt)
 		end)

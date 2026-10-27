@@ -46,7 +46,8 @@ return {
 		resumeHealthThreshold = 0.5,
 	}),
 	-- Mastery XP for removing all of its health (placeholder until area level, type and rank).
-	progression = { masteryValue = 60 },
+	-- Character XP for the kill is shared by contribution.
+	progression = { masteryValue = 60, xp = 20 },
 	damageable = {
 		configure = function(stats)
 			local healthPool = stats[StatTypes.PoolStats.Health]

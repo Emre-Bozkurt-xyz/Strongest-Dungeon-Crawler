@@ -1,15 +1,16 @@
 --!strict
--- ProgressionClient: the client's copy of the player's mastery progress and form selections
--- (server: MasteryService), and the System's announcements when they change.
+-- ProgressionClient: the client's copy of the player's progression -- character XP, mastery
+-- progress and form selections (server: ProgressionSync) -- and the System's announcements when
+-- they change.
 --
--- The server sends the whole progression -- XP per track and branch, and the selected form per
--- weapon context -- whenever any of it changes; this keeps the latest and lets the mastery canvas
--- re-render from it. Selecting a form goes to the server, which answers with an update rather than
+-- The server sends the whole progression -- character XP, XP per track and branch, and the selected
+-- form per weapon context -- whenever any of it changes; this keeps the latest and lets the STATUS
+-- panel and the mastery canvas re-render from it. Selecting a form goes to the server, which answers with an update rather than
 -- this guessing ahead: a selection is a menu action, not a combat one, so a round trip costs nothing
 -- the player feels.
 --
--- Announcements compare each update with the last: a level reached (the server marks those), and
--- any node that opened or branch that was Mastered since.
+-- Announcements: the levels the server marks as reached (character and mastery), and, by comparing
+-- each update with the last, any node that opened or branch that was Mastered since.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -18,12 +19,15 @@ local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks
 local MasteryTrees = require(ReplicatedStorage.Shared.progression.MasteryTrees)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
 local MasteryXP = require(ReplicatedStorage.Shared.progression.MasteryXP)
+local CharacterXP = require(ReplicatedStorage.Shared.progression.CharacterXP)
 local NotificationClient = require(script.Parent.Parent.ui.controllers.NotificationClient)
 local UISound = require(script.Parent.Parent.ui.UISound)
 
 local dispatcher = Networking.client() :: any
 
 export type Snapshot = {
+	-- Total character XP; the level is derived from it (CharacterXP).
+	characterXp: number,
 	-- Track id -> branch ("trunk", "a", "b") -> XP.
 	masteries: { [string]: { [string]: number } },
 	-- Weapon context -> selected profile id.
@@ -72,20 +76,35 @@ local function sanitize(raw: any): Snapshot?
 			end
 		end
 	end
-	return { masteries = masteries, shapes = shapes }
+	local character = raw.character
+	local characterXp = if type(character) == "table" and type(character.xp) == "number" then character.xp else 0
+	return { characterXp = characterXp, masteries = masteries, shapes = shapes }
 end
 
-local function announce(previous: Snapshot, current: Snapshot, levelUps: any)
-	if type(levelUps) == "table" then
-		for _, levelUp in ipairs(levelUps) do
-			local track = type(levelUp) == "table" and MasteryTracks.get(levelUp.track)
-			if track and type(levelUp.level) == "number" then
+local function announce(previous: Snapshot, current: Snapshot, events: any)
+	if type(events) == "table" then
+		for _, event in ipairs(events) do
+			if type(event) ~= "table" or type(event.level) ~= "number" then
+				continue
+			end
+			if event.kind == "characterLevel" then
 				NotificationClient.push({
-					tag = "MASTERY UP",
+					tag = "LEVEL UP",
 					tone = "success",
-					text = `{string.upper(track.displayName)}  LV {levelUp.level}`,
-					glyph = track.glyph,
+					text = if type(event.points) == "number"
+						then `LV {event.level}  ·  +{event.points} POINTS`
+						else `LV {event.level}`,
 				})
+			elseif event.kind == "masteryLevel" then
+				local track = MasteryTracks.get(event.track)
+				if track then
+					NotificationClient.push({
+						tag = "MASTERY UP",
+						tone = "success",
+						text = `{string.upper(track.displayName)}  LV {event.level}`,
+						glyph = track.glyph,
+					})
+				end
 			end
 		end
 	end
@@ -136,12 +155,16 @@ local function adopt(raw: any)
 	publish()
 	-- The first snapshot is where the player already is, not news.
 	if previous then
-		announce(previous, nextSnapshot, raw.levelUps)
+		announce(previous, nextSnapshot, raw.events)
 	end
 end
 
 function ProgressionClient.get(): Snapshot?
 	return snapshot
+end
+
+function ProgressionClient.characterProgress(): CharacterXP.Progress
+	return CharacterXP.progressOf(if snapshot then snapshot.characterXp else 0)
 end
 
 -- A track's XP per branch.

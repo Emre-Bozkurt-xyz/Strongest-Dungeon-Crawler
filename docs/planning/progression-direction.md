@@ -83,7 +83,7 @@ makes off-spec play weak rather than forbidden.
 
 ## Experience
 
-*Agreed 2026-10-26; numbers and the open points below still to settle.*
+*Agreed 2026-10-26; the numbers are still to settle.*
 
 Character XP and mastery XP are **two independent streams**. Neither draws from the other, so
 training a weapon never costs character progress.
@@ -95,7 +95,8 @@ training a weapon never costs character progress.
 - **Training is real but small.** An empty swing gives a little mastery XP — the character is
   practising — but it only matters for the first few levels. AFK swinging must never max a mastery.
 - **No visible power number** of any kind. A hidden power estimate (from attributes, gear, nodes) was
-  considered and shelved: gameable by unequipping gear, and nothing to calibrate it against yet.
+  considered and shelved: gameable by unequipping gear, and nothing to calibrate it against yet. The
+  character level is not a power number: the STATUS panel shows it, as it does today.
 
 ### Character XP from enemies
 
@@ -145,10 +146,6 @@ and rarity:
   - Damage share is what limits a new track against a strong enemy (low mastery and the wrong
     attributes mean a small share), and it rewards a strong build in proportion. A generous hard
     ceiling per use (≈ 20% of the next requirement) only guards against bugs and exploits.
-
-Open:
-
-- Whether the STATUS panel shows a character level number at all.
 
 ## Mastery trees
 
@@ -343,7 +340,6 @@ rather than replace the mechanism:
 
 ## Open questions
 
-- XP: the open points at the end of "Experience" above.
 - Tree sizes; the launch set of masteries, classes and hybrids; milestone levels.
 - Whether element masteries also improve skills, or only forms.
 - The mastery canvas entry sequence: what it looks like, and how long it may take before it feels

@@ -1,7 +1,7 @@
 --!strict
 -- ProgressionClient: the client's copy of the player's progression -- character XP, mastery
--- progress and form selections (server: ProgressionSync) -- and the System's announcements when
--- they change.
+-- progress, attunement and form selections (server: ProgressionSync) -- and the System's
+-- announcements when they change.
 --
 -- The server sends the whole progression -- character XP, XP per track and branch, and the selected
 -- form per weapon context -- whenever any of it changes; this keeps the latest and lets the STATUS
@@ -10,7 +10,8 @@
 -- the player feels.
 --
 -- Announcements: the levels the server marks as reached (character and mastery), and, by comparing
--- each update with the last, any node that opened or branch that was Mastered since.
+-- each update with the last, any node that opened, branch that was Mastered, attunement slot that
+-- opened or track that was attuned or released since.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -20,6 +21,7 @@ local MasteryTrees = require(ReplicatedStorage.Shared.progression.MasteryTrees)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
 local MasteryXP = require(ReplicatedStorage.Shared.progression.MasteryXP)
 local CharacterXP = require(ReplicatedStorage.Shared.progression.CharacterXP)
+local Attunement = require(ReplicatedStorage.Shared.progression.Attunement)
 local NotificationClient = require(script.Parent.Parent.ui.controllers.NotificationClient)
 local UISound = require(script.Parent.Parent.ui.UISound)
 
@@ -32,12 +34,20 @@ export type Snapshot = {
 	masteries: { [string]: { [string]: number } },
 	-- Weapon context -> selected profile id.
 	shapes: { [string]: string },
+	-- Attuned track ids, in the order they were attuned.
+	attunement: { string },
 }
 
 local ProgressionClient = {}
 
 local snapshot: Snapshot? = nil
 local listeners: { [{}]: () -> () } = {}
+
+-- What the server's refusal of an attunement change means to the player.
+local ATTUNE_FAILURES: { [string]: string } = {
+	no_free_slot = "NO FREE SLOT",
+	not_at_shrine = "TOO FAR FROM THE SHRINE",
+}
 
 local NEW_NODE_TAG: { [string]: string } = {
 	form = "NEW FORM",
@@ -76,9 +86,17 @@ local function sanitize(raw: any): Snapshot?
 			end
 		end
 	end
+	local attunement: { string } = {}
+	if type(raw.attunement) == "table" then
+		for _, trackId in ipairs(raw.attunement) do
+			if type(trackId) == "string" then
+				table.insert(attunement, trackId)
+			end
+		end
+	end
 	local character = raw.character
 	local characterXp = if type(character) == "table" and type(character.xp) == "number" then character.xp else 0
-	return { characterXp = characterXp, masteries = masteries, shapes = shapes }
+	return { characterXp = characterXp, masteries = masteries, shapes = shapes, attunement = attunement }
 end
 
 local function announce(previous: Snapshot, current: Snapshot, events: any)
@@ -95,6 +113,14 @@ local function announce(previous: Snapshot, current: Snapshot, events: any)
 						then `LV {event.level}  ·  +{event.points} POINTS`
 						else `LV {event.level}`,
 				})
+				local before = CharacterXP.levelOf(previous.characterXp)
+				if Attunement.slotsFor(event.level) > Attunement.slotsFor(before) then
+					NotificationClient.push({
+						tag = "NEW ATTUNEMENT SLOT",
+						tone = "success",
+						text = "VISIT AN ATTUNEMENT SHRINE",
+					})
+				end
 			elseif event.kind == "masteryLevel" then
 				local track = MasteryTracks.get(event.track)
 				if track then
@@ -106,6 +132,19 @@ local function announce(previous: Snapshot, current: Snapshot, events: any)
 					})
 				end
 			end
+		end
+	end
+
+	for _, track in ipairs(MasteryTracks.list()) do
+		local wasAttuned = table.find(previous.attunement, track.id) ~= nil
+		local isAttuned = table.find(current.attunement, track.id) ~= nil
+		if wasAttuned ~= isAttuned then
+			NotificationClient.push({
+				tag = if isAttuned then "ATTUNED" else "RELEASED",
+				tone = if isAttuned then "success" else "info",
+				text = string.upper(track.displayName),
+				glyph = track.glyph,
+			})
 		end
 	end
 
@@ -176,6 +215,19 @@ function ProgressionClient.level(trackId: string): number
 	return MasteryXP.levelOf(MasteryXP.totalOf(ProgressionClient.branches(trackId)))
 end
 
+function ProgressionClient.isAttuned(trackId: string): boolean
+	return snapshot ~= nil and table.find(snapshot.attunement, trackId) ~= nil
+end
+
+function ProgressionClient.attunement(): { string }
+	return if snapshot then snapshot.attunement else {}
+end
+
+-- How many tracks the character may attune at their level.
+function ProgressionClient.attunementSlots(): number
+	return Attunement.slotsFor(ProgressionClient.characterProgress().level)
+end
+
 function ProgressionClient.onChanged(callback: () -> ()): () -> ()
 	local key = {}
 	listeners[key] = callback
@@ -197,6 +249,28 @@ function ProgressionClient.selectShape(classKey: string, shapeId: string)
 		end
 		UISound.play("error")
 		warn("ProgressionClient: shape selection failed:", if ok and type(response) == "table" then response.error else response)
+	end)
+end
+
+-- Ask the server to attune `trackId`, or release it. Only accepted at a shrine; the progression
+-- update follows on success.
+function ProgressionClient.setAttuned(trackId: string, attuned: boolean)
+	task.spawn(function()
+		local ok, response = pcall(function()
+			return dispatcher:request("ProgressionAttune", { track = trackId, attuned = attuned })
+		end)
+		if ok and type(response) == "table" and response.ok then
+			UISound.play("confirm")
+			return
+		end
+		UISound.play("error")
+		local reason = if ok and type(response) == "table" then response.error else nil
+		local text = reason and ATTUNE_FAILURES[reason]
+		if text then
+			NotificationClient.push({ tag = "CANNOT ATTUNE", tone = "warning", text = text, key = `attune:{reason}` })
+		else
+			warn("ProgressionClient: attunement change failed:", reason or response)
+		end
 	end)
 end
 

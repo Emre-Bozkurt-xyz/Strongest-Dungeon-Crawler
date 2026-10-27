@@ -28,6 +28,7 @@ local CharacterService = {}
 
 -- NPC entity id -> player -> health they removed from it.
 local contributions: { [string]: { [Player]: number } } = {}
+local levelListeners: { (player: Player, level: number) -> () } = {}
 
 local function xpOf(player: Player): number?
 	local data = PlayerDataService.get(player)
@@ -37,6 +38,11 @@ end
 
 function CharacterService.getLevel(player: Player): number
 	return CharacterXP.levelOf(xpOf(player) or 0)
+end
+
+-- Called after a player's level rises (gear level requirements are judged against it).
+function CharacterService.onLevelChanged(listener: (player: Player, level: number) -> ())
+	table.insert(levelListeners, listener)
 end
 
 -- Add character XP. Levels gained grant their attribute points and are announced.
@@ -55,6 +61,9 @@ function CharacterService.grant(player: Player, amount: number)
 	local points = (after - before) * CharacterXP.POINTS_PER_LEVEL
 	AttributesManager.addAvailableAttributePoints(player, points)
 	ProgressionSync.schedule(player, { kind = "characterLevel", level = after, points = points })
+	for _, listener in ipairs(levelListeners) do
+		task.spawn(listener, player, after)
+	end
 end
 
 local function onHit(sourceEntityId: string, targetEntityId: string, result: any, _metadata: any)

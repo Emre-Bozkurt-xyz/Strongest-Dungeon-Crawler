@@ -31,11 +31,13 @@ local ScrollList = require(script.Parent.Parent.Parent.components.ScrollList)
 local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
 local useInventory = require(script.Parent.Parent.Parent.hooks.useInventory)
 local useAttributes = require(script.Parent.Parent.Parent.hooks.useAttributes)
+local useProgression = require(script.Parent.Parent.Parent.hooks.useProgression)
 
 local ItemActions = require(script.Parent.Parent.Parent.actions.ItemActions)
 local Selector = require(script.Parent.Parent.Parent.selectors.itemInspect)
 
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
+local CharacterXP = require(ReplicatedStorage.Shared.progression.CharacterXP)
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
 
@@ -57,9 +59,11 @@ local function ItemCard(props: Props)
 	local theme = ThemeContext.useTheme()
 	local inventory = useInventory()
 	local attributes = useAttributes()
+	local progression = useProgression()
+	local level = if progression then CharacterXP.levelOf(progression.characterXp) else nil
 
 	local item = props.item or (if props.uid then inventory.items[props.uid] else nil)
-	local view = Selector.buildView(item, attributes)
+	local view = Selector.buildView(item, attributes, level)
 
 	if not view.found then
 		return e(PanelShell, nil, {
@@ -98,6 +102,21 @@ local function ItemCard(props: Props)
 				role = "BodyText",
 				layoutOrder = 2,
 			})
+		end
+		-- Equipped but below its requirements (the gear lending it attributes came off, or they were
+		-- reset): it stays on, giving nothing, until they are met again.
+		local status = if location and location.container == "equipment" and inventory.projection
+			then inventory.projection.items
+			else nil
+		for _, entry in ipairs(status or {}) do
+			if entry.uid == props.uid and not entry.active then
+				rows.Inactive = e(Row, {
+					label = "Status",
+					value = "Inactive",
+					role = "RequirementUnmet",
+					layoutOrder = 0,
+				})
+			end
 		end
 		if view.weapon then
 			rows.Class = e(Row, {
@@ -241,8 +260,14 @@ local function ItemCard(props: Props)
 		})
 	end
 
+	local requirementsMet = true
+	for _, req in ipairs(view.requirements) do
+		if req.met == false then
+			requirementsMet = false
+		end
+	end
 	if def and EquipmentDefUtils.getEquipSlots(def) and location and location.container == "inventory" then
-		addAction("Equip", "Equip", not locked and not flag("noEquip"), function()
+		addAction("Equip", "Equip", not locked and not flag("noEquip") and requirementsMet, function()
 			local slot = ItemActions.pickEquipSlot(def, inventory.equipment)
 			if slot and location then
 				ItemActions.equip(location.slot, slot)

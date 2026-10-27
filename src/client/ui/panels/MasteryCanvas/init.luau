@@ -6,6 +6,10 @@
 -- moving, and the view is bounded so it can drift past the tree's edge but never lose it. Fog is the
 -- tree model's (MasteryTree): only one or two nodes past what the player has reached are drawn.
 --
+-- At an Attunement Shrine (MasteryCanvasController's shrine mode) a panel under the track list
+-- attunes or releases the shown track; elsewhere the header says what is attuned and where to
+-- change it.
+--
 -- Entrance, as one 0..1 progress: the world dims, a line of light draws across the screen and
 -- fades, the header comes up, and the tree assembles column by column from its root. Closing runs it
 -- backward, faster.
@@ -22,6 +26,7 @@ local React = require(ReplicatedStorage.Packages.React)
 local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
 local MasteryXP = require(ReplicatedStorage.Shared.progression.MasteryXP)
+local Attunement = require(ReplicatedStorage.Shared.progression.Attunement)
 local Ease = require(ReplicatedStorage.Shared.ui.Ease)
 
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
@@ -127,7 +132,13 @@ local function useReveal(open: boolean)
 	return reveal
 end
 
-local function TrackRow(props: { track: MasteryTracks.Track, level: number, current: boolean, layoutOrder: number })
+local function TrackRow(props: {
+	track: MasteryTracks.Track,
+	level: number,
+	current: boolean,
+	attuned: boolean,
+	layoutOrder: number,
+})
 	local theme = ThemeContext.useTheme()
 	local hovered, setHovered = React.useState(false)
 	local hover = useSpring(if hovered then 1 else 0, theme.motion.snap)
@@ -178,6 +189,17 @@ local function TrackRow(props: { track: MasteryTracks.Track, level: number, curr
 			TextColor3 = ink,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}),
+		-- A lit diamond for an attuned track.
+		Attuned = if props.attuned
+			then e("Frame", {
+				Size = UDim2.fromOffset(7, 7),
+				Position = UDim2.new(1, -78, 0.5, 0),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Rotation = 45,
+				BackgroundColor3 = theme.color.accent,
+				BorderSizePixel = 0,
+			})
+			else nil,
 		Level = e("TextLabel", {
 			Size = UDim2.new(0, 60, 1, 0),
 			Position = UDim2.new(1, -12, 0, 0),
@@ -202,8 +224,9 @@ local function MasteryCanvas()
 	local context = MasteryCanvasController.context()
 	local branches = ProgressionClient.branches(track.id)
 	local selectedShape = if progression then progression.shapes[context] else nil
+	local attuned = ProgressionClient.isAttuned(track.id)
 	local tree = React.useMemo(function()
-		return MasteryTree.build(track.id, branches, context, selectedShape, nil)
+		return MasteryTree.build(track.id, branches, context, selectedShape, attuned)
 	end, { track.id, progression, context } :: { any })
 	local minimum, maximum = treeBounds(tree)
 
@@ -344,7 +367,7 @@ local function MasteryCanvas()
 				onActivated = function()
 					-- Only an unlocked form that has a profile for the held weapon can be chosen.
 					local shapeId = node.shapeId
-					if not node.unlocked or node.kind ~= "form" or not shapeId then
+					if not node.unlocked or node.dormant or node.kind ~= "form" or not shapeId then
 						UISound.play("error")
 						return
 					end
@@ -374,6 +397,43 @@ local function MasteryCanvas()
 		end
 	end
 
+	-- Attunement, for the header (away from a shrine) or the shrine panel.
+	local attunedIds = ProgressionClient.attunement()
+	local slots = ProgressionClient.attunementSlots()
+	local characterLevel = ProgressionClient.characterProgress().level
+	local attunedNames: { string } = {}
+	for _, trackId in ipairs(attunedIds) do
+		local entry = MasteryTracks.get(trackId)
+		if entry then
+			table.insert(attunedNames, string.upper(entry.displayName))
+		end
+	end
+	local attunementLine
+	if slots == 0 then
+		attunementLine = `ATTUNEMENT OPENS AT LV {Attunement.SLOT_LEVELS[1]}`
+	elseif #attunedNames == 0 then
+		attunementLine = "NOTHING ATTUNED   ·   ATTUNE AT AN ATTUNEMENT SHRINE"
+	else
+		attunementLine = `ATTUNED: {table.concat(attunedNames, " · ")}   ·   CHANGE AT AN ATTUNEMENT SHRINE`
+	end
+
+	local atShrine = canvas.shrine ~= nil
+	local freeSlot = #attunedIds < slots
+	local shrineAction: string
+	local shrineEnabled = true
+	if attuned then
+		shrineAction = `RELEASE {string.upper(track.displayName)}`
+	elseif freeSlot then
+		shrineAction = `ATTUNE {string.upper(track.displayName)}`
+	else
+		shrineEnabled = false
+		local nextLevel = Attunement.nextSlotLevel(characterLevel)
+		shrineAction = if slots == 0 and nextLevel then `OPENS AT LV {nextLevel}` else "NO FREE SLOT"
+	end
+	local shrineNote = if track.family == "element"
+		then "ELEMENTS ALWAYS WORK; ATTUNING STRENGTHENS THEM"
+		else "ONLY AN ATTUNED WEAPON TRACK GIVES ITS FORMS"
+
 	local trackRows: { [string]: any } = {
 		Layout = e("UIListLayout", {
 			FillDirection = Enum.FillDirection.Vertical,
@@ -386,6 +446,7 @@ local function MasteryCanvas()
 			track = entry,
 			level = ProgressionClient.level(entry.id),
 			current = entry.id == track.id,
+			attuned = table.find(attunedIds, entry.id) ~= nil,
 			layoutOrder = index,
 		})
 	end
@@ -444,7 +505,7 @@ local function MasteryCanvas()
 		}),
 
 		Header = e("Frame", {
-			Size = UDim2.fromOffset(460, 140),
+			Size = UDim2.fromOffset(560, 164),
 			Position = UDim2.fromOffset(56, 48),
 			BackgroundTransparency = 1,
 			ZIndex = 10,
@@ -452,7 +513,7 @@ local function MasteryCanvas()
 			Kicker = e("TextLabel", {
 				Size = UDim2.fromOffset(300, 16),
 				BackgroundTransparency = 1,
-				Text = "MASTERY",
+				Text = if atShrine then "ATTUNEMENT SHRINE" else "MASTERY",
 				FontFace = theme.face.display,
 				TextSize = theme.type.label,
 				TextColor3 = theme.color.textMuted,
@@ -524,6 +585,17 @@ local function MasteryCanvas()
 				TextTransparency = hudFade(0),
 				TextXAlignment = Enum.TextXAlignment.Left,
 			}),
+			Attunement = e("TextLabel", {
+				Size = UDim2.fromOffset(560, 16),
+				Position = UDim2.fromOffset(0, 144),
+				BackgroundTransparency = 1,
+				Text = if attuned then `{string.upper(track.displayName)} IS ATTUNED` else attunementLine,
+				FontFace = theme.face.display,
+				TextSize = theme.type.label,
+				TextColor3 = if attuned then theme.color.accent else theme.color.textMuted,
+				TextTransparency = hudFade(0),
+				TextXAlignment = Enum.TextXAlignment.Left,
+			}),
 		}),
 
 		Tracks = e("CanvasGroup", {
@@ -534,6 +606,55 @@ local function MasteryCanvas()
 			GroupTransparency = hudFade(0),
 			ZIndex = 10,
 		}, trackRows),
+
+		Shrine = if atShrine
+			then e("CanvasGroup", {
+				Size = UDim2.fromOffset(236, 96),
+				Position = UDim2.new(1, -56, 0, 48 + #MasteryTracks.list() * 42 + 12),
+				AnchorPoint = Vector2.new(1, 0),
+				BackgroundTransparency = 1,
+				GroupTransparency = hudFade(0),
+				ZIndex = 10,
+			}, {
+				Slots = e("TextLabel", {
+					Size = UDim2.new(1, 0, 0, 16),
+					BackgroundTransparency = 1,
+					Text = `SLOTS  {#attunedIds} / {slots}`,
+					FontFace = theme.face.mono,
+					TextSize = theme.type.label,
+					TextColor3 = theme.color.textMuted,
+					TextXAlignment = Enum.TextXAlignment.Left,
+				}),
+				Action = e("Frame", {
+					Size = UDim2.new(1, 0, 0, 36),
+					Position = UDim2.fromOffset(0, 22),
+					BackgroundTransparency = 1,
+				}, {
+					Button = e(Button, {
+						text = shrineAction,
+						enabled = shrineEnabled,
+						variant = if attuned then "secondary" else "primary",
+						size = UDim2.fromScale(1, 1),
+						textSize = theme.type.label,
+						onActivated = function()
+							ProgressionClient.setAttuned(track.id, not attuned)
+						end,
+					}),
+				}),
+				Note = e("TextLabel", {
+					Size = UDim2.new(1, 0, 0, 28),
+					Position = UDim2.fromOffset(0, 66),
+					BackgroundTransparency = 1,
+					Text = shrineNote,
+					FontFace = theme.face.display,
+					TextSize = theme.type.label,
+					TextColor3 = theme.color.textMuted,
+					TextWrapped = true,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					TextYAlignment = Enum.TextYAlignment.Top,
+				}),
+			})
+			else nil,
 
 		Close = e("CanvasGroup", {
 			Size = UDim2.fromOffset(120, 34),
@@ -557,7 +678,9 @@ local function MasteryCanvas()
 			Position = UDim2.new(0.5, 0, 1, -56),
 			AnchorPoint = Vector2.new(0.5, 1),
 			BackgroundTransparency = 1,
-			Text = "DRAG TO MOVE   ·   CHOOSE AN UNLOCKED FORM TO USE IT",
+			Text = if atShrine
+				then "DRAG TO MOVE   ·   CHOOSE A MASTERY ON THE RIGHT TO ATTUNE OR RELEASE IT"
+				else "DRAG TO MOVE   ·   CHOOSE AN UNLOCKED FORM TO USE IT",
 			FontFace = theme.face.display,
 			TextSize = theme.type.label,
 			TextColor3 = theme.color.textMuted,

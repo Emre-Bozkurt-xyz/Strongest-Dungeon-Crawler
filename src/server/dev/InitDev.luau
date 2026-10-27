@@ -1,6 +1,7 @@
 --!strict
 -- Server dev-only hooks (testing, debug, demo setup).
 
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
@@ -27,6 +28,50 @@ local function ensureDevTuneRemote(): RemoteEvent
 	remote.Parent = ReplicatedStorage
 	devTuneRemote = remote
 	return remote
+end
+
+-- A stand-in Attunement Shrine for the dev map: a slab, a pillar and a floating crystal, tagged so
+-- AttunementService gives it a prompt. Real shrines are placed in maps with the same tag.
+local function buildPlaceholderShrine(at: Vector3)
+	local Attunement = require(ReplicatedStorage.Shared.progression.Attunement)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { game:GetService("Players"):GetChildren() }
+	local hit = workspace:Raycast(at + Vector3.new(0, 100, 0), Vector3.new(0, -400, 0), params)
+	local ground = if hit then hit.Position.Y else at.Y
+
+	local model = Instance.new("Model")
+	model.Name = "AttunementShrine"
+	local function part(name: string, size: Vector3, y: number, props: { [string]: any }): Part
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Size = size
+		p.Anchored = true
+		p.CFrame = CFrame.new(at.X, ground + y, at.Z)
+		for key, value in pairs(props) do
+			(p :: any)[key] = value
+		end
+		p.Parent = model
+		return p
+	end
+	local stone = Color3.fromRGB(70, 72, 82)
+	local base = part("Base", Vector3.new(7, 0.8, 7), 0.4, { Material = Enum.Material.Slate, Color = stone })
+	part("Pillar", Vector3.new(1.6, 3.4, 1.6), 0.8 + 1.7, { Material = Enum.Material.Slate, Color = stone })
+	local crystal = part("Crystal", Vector3.new(1, 1.8, 1), 6, {
+		Material = Enum.Material.Neon,
+		Color = Color3.fromRGB(120, 200, 255),
+		CanCollide = false,
+		CastShadow = false,
+	})
+	crystal.CFrame *= CFrame.Angles(0, math.rad(45), math.rad(45))
+	local light = Instance.new("PointLight")
+	light.Color = crystal.Color
+	light.Range = 12
+	light.Brightness = 1.5
+	light.Parent = crystal
+	model.PrimaryPart = base
+	model.Parent = workspace
+	CollectionService:AddTag(model, Attunement.SHRINE_TAG)
 end
 
 function Dev.start(ctx)
@@ -140,6 +185,8 @@ function Dev.start(ctx)
 	devGrantXp.Event:Connect(function(player: Player, amount: number)
 		require(script.Parent.Parent.Progression.CharacterService).grant(player, amount)
 	end)
+
+	buildPlaceholderShrine(Vector3.new(80, 0, -14))
 
 	-- Drops the first `count` bag items in front of the player, for checking the loot labels:
 	-- ServerStorage.DevDrop:Fire(player, 3).

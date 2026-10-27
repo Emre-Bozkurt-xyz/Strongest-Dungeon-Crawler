@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local InventoryClient = require(script.Parent.Parent.Parent.Inventory.InventoryClient)
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
+local NotificationClient = require(script.Parent.Parent.controllers.NotificationClient)
 
 local ItemActions = {}
 
@@ -36,12 +37,32 @@ function ItemActions.pickEquipSlot(
 	return slots[1]
 end
 
-function ItemActions.equip(fromSlot: number, toSlot: string)
-	InventoryClient.requestAction({
-		action = "equip",
-		fromSlot = fromSlot,
-		toSlot = toSlot,
+-- Gear requirements are hard (server: RequirementEvaluator), so an equip below them is refused;
+-- the player is told which one, whichever view sent it.
+local function explainRefusal(reason: string?)
+	local requirement = reason and string.match(reason, "^requirement_failed::(.+)$")
+	if not requirement then
+		return
+	end
+	NotificationClient.push({
+		tag = "CANNOT EQUIP",
+		tone = "warning",
+		text = if requirement == "Level" then "LEVEL TOO LOW" else `NOT ENOUGH {string.upper(requirement)}`,
+		key = `equip-refused:{requirement}`,
 	})
+end
+
+function ItemActions.equip(fromSlot: number, toSlot: string)
+	task.spawn(function()
+		local response = InventoryClient.requestAction({
+			action = "equip",
+			fromSlot = fromSlot,
+			toSlot = toSlot,
+		})
+		if response and not response.ok then
+			explainRefusal(response.error)
+		end
+	end)
 end
 
 function ItemActions.unequip(fromSlot: string)

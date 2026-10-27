@@ -12,6 +12,7 @@ type ShapeSelector = (entityId: string, snapshot: ItemTypes.CombatLoadoutSnapsho
 local itemGetter: ((uid: string) -> ItemTypes.ItemInstance?)? = nil
 local emitter: ((entityId: string, snapshot: ItemTypes.CombatLoadoutSnapshot) -> ())? = nil
 local shapeSelector: ShapeSelector? = nil
+local activeFilter: ((entityId: string, uid: string) -> boolean)? = nil
 local changedListeners: { (entityId: string, snapshot: ItemTypes.CombatLoadoutSnapshot) -> () } = {}
 local currentByEntity: { [string]: ItemTypes.CombatLoadoutSnapshot } = {}
 local versionByEntity: { [string]: number } = {}
@@ -30,6 +31,12 @@ function CombatLoadoutService.setShapeSelector(selector: ShapeSelector)
 	shapeSelector = selector
 end
 
+-- Whether an equipped item counts (EquipmentProjectionService.isActive). Injected rather than
+-- required: SkillMetadataService requires this module, and the projection's requires lead back to it.
+function CombatLoadoutService.setActiveFilter(filter: (entityId: string, uid: string) -> boolean)
+	activeFilter = filter
+end
+
 -- Called after every recompute, once the snapshot has been sent to its owner.
 function CombatLoadoutService.onChanged(listener: (entityId: string, snapshot: ItemTypes.CombatLoadoutSnapshot) -> ())
 	table.insert(changedListeners, listener)
@@ -45,7 +52,13 @@ function CombatLoadoutService.recompute(entityId: string): ItemTypes.CombatLoado
 	end
 
 	local equip = EquipmentRepository.ensure(entityId)
-	local snapshot = CombatLoadoutResolver.resolve(entityId, equip, itemGetter)
+	local getter = itemGetter
+	local filter = activeFilter
+	-- A suppressed item (requirements not met) stays equipped but is not fought with: a weapon
+	-- below its requirements leaves the character unarmed. Runs after the projection recompute.
+	local snapshot = CombatLoadoutResolver.resolve(entityId, equip, function(uid: string): ItemTypes.ItemInstance?
+		return if not filter or filter(entityId, uid) then getter(uid) else nil
+	end)
 	snapshot.basicAttackShape = if shapeSelector then shapeSelector(entityId, snapshot) else nil
 	local version = (versionByEntity[entityId] or 0) + 1
 	versionByEntity[entityId] = version

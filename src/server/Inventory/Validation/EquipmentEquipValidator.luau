@@ -7,6 +7,7 @@ local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
 local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
 local RequirementEvaluator = require(script.Parent.Parent.Projection.RequirementEvaluator)
+local EquipmentProjectionService = require(script.Parent.Parent.Projection.EquipmentProjectionService)
 
 local EquipmentEquipValidator = {}
 
@@ -115,9 +116,28 @@ function EquipmentEquipValidator.validate(
 		return false, "invalid_slot"
 	end
 
-	local reqOk, reqReason = RequirementEvaluator.evaluate(entityId, def)
-	if not reqOk then
-		return false, reqReason or "requirements_not_met"
+	-- Judged on the equipment as it would be after the equip, the way the projection will see it:
+	-- an item being replaced no longer lends its attributes, and a two-hander clears Secondary.
+	local weapon = EquipmentDefUtils.getWeapon(def)
+	local twoHanded = weapon ~= nil and weapon.handedness == "two_handed"
+	local slots: { [string]: string } = {}
+	for slotName, uid in pairs(ctx.equipment.slots) do
+		if uid and not (twoHanded and slotName == "Secondary") then
+			slots[slotName] = uid
+		end
+	end
+	slots[targetSlot] = inst.uid
+	local getter = function(uid: string): ItemTypes.ItemInstance?
+		return if uid == inst.uid then inst else ctx.itemGetter(uid)
+	end
+	local active, reasons = RequirementEvaluator.resolveActive(
+		entityId,
+		slots,
+		getter,
+		EquipmentProjectionService.gearAttributeOffset(entityId)
+	)
+	if not active[targetSlot] then
+		return false, reasons[targetSlot] or "requirements_not_met"
 	end
 
 	return validateHandConflicts(def, targetSlot, ctx)

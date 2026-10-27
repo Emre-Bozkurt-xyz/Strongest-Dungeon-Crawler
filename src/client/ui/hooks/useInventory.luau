@@ -15,6 +15,8 @@ export type InventoryView = {
 	inventory: ItemTypes.InventoryState?,
 	equipment: ItemTypes.EquipmentState?,
 	items: { [string]: ItemTypes.ItemInstance },
+	-- What equipped gear is doing; an item whose requirements are not met is inactive.
+	projection: ItemTypes.EquipmentProjectionSnapshot?,
 }
 
 local function read(): InventoryView
@@ -22,6 +24,7 @@ local function read(): InventoryView
 		inventory = InventoryClient.getInventory(),
 		equipment = InventoryClient.getEquipment(),
 		items = InventoryClient.getItems(),
+		projection = InventoryClient.getProjection(),
 	}
 end
 

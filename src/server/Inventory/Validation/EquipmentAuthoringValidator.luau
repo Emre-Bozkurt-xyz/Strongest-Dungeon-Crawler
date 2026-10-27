@@ -450,12 +450,9 @@ local function validateDef(report: ValidationReport, def: ItemTypes.ItemDef)
 		push(report, "error", `item '{def.id}': equipment.itemLevel must be a positive number`)
 	end
 
-	if def.equipment.requirements and def.equipment.requirements.level ~= nil then
-		push(
-			report,
-			"warning",
-			`item '{def.id}': requirements.level is not enforced (no progression system exists yet; see D5)`
-		)
+	local level = def.equipment.requirements and def.equipment.requirements.level
+	if level ~= nil and (type(level) ~= "number" or level < 1) then
+		push(report, "error", `item '{def.id}': requirements.level must be a positive number`)
 	end
 
 	if def.equipment.baseRolls then

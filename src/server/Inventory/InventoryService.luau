@@ -13,6 +13,8 @@ local ItemUtils = require(ReplicatedStorage.Shared.items.ItemUtils)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 
 local Registrar = require(ServerScriptService.Server.Services.Registrar)
+local AttributesManager = require(ServerScriptService.Server.Stats.AttributesManager)
+local CharacterService = require(ServerScriptService.Server.Progression.CharacterService)
 local PlayerDataSchema = require(ServerScriptService.Server.PlayerData.PlayerDataSchema)
 local ItemInstances = require(script.Parent.Domain.ItemInstanceRepository)
 local InventoryRepository = require(script.Parent.Domain.InventoryRepository)
@@ -44,6 +46,7 @@ end)
 CombatLoadoutService.setItemGetter(function(uid: string): ItemTypes.ItemInstance?
 	return ItemInstances.get(uid)
 end)
+CombatLoadoutService.setActiveFilter(EquipmentProjectionService.isActive)
 CombatLoadoutService.setEmitter(function(entityId: string, loadout: ItemTypes.CombatLoadoutSnapshot)
 	InventoryReplicationService.emitLoadout(entityId, loadout)
 end)
@@ -52,6 +55,40 @@ local function recomputeEquipmentDerived(entityId: string)
 	EquipmentProjectionService.recompute(entityId)
 	CombatLoadoutService.recompute(entityId)
 end
+
+-- Gear requirements can start or stop being met without the equipment changing: a level gained,
+-- points spent, attributes reset. Coalesced per frame.
+local pendingRecompute: { [string]: boolean } = {}
+
+local function scheduleRecompute(player: Player)
+	local entityId = Registrar.getPlayerId(player)
+	if not entityId or pendingRecompute[entityId] then
+		return
+	end
+	pendingRecompute[entityId] = true
+	task.defer(function()
+		pendingRecompute[entityId] = nil
+		-- Not before the inventory is restored, nor after the player has left.
+		if InventoryRepository.get(entityId) then
+			recomputeEquipmentDerived(entityId)
+		end
+	end)
+end
+
+-- Changes to what the player has, not to what gear adds (the projection's own modifiers).
+local BASE_ATTRIBUTE_CHANGES = {
+	attribute_set = true,
+	attribute_added = true,
+	attribute_increased = true,
+	full_sync = true,
+}
+
+CharacterService.onLevelChanged(scheduleRecompute)
+AttributesManager.onDelta(function(player: Player, delta)
+	if BASE_ATTRIBUTE_CHANGES[delta.type] then
+		scheduleRecompute(player)
+	end
+end)
 
 local function buildDropDisplay(inst: ItemTypes.ItemInstance): {
 	displayName: string?,

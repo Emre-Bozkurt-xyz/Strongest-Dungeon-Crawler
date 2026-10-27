@@ -1,7 +1,7 @@
 # Progression Direction — masteries, attunement, classes, forms
 
 Status: **direction agreed 2026-10-25; XP, tracks and branches revised 2026-10-26.** Build steps 1–3
-are done (see "Build order"). Content (the actual masteries, trees, classes, numbers) and the
+are done, plus attunement and hard gear requirements (see "Build order"). Content (the actual masteries, trees, classes, numbers) and the
 management space are still to be designed.
 
 ## What it has to achieve
@@ -136,11 +136,15 @@ At milestones the System reads the attuned masteries and the leading attribute a
   time; matching several rules means several offers, and choosing is the identity decision.
 - Un-attuning a mastery the class needs makes the class dormant until re-attuned or changed.
 
-### 5. Gear requirements — soft, not locks
+### 5. Gear requirements — hard locks
 
-Weapons ask for attributes. Below the requirement the weapon still works, with a penalty (less
-damage, slower swings). Together with a low weapon mastery (base form only, no bonuses) this is what
-makes off-spec play weak rather than forbidden.
+*Revised 2026-10-27 (was: soft penalties).* Gear whose level or attribute requirements are not met
+**cannot be equipped**, so trading a low-level character high-end gear cannot break progression.
+Equipped gear that stops meeting them (the item lending the attributes came off, an attribute reset)
+stays equipped but is **inactive**: it gives nothing, and a weapon fights as if unarmed, until they
+are met again. Attributes from other gear count, never an item's own, so a ring can open a shield
+but two items cannot open each other. Off-spec play stays possible through what a character can
+equip and their low mastery (root form only, no bonuses).
 
 ## Experience
 
@@ -406,6 +410,9 @@ rather than replace the mechanism:
    *Also done (2026-10-26, `docs/tasks/character-level-and-npc-death.md`):* the character level
    stream's first source -- NPCs can now die (and respawn), kill XP is shared by the health each
    player removed, levels grant attribute points, and STATUS shows the real level.
+   *Also done (2026-10-27, `docs/tasks/attunement-and-gear-locks.md`):* attunement (slots at
+   levels 3 and 6, placeholder), changed at an Attunement Shrine (free until currency exists), with
+   unattuned attack-type forms dormant; gear requirements enforced as hard locks.
 4. **Infusions and named combinations,** including new on-hit mechanics (e.g. the crescent).
 5. **Unique-weapon forms.**
 

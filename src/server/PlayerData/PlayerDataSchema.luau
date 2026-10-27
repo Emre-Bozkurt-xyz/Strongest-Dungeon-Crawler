@@ -19,7 +19,8 @@ export type MasteryProgress = {
 }
 
 -- The progression model in docs/planning/progression-direction.md. MasteryService writes
--- `masteries`, FormService writes `shapes`; attunement and infusion are reserved until those exist.
+-- `masteries`, FormService writes `shapes`, AttunementService writes `attunement`; infusion is
+-- reserved until infusions exist.
 export type ProgressionData = {
 	-- Keyed by mastery track id ("Blade", "Fire", ...).
 	masteries: { [string]: MasteryProgress },

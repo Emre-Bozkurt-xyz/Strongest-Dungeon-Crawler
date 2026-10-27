@@ -37,6 +37,7 @@ export type IntentName =
 	| "LoadoutCommand"
 	| "LoadoutSelectShape"
 	| "ProgressionSnapshot"
+	| "ProgressionAttune"
 
 export type EventName =
 	"DebugEchoEvent"

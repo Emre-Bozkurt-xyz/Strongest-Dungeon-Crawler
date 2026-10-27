@@ -3,8 +3,8 @@
 -- and what state each is in. Pure: built from the tree data (MasteryTrees), the player's branch XP
 -- and their form selection, so it can be rebuilt on every change and tested without a game running.
 --
--- Also the one unlock rule (`isUnlocked`) the server checks selections against, so the canvas and
--- the server can never disagree about what is open.
+-- Also the one unlock rule (`isUnlocked`) and attunement rule (`isActive`) the server checks
+-- selections against, so the canvas and the server can never disagree about what is open.
 --
 -- Fog: a player sees what they have unlocked, the next node along each line in full, and the one
 -- after only as an outline. Anything further is hidden, so a tree is discovered by progressing.
@@ -30,6 +30,8 @@ export type Node = {
 	column: number,
 	row: number,
 	unlocked: boolean,
+	-- Earned but not in effect: a node of an attack-type track that is not attuned (Attunement).
+	dormant: boolean,
 	-- Form nodes: the profile that implements this node for the held weapon, if any. Without one the
 	-- node cannot be selected right now (not built yet, or it does not fit what is held).
 	shapeId: string?,
@@ -131,15 +133,31 @@ function MasteryTree.isUnlocked(node: NodeDef, branches: { [string]: number }, a
 	return false
 end
 
--- Whether a basic attack profile may be selected, given every track's branch XP. A profile that
--- implements no node is not part of progression and is never selectable (defaults resolve without
--- being selected).
-function MasteryTree.isShapeUnlocked(shapeId: string, masteries: { [string]: { [string]: number } }): boolean
+-- Whether an earned node is in effect. Attack-type tracks need attunement, except their root form,
+-- which always works so anyone can use a weapon; element tracks always work.
+function MasteryTree.isActive(node: NodeDef, trackId: string, attuned: boolean): boolean
+	local track = MasteryTracks.get(trackId)
+	if not track or track.family == "element" or attuned then
+		return true
+	end
+	return node.branch == "trunk" and (node.rank or 0) == 0
+end
+
+-- Whether a basic attack profile may be selected, given every track's branch XP and the attuned
+-- tracks. A profile that implements no node is not part of progression and is never selectable
+-- (defaults resolve without being selected).
+function MasteryTree.isShapeUnlocked(
+	shapeId: string,
+	masteries: { [string]: { [string]: number } },
+	attunement: { string }
+): boolean
 	local node, tree = MasteryTrees.nodeForShape(shapeId)
 	if not node or not tree then
 		return false
 	end
-	return MasteryTree.isUnlocked(node, masteries[tree.track] or {}, nil)
+	local attuned = table.find(attunement, tree.track) ~= nil
+	return MasteryTree.isUnlocked(node, masteries[tree.track] or {}, attuned)
+		and MasteryTree.isActive(node, tree.track, attuned)
 end
 
 -- Which branches a use of `node` feeds, and how much of it each takes. A join form sits beyond both
@@ -192,7 +210,7 @@ local function defaultShapeFor(context: string): string
 end
 
 -- `branches`: this track's branch XP. `context`: the held weapon's class key. `selectedShape`: the
--- player's selection for that context, if any.
+-- player's selection for that context, if any. `attuned`: whether this track is attuned.
 function MasteryTree.build(
 	trackId: string,
 	branches: { [string]: number },
@@ -207,8 +225,10 @@ function MasteryTree.build(
 	end
 
 	local unlocked: { [string]: boolean } = {}
+	local dormant: { [string]: boolean } = {}
 	for _, node in ipairs(tree.nodes) do
 		unlocked[node.id] = MasteryTree.isUnlocked(node, branches, attuned)
+		dormant[node.id] = unlocked[node.id] and not MasteryTree.isActive(node, trackId, attuned == true)
 	end
 
 	-- Distance from the nearest unlocked node behind it: 0 when unlocked, 1 for the next along a line,
@@ -246,6 +266,7 @@ function MasteryTree.build(
 			and profile ~= nil
 			and BasicAttackProfileRegistry.fitsClass(profile, context)
 			and unlocked[selectedNode.id] == true
+			and not dormant[selectedNode.id]
 	end
 	local inUse = if selectedValid then selectedShape else defaultShape
 
@@ -275,6 +296,7 @@ function MasteryTree.build(
 				column = column,
 				row = row,
 				unlocked = unlocked[node.id],
+				dormant = dormant[node.id],
 				shapeId = shapeId,
 				built = node.shapes ~= nil and #node.shapes > 0,
 				selected = shapeId ~= nil and shapeId == inUse,

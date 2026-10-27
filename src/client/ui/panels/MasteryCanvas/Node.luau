@@ -4,7 +4,8 @@
 -- Three looks, one per thing the player can know about it: a fogged node is only its corners and a
 -- question mark (it exists, nothing more); a locked node shows its name and what it takes; an
 -- unlocked node is lit, the form in use outlined in the focus colour. Only forms are chosen here;
--- other unlocked nodes say what kind of node they are.
+-- other unlocked nodes say what kind of node they are. An earned node of a track that is not
+-- attuned is dormant: lit dimly, and not chosen until the track is attuned.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -47,6 +48,9 @@ local function statusText(node: MasteryTree.Node): string
 	if node.selected then
 		return "IN USE"
 	end
+	if node.dormant then
+		return "DORMANT · NOT ATTUNED"
+	end
 	if node.kind == "form" then
 		if node.shapeId then
 			return "AVAILABLE"
@@ -65,7 +69,8 @@ local function NodeView(props: Props)
 
 	local focus = theme.color.accent
 	local frameColor = if node.selected then focus else if fogged then theme.color.textDisabled else theme.color.stroke
-	local nameColor = if node.unlocked then theme.color.textHeading else theme.color.textMuted
+	local lit = node.unlocked and not node.dormant
+	local nameColor = if lit then theme.color.textHeading else theme.color.textMuted
 	local status = statusText(node)
 	local statusColor = if node.selected
 		then focus
@@ -106,7 +111,7 @@ local function NodeView(props: Props)
 			Size = UDim2.fromScale(1, 1),
 			BackgroundColor3 = theme.color.surface,
 			BackgroundTransparency = props.appear:map(function(a: number)
-				local base = if node.unlocked then 0.25 else 0.55
+				local base = if lit then 0.25 elseif node.unlocked then 0.45 else 0.55
 				return 1 - (1 - base) * math.clamp(a, 0, 1)
 			end),
 			BorderSizePixel = 0,
@@ -126,7 +131,7 @@ local function NodeView(props: Props)
 		}, {
 			Glyph = e(Glyph, {
 				glyph = props.glyph,
-				color = if node.selected then focus elseif node.unlocked then theme.color.textHeading else theme.color.textDisabled,
+				color = if node.selected then focus elseif lit then theme.color.textHeading else theme.color.textDisabled,
 				thickness = 1.5,
 			}),
 		})

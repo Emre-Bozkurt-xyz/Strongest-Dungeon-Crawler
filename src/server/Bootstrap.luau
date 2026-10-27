@@ -128,6 +128,7 @@ function Bootstrap.startAll(): BootstrapContext
 		require(script.Parent.Progression.ProgressionSync).start()
 		require(script.Parent.Progression.MasteryService).start()
 		require(script.Parent.Progression.CharacterService).start()
+		require(script.Parent.Progression.AttunementService).start()
 	end, { "PlayerData", "InventoryService" })
 
 	startEntry(ctx, started, "Forms", function(_context)

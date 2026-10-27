@@ -4,8 +4,8 @@
 --
 -- A player's selection is kept per class key (a weapon class, or "unarmed") in their save, so
 -- changing weapons brings back the shape last chosen for that weapon. What is unlocked is never
--- stored: it is derived from saved mastery XP each time, so changing a requirement needs no
--- save migration.
+-- stored: it is derived from saved mastery XP and attunement each time, so changing a requirement
+-- needs no save migration.
 --
 -- The chosen shape reaches combat through the combat loadout snapshot. This service decides it at
 -- every recompute -- only a shape that fits what is held and is unlocked -- and both peers then
@@ -26,6 +26,7 @@ local Registrar = require(Server.Services.Registrar)
 local CombatLoadoutService = require(Server.Inventory.CombatLoadout.CombatLoadoutService)
 local SkillMetadataService = require(Server.SkillsFramework.SkillMetadataService)
 local MasteryService = require(Server.Progression.MasteryService)
+local AttunementService = require(Server.Progression.AttunementService)
 local ProgressionSync = require(Server.Progression.ProgressionSync)
 
 type PlayerSaveData = PlayerDataService.PlayerSaveData
@@ -52,9 +53,9 @@ local function withinRate(player: Player): boolean
 	return rate.count <= RATE_MAX
 end
 
--- The shared unlock rule (MasteryTree), over the player's saved branch XP.
+-- The shared unlock rule (MasteryTree), over the player's saved branch XP and attunement.
 function FormService.isUnlocked(data: PlayerSaveData, shape: Shape): boolean
-	return MasteryTree.isShapeUnlocked(shape.id, MasteryService.masteriesOf(data))
+	return MasteryTree.isShapeUnlocked(shape.id, MasteryService.masteriesOf(data), AttunementService.attunedOf(data))
 end
 
 -- The shape to write into this snapshot: the player's selection for what they hold, if it still
@@ -119,6 +120,10 @@ function FormService.start()
 
 	-- Progress can unlock or lock the selected shape; re-deciding it applies that at once.
 	MasteryService.onUnlocksChanged(function(player)
+		FormService.refresh(player)
+	end)
+	-- Releasing a track puts its forms to sleep; the weapon's default takes over, selection kept.
+	AttunementService.onChanged(function(player)
 		FormService.refresh(player)
 	end)
 

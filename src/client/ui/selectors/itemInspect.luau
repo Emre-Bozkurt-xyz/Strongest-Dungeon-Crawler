@@ -111,7 +111,8 @@ end
 
 local function buildRequirements(
 	def: ItemTypes.ItemDef,
-	attributes: any?
+	attributes: any?,
+	level: number?
 ): { RequirementRow }
 	local rows: { RequirementRow } = {}
 	local requirements = EquipmentDefUtils.getRequirements(def)
@@ -120,8 +121,12 @@ local function buildRequirements(
 	end
 
 	if requirements.level then
-		-- No progression system exists yet (D5 in the equipment doc), so this is informational.
-		table.insert(rows, { label = "Level", required = requirements.level, current = nil, met = nil })
+		table.insert(rows, {
+			label = "Level",
+			required = requirements.level,
+			current = level,
+			met = if level ~= nil then level >= requirements.level else nil,
+		})
 	end
 
 	if requirements.attributes then
@@ -193,7 +198,8 @@ end
 
 function Selector.buildView(
 	item: ItemTypes.ItemInstance?,
-	attributes: any?
+	attributes: any?,
+	level: number?
 ): InspectView
 	local def = item and Registry.get(item.itemId) or nil
 	if not def or not item then
@@ -240,7 +246,7 @@ function Selector.buildView(
 		isEquipment = EquipmentDefUtils.isEquipment(def),
 		weapon = buildWeapon(def),
 		charges = charges,
-		requirements = buildRequirements(def, attributes),
+		requirements = buildRequirements(def, attributes, level),
 		baseStats = baseStats,
 		affixes = buildAffixRows(item),
 	}

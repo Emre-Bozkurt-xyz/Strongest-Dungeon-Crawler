@@ -1,6 +1,10 @@
 --!strict
 -- Dummy NPC specification (server-only behavior/stats)
 -- Visual assets (animations, sounds) live in shared/Characters/NPCs/Dummy.luau
+--
+-- A training dummy: it stands where it is spawned and takes hits. It never moves, targets or
+-- attacks, so a player can practise at any range their reach allows; something that fights back
+-- is a different NPC. Its health regenerates so it is ready again shortly after a session.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
@@ -10,29 +14,30 @@ return {
 	movement = {
 		walkSpeed = 10,
 		runSpeed = 16,
-		patrolRadius = 18,
+		patrolRadius = 0,
 		jumpHeight = 7.2,
-		canJump = true,
+		canJump = false,
 	},
 	combat = {
-		damage = 12,
-		attackRange = 7,
+		-- No skills and no aggro range: it never acquires a target, so it never attacks.
+		damage = 0,
+		attackRange = 0,
 		attackCooldown = 1.4,
-		aggroRange = 24,
-		skills = { "SinglePunch" },
+		aggroRange = 0,
+		skills = {},
 		attackPattern = "basic",
 	},
 	behavior = BehaviorToolkit.Defaults.basic({
 		thinkInterval = 0.25,
-		enablePatrol = true,
+		enablePatrol = false,
 		leashRadius = 28,
 		maxChaseDistance = 48,
 		repathDistance = 5,
 		repathInterval = 0.6,
 		idleHoldMin = 1,
 		idleHoldMax = 3,
-		fleeHealthThreshold = 0.2,
-		resumeHealthThreshold = 0.5,
+		fleeHealthThreshold = 0,
+		resumeHealthThreshold = 0,
 	}),
 	damageable = {
 		configure = function(stats)
@@ -42,14 +47,9 @@ return {
 				healthPool:fillToMax()
 			end
 
-			-- local healthRegen = stats[StatTypes.StaticStats.HealthRegeneration]
-			-- if healthRegen and healthRegen.setBaseValue then
-			-- 	healthRegen:setBaseValue(5)
-			-- end
-
-			local physicalDamage = stats[StatTypes.StaticStats.PhysicalDamage]
-			if physicalDamage and physicalDamage.setBaseValue then
-				physicalDamage:setBaseValue(12)
+			local healthRegen = stats[StatTypes.StaticStats.HealthRegeneration]
+			if healthRegen and healthRegen.setBaseValue then
+				healthRegen:setBaseValue(20)
 			end
 		end,
 	},

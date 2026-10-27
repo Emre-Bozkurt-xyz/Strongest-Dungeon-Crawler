@@ -12,19 +12,20 @@ local LoadoutTypes = require(ReplicatedStorage.Shared.skills.LoadoutTypes)
 
 local EMPTY = LoadoutTypes.EMPTY
 
+-- XP per branch ("trunk", "a", "b"). Levels and unlocks are derived from it (shared/progression),
+-- never saved, so retuning a threshold needs no migration.
 export type MasteryProgress = {
-	level: number,
-	xp: number,
+	branches: { [string]: number },
 }
 
--- Reserved for the progression model in docs/planning/progression-direction.md. Nothing writes these
--- yet; they are in the template so the first save that needs them is not a migration.
+-- The progression model in docs/planning/progression-direction.md. MasteryService writes
+-- `masteries`, FormService writes `shapes`; attunement and infusion are reserved until those exist.
 export type ProgressionData = {
-	-- Keyed by mastery track id ("Fire", "Wand", ...).
+	-- Keyed by mastery track id ("Blade", "Fire", ...).
 	masteries: { [string]: MasteryProgress },
-	-- Attuned mastery ids, at most two.
+	-- Attuned mastery ids.
 	attunement: { string },
-	-- Selected shape node id, keyed by weapon class.
+	-- Selected basic attack profile id, keyed by weapon context (a weapon class, or "unarmed").
 	shapes: { [string]: string },
 	-- Selected infusion node id, or "" for none. A string rather than nil so it reads as present.
 	infusion: string,
@@ -66,10 +67,46 @@ export type PlayerSaveData = {
 
 local PlayerDataSchema = {}
 
-PlayerDataSchema.VERSION = 1
+PlayerDataSchema.VERSION = 2
 
 -- `migrations[n]` brings a version-n save to version n + 1, in place.
 local migrations: { [number]: (data: any) -> () } = {}
+
+-- v1 -> v2: masteries were one track per weapon class with a level and XP into it; they become
+-- attack-type tracks with XP per branch. A v1 track's progress moves into the trunk of the track
+-- that replaced it, as the total XP its level represented under the v1 curve, capped at what a
+-- trunk holds. v1 only ever existed in development.
+local V1_TRACKS: { [string]: string } = {
+	Unarmed = "Blunt",
+	Sword = "Blade",
+	Dagger = "Blade",
+	Wand = "Magic",
+}
+local V1_TRUNK_CAP = 400
+
+migrations[1] = function(data: any)
+	local progression = data.progression
+	if type(progression) ~= "table" or type(progression.masteries) ~= "table" then
+		return
+	end
+	local old = progression.masteries
+	local masteries = {}
+	for oldId, entry in pairs(old) do
+		local trackId = V1_TRACKS[oldId]
+		if trackId and type(entry) == "table" then
+			-- v1 curve: 20 * (level + 1) ^ 1.5 XP to go from a level to the next.
+			local total = if type(entry.xp) == "number" then entry.xp else 0
+			local level = if type(entry.level) == "number" then entry.level else 0
+			for l = 0, level - 1 do
+				total += math.floor(20 * (l + 1) ^ 1.5 + 0.5)
+			end
+			local current = masteries[trackId] or { branches = {} }
+			current.branches.trunk = math.min(V1_TRUNK_CAP, (current.branches.trunk or 0) + total)
+			masteries[trackId] = current
+		end
+	end
+	progression.masteries = masteries
+end
 
 -- The starting kit's slot sets.
 function PlayerDataSchema.defaultLoadout(): LoadoutTypes.Loadout

@@ -22,6 +22,16 @@ BaseSkill.__index = BaseSkill
 
 local MAX_INPUT_LEAD = 0.2
 
+export type UseListener = (casterId: string, skillName: string) -> ()
+
+local useListeners: { UseListener } = {}
+
+-- Called once per use -- a cast, or one step of a combo -- when its cost has been paid, for systems
+-- that react to a skill being used (mastery from use) without the skills knowing about them.
+function BaseSkill.onUsed(listener: UseListener)
+	table.insert(useListeners, listener)
+end
+
 local DEBUG_PHASE3 = false -- Phase 3: Track dual-system operation
 
 local function debugPhase3(...: any)
@@ -365,6 +375,14 @@ function BaseSkill:getBaseCost(data: any?): number
 	return cost
 end
 
+function BaseSkill:_notifyUsed()
+	for _, listener in ipairs(useListeners) do
+		task.spawn(listener, self.casterId, self.name)
+	end
+end
+
+-- Every skill pays for a use through here exactly once, which is what makes it the place a use is
+-- announced from.
 function BaseSkill:applyResourceCost(data: any?): boolean
 	local comboConfig = data and data.combo or nil
 	local timingInfo = data and data.timing
@@ -372,6 +390,7 @@ function BaseSkill:applyResourceCost(data: any?): boolean
 	local baseResource = self.config and self.config.baseResource or StatTypes.PoolStats.Stamina
 
 	if cost <= 0 then
+		self:_notifyUsed()
 		return true
 	end
 
@@ -402,6 +421,7 @@ function BaseSkill:applyResourceCost(data: any?): boolean
 	StatsManager.removeFromPool(self.casterId, resolvedResource, resolvedAmount, {
 		metadata = ctx.metadata,
 	})
+	self:_notifyUsed()
 	return true
 end
 

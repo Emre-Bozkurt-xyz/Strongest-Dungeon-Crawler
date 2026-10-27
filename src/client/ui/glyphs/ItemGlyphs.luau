@@ -46,7 +46,19 @@ local function joined(...: Stroke): Stroke
 end
 
 local GLYPHS: { [string]: Glyph } = {
-	-- Not an item: empty hands, for the Unarmed mastery track.
+	-- Not items: the elements, for their mastery tracks.
+	flame = {
+		shape({ 0.5, 0.12 }, { 0.66, 0.34 }, { 0.75, 0.55 }, { 0.71, 0.72 }, { 0.59, 0.85 }, { 0.41, 0.85 }, { 0.29, 0.72 }, { 0.25, 0.55 }, { 0.35, 0.38 }, { 0.42, 0.5 }, { 0.46, 0.28 }),
+		shape({ 0.5, 0.83 }, { 0.43, 0.71 }, { 0.5, 0.57 }, { 0.57, 0.71 }),
+	},
+	snowflake = {
+		line({ 0.5, 0.12 }, { 0.5, 0.88 }),
+		line({ 0.17, 0.31 }, { 0.83, 0.69 }),
+		line({ 0.17, 0.69 }, { 0.83, 0.31 }),
+		line({ 0.42, 0.2 }, { 0.5, 0.28 }, { 0.58, 0.2 }),
+		line({ 0.42, 0.8 }, { 0.5, 0.72 }, { 0.58, 0.8 }),
+	},
+	-- Not an item: empty hands, for the Blunt mastery track.
 	fist = {
 		shape({ 0.28, 0.34 }, { 0.72, 0.34 }, { 0.78, 0.42 }, { 0.78, 0.66 }, { 0.66, 0.8 }, { 0.36, 0.8 }, { 0.24, 0.68 }, { 0.22, 0.44 }),
 		line({ 0.39, 0.34 }, { 0.39, 0.5 }),

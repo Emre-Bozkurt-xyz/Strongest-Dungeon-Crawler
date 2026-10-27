@@ -75,6 +75,9 @@ export type AttackResult = DamageResult & {
 	totalDamage: number, -- Sum of all damage types
 	staggerApplied: boolean?, -- Was stagger applied to target
 	knockback: Knockback?, -- Push applied to the target, resolved to a world direction
+	-- Health the target actually lost: `appliedToHealth` is what was dealt, which overshoots on a
+	-- killing blow. Server-only (not broadcast); mastery shares XP by it.
+	healthRemoved: number?,
 }
 
 export type Knockback = {
@@ -519,6 +522,7 @@ function CombatService.applyAttack(
 	sourceEntityId: string
 ): AttackResult
 	local invuln, _ = StatusEffectsService.hasBlockingEffect(targetEntityId, "damage")
+	local healthBefore = StatsManager.getPoolCurrentValue(targetEntityId, StatTypes.PoolStats.Health)
 	-- Initialize attack result
 	local attackResult: AttackResult = {
 		dodged = false,
@@ -664,6 +668,10 @@ function CombatService.applyAttack(
 	end
 
 	if attackResult.totalDamage > 0 then
+		local healthAfter = StatsManager.getPoolCurrentValue(targetEntityId, StatTypes.PoolStats.Health)
+		if healthBefore and healthAfter then
+			attackResult.healthRemoved = math.max(0, healthBefore - healthAfter)
+		end
 		for _, listener in ipairs(hitListeners) do
 			task.spawn(listener, sourceEntityId, targetEntityId, attackResult, attack.metadata)
 		end

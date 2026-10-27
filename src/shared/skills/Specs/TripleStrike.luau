@@ -7,6 +7,8 @@ local spec: Types.SkillSpec = {
 	class = "BasicSkill",
 	icon = "rbxassetid://13050670424",
 	label = "Triple",
+	-- Three heavy sword cuts: the Weight branch.
+	mastery = { track = "Blade", branch = "a" },
 	anim = {
 		start = { key = "TripleStrike_Start" },
 		finish = { key = "TripleStrike_End" },

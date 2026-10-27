@@ -97,16 +97,10 @@ export type BasicAttackCost = {
 	steps: { number },
 }
 
--- What a player must have reached to select this shape. Checked against their saved progression;
--- an unmet requirement keeps the shape out of selection, never out of the registry.
-export type BasicAttackRequirements = {
-	-- Mastery track id -> minimum level.
-	mastery: { [string]: number }?,
-}
-
 -- A profile is a *shape* in the progression model (docs/planning/progression-direction.md): how the
 -- basic attack is delivered with a class of weapon. Each weapon class has one default shape; the
--- rest are alternatives a player selects once unlocked.
+-- rest are alternatives a player selects once unlocked. Where a shape sits in the mastery trees and
+-- what unlocks it is tree data (shared/progression/MasteryTrees), not part of the profile.
 export type BasicAttackProfile = {
 	id: string,
 	-- Shown to the player wherever the shape is chosen or described.
@@ -118,10 +112,6 @@ export type BasicAttackProfile = {
 	-- Class keys (a weapon class, or UNARMED_CLASS_KEY) this can be SELECTED for without being their
 	-- default. A default is always selectable for its own classes.
 	shapeFor: { string }?,
-	-- The shape this one branches from in its mastery tree. Lineage only: it does not change how
-	-- the shape resolves.
-	parent: string?,
-	requires: BasicAttackRequirements?,
 	cost: BasicAttackCost,
 	combo: BasicAttackComboSpec,
 	steps: { BasicAttackStepSpec },

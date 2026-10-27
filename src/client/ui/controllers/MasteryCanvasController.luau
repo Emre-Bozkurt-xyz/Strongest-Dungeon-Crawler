@@ -54,9 +54,15 @@ local function setBlur(on: boolean)
 	):Play()
 end
 
+-- The weapon context the player is in: the held weapon's class, or "unarmed". Forms are chosen per
+-- context, so the canvas offers the ones that fit what is held.
+function MasteryCanvasController.context(): string
+	return BasicAttackProfileRegistry.classKeyOf(CombatLoadoutMirror.get())
+end
+
 -- The track for what the player is holding, so opening the canvas shows the weapon in hand.
 local function heldTrack(): string?
-	local track = MasteryTracks.forClassKey(BasicAttackProfileRegistry.classKeyOf(CombatLoadoutMirror.get()))
+	local track = MasteryTracks.forContext(MasteryCanvasController.context())
 	return track and track.id
 end
 

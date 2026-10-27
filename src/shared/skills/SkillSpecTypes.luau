@@ -191,6 +191,20 @@ export type SkillSpec = {
 	-- instead of reading `anim.comboSteps` / `combo` statically off this spec. Additive: skills
 	-- that leave this unset keep the static path unchanged.
 	adaptiveBasicAttack: boolean?,
+	-- What using this skill teaches (docs/planning/progression-direction.md, "Mastery XP from use"):
+	-- the track and branch of what it does, and its tier -- a later, stronger skill teaches more per
+	-- use. Omitted for skills that are not attacks (movement, support), which teach nothing. The
+	-- adaptive basic attack teaches through its selected form instead.
+	mastery: SkillMasterySpec?,
+}
+
+export type SkillMasterySpec = {
+	-- A mastery track id ("Magic", "Blade", ...).
+	track: string,
+	-- "trunk", "a" or "b".
+	branch: string,
+	-- Multiplies the XP a connecting use earns. 1 when omitted.
+	tier: number?,
 }
 
 export type SkillSpecMap = { [string]: SkillSpec }

@@ -11,6 +11,8 @@ local spec: Types.SkillSpec & {
 	class = "CascadingManaBallsSkill",
 	icon = "rbxassetid://13050670424",
 	label = "Cascading Mana Balls",
+	-- A flurry over an area: the area branch.
+	mastery = { track = "Magic", branch = "b" },
 	anim = {
 		start = { key = "SpellCast_Basic" },
 	},

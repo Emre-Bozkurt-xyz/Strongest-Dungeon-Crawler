@@ -1,63 +1,115 @@
 --!strict
--- MasteryService: mastery progress, earned by doing (docs/planning/progression-direction.md).
+-- MasteryService: mastery progress, earned by use (docs/planning/progression-direction.md, "Mastery
+-- XP from use"; docs/tasks/mastery-model-v2.md).
 --
--- Levels and XP live in the player's save (`progression.masteries`) and are changed there directly.
--- The owning client is sent its progression -- levels, XP, and its shape selections, which the
--- mastery canvas draws together -- whenever any of it changes.
+-- XP lives in the player's save per track and branch (`progression.masteries[track].branches`) and
+-- is changed there directly; levels and unlocks are derived from it (shared/progression). The owning
+-- client is sent its progression -- branch XP and its form selections, which the mastery canvas
+-- draws together -- whenever any of it changes, at most once per frame.
 --
--- What earns mastery is provisional until the progression design pass: a basic attack landing on a
--- target counts toward the track of the weapon class it was swung with (MasteryTracks.XP_PER_HIT).
+-- Where XP comes from:
+--   * A use (a cast, or one combo step) gives a little flat XP to its track while the track is below
+--     the training cap.
+--   * A use that connects with an NPC gives the NPC's mastery value, scaled by the share of its
+--     health the hit removed and the skill's tier, up to a ceiling per use. A training target gives
+--     flat training XP instead, below the cap only.
+--   * Element damage in a hit credits that element's track for its share of the damage.
+-- What a use feeds: the basic attack's selected form's node (MasteryTrees), or a skill's `mastery`
+-- tag in its shared spec.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Networking = require(ReplicatedStorage.Shared.Networking)
+local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
+local MasteryTrees = require(ReplicatedStorage.Shared.progression.MasteryTrees)
+local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
+local MasteryXP = require(ReplicatedStorage.Shared.progression.MasteryXP)
 local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
+local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 
 local Server = ServerScriptService.Server
 local PlayerDataService = require(Server.PlayerData.PlayerDataService)
 local Registrar = require(Server.Services.Registrar)
 local CombatService = require(Server.Services.CombatService)
+local StatsManager = require(Server.Stats.StatsManager)
 local CombatLoadoutService = require(Server.Inventory.CombatLoadout.CombatLoadoutService)
+local BaseSkill = require(Server.SkillsFramework.Skills.BaseSkill)
 
 type PlayerSaveData = PlayerDataService.PlayerSaveData
 
 local dispatcher = Networking.server() :: any
 
 local BASIC_ATTACK_SKILL = "BasicAttack"
+local BRANCHES = { "trunk", "a", "b" }
 
 export type LevelUp = {
 	track: string,
 	level: number,
 }
 
+-- What a use feeds: a track, the branches it splits between, and the skill's tier.
+type Credit = {
+	track: string,
+	branches: { [string]: number },
+	tier: number,
+}
+
 local MasteryService = {}
 
-local levelUpListeners: { (Player, LevelUp) -> () } = {}
+local unlockListeners: { (Player) -> () } = {}
 
-local function entryOf(data: PlayerSaveData, trackId: string): { level: number, xp: number }
+-- Per player: the level-ups to announce in the next publish, gathered over one frame.
+local pendingPublish: { [Player]: { LevelUp } } = {}
+
+local function branchesOf(data: PlayerSaveData, trackId: string): { [string]: number }
 	local masteries = data.progression.masteries
 	local entry = masteries[trackId]
-	if type(entry) ~= "table" or type(entry.level) ~= "number" or type(entry.xp) ~= "number" then
-		entry = { level = 0, xp = 0 }
+	if type(entry) ~= "table" or type(entry.branches) ~= "table" then
+		entry = { branches = {} }
 		masteries[trackId] = entry
 	end
-	return entry
+	return entry.branches
 end
 
--- What the owning client is told: every track's level and XP, and its shape selections.
+local function totalOf(data: PlayerSaveData, trackId: string): number
+	local entry = data.progression.masteries[trackId]
+	return if type(entry) == "table" and type(entry.branches) == "table" then MasteryXP.totalOf(entry.branches) else 0
+end
+
+local function ranksOf(branches: { [string]: number }): string
+	return `{MasteryXP.rankOf("trunk", branches)}/{MasteryXP.rankOf("a", branches)}/{MasteryXP.rankOf("b", branches)}`
+end
+
+-- Every track's branch XP, keyed by track id: what the shared unlock rule reads.
+function MasteryService.masteriesOf(data: PlayerSaveData): { [string]: { [string]: number } }
+	local out: { [string]: { [string]: number } } = {}
+	for _, track in ipairs(MasteryTracks.list()) do
+		local entry = data.progression.masteries[track.id]
+		local branches: { [string]: number } = {}
+		if type(entry) == "table" and type(entry.branches) == "table" then
+			for _, branch in ipairs(BRANCHES) do
+				local xp = entry.branches[branch]
+				if type(xp) == "number" then
+					branches[branch] = xp
+				end
+			end
+		end
+		out[track.id] = branches
+	end
+	return out
+end
+
+-- What the owning client is told: every track's branch XP, and its form selections.
 function MasteryService.snapshot(player: Player): { [string]: any }?
 	local data = PlayerDataService.get(player)
 	if not data then
 		return nil
 	end
-	local masteries: { [string]: { level: number, xp: number } } = {}
-	for _, track in ipairs(MasteryTracks.list()) do
-		local entry = data.progression.masteries[track.id]
-		masteries[track.id] = if type(entry) == "table"
-			then { level = entry.level or 0, xp = entry.xp or 0 }
-			else { level = 0, xp = 0 }
+	local masteries: { [string]: any } = {}
+	for trackId, branches in pairs(MasteryService.masteriesOf(data)) do
+		masteries[trackId] = { branches = branches }
 	end
 	return {
 		masteries = masteries,
@@ -65,93 +117,179 @@ function MasteryService.snapshot(player: Player): { [string]: any }?
 	}
 end
 
--- Send the player their progression. `levelUp` marks the change that caused it, for the client to
--- announce.
-function MasteryService.publish(player: Player, levelUp: LevelUp?)
+-- Send the player their progression now. `levelUps` are announced by the client.
+function MasteryService.publish(player: Player, levelUps: { LevelUp }?)
 	local payload = MasteryService.snapshot(player)
 	if not payload then
 		return
 	end
-	payload.levelUp = levelUp
+	payload.levelUps = levelUps
 	dispatcher:emit("ProgressionUpdate", payload, { targets = { player } })
 end
 
-function MasteryService.onLevelUp(listener: (Player, LevelUp) -> ())
-	table.insert(levelUpListeners, listener)
+-- Publish at the end of the frame, so a hit that feeds several tracks sends one update.
+local function schedulePublish(player: Player, levelUp: LevelUp?)
+	local pending = pendingPublish[player]
+	if not pending then
+		pending = {}
+		pendingPublish[player] = pending
+		task.defer(function()
+			local levelUps = pendingPublish[player]
+			pendingPublish[player] = nil
+			if levelUps and player.Parent then
+				MasteryService.publish(player, if #levelUps > 0 then levelUps else nil)
+			end
+		end)
+	end
+	if levelUp then
+		table.insert(pending, levelUp)
+	end
+end
+
+-- Called when anything a player could select may have opened or closed.
+function MasteryService.onUnlocksChanged(listener: (Player) -> ())
+	table.insert(unlockListeners, listener)
 end
 
 function MasteryService.getLevel(player: Player, trackId: string): number
 	local data = PlayerDataService.get(player)
-	local entry = data and data.progression.masteries[trackId]
-	return if type(entry) == "table" and type(entry.level) == "number" then entry.level else 0
+	return if data then MasteryXP.levelOf(totalOf(data, trackId)) else 0
 end
 
-function MasteryService.grant(player: Player, trackId: string, amount: number)
+-- Add `amount` XP to one branch of a track, up to the branch's cap. Returns the XP actually added.
+function MasteryService.grant(player: Player, trackId: string, branch: string, amount: number): number
 	local data = PlayerDataService.get(player)
-	if not data or not MasteryTracks.get(trackId) or amount <= 0 then
-		return
+	if not data or not MasteryTracks.get(trackId) or not table.find(BRANCHES, branch) or amount <= 0 then
+		return 0
 	end
-	local entry = entryOf(data, trackId)
-	local startLevel = entry.level
-	entry.xp += amount
-	while true do
-		local needed = MasteryTracks.xpToNext(entry.level)
-		if not needed then
-			-- At the cap there is nothing to bank XP toward.
-			entry.xp = 0
-			break
-		end
-		if entry.xp < needed then
-			break
-		end
-		entry.xp -= needed
-		entry.level += 1
+	local branches = branchesOf(data, trackId)
+	local current = branches[branch] or 0
+	local cap = MasteryXP.capOf(branch)
+	if current >= cap then
+		-- Mastered: nothing is redirected elsewhere, so focus still decides what grows.
+		return 0
 	end
 
-	if entry.level == startLevel then
-		MasteryService.publish(player, nil)
-		return
+	local levelBefore = MasteryXP.levelOf(MasteryXP.totalOf(branches))
+	local ranksBefore = ranksOf(branches)
+	local added = math.min(amount, cap - current)
+	branches[branch] = current + added
+
+	local levelAfter = MasteryXP.levelOf(MasteryXP.totalOf(branches))
+	if ranksOf(branches) ~= ranksBefore then
+		for _, listener in ipairs(unlockListeners) do
+			task.spawn(listener, player)
+		end
 	end
-	local levelUp: LevelUp = { track = trackId, level = entry.level }
-	for _, listener in ipairs(levelUpListeners) do
-		task.spawn(listener, player, levelUp)
-	end
-	MasteryService.publish(player, levelUp)
+	schedulePublish(player, if levelAfter ~= levelBefore then { track = trackId, level = levelAfter } else nil)
+	return added
 end
 
--- Set a track's level outright, XP cleared. For tooling; play earns levels through `grant`.
-function MasteryService.setLevel(player: Player, trackId: string, level: number)
+-- Set a branch's XP outright. For tooling; play earns XP through `grant`.
+function MasteryService.setBranchXp(player: Player, trackId: string, branch: string, xp: number)
 	local data = PlayerDataService.get(player)
-	if not data or not MasteryTracks.get(trackId) then
+	if not data or not MasteryTracks.get(trackId) or not table.find(BRANCHES, branch) then
 		return
 	end
-	local entry = entryOf(data, trackId)
-	entry.level = math.clamp(math.floor(level), 0, MasteryTracks.MAX_LEVEL)
-	entry.xp = 0
-	local levelUp: LevelUp = { track = trackId, level = entry.level }
-	for _, listener in ipairs(levelUpListeners) do
-		task.spawn(listener, player, levelUp)
+	local branches = branchesOf(data, trackId)
+	branches[branch] = math.clamp(xp, 0, MasteryXP.capOf(branch))
+	for _, listener in ipairs(unlockListeners) do
+		task.spawn(listener, player)
 	end
-	MasteryService.publish(player, nil)
+	schedulePublish(player, nil)
 end
 
-local function onHit(sourceEntityId: string, targetEntityId: string, _result: any, metadata: any)
-	if sourceEntityId == targetEntityId or metadata.skillId ~= BASIC_ATTACK_SKILL then
+-- What a use of `skillName` by `casterId` feeds, or nil for skills that teach nothing.
+local function creditFor(casterId: string, skillName: string?): Credit?
+	if skillName == BASIC_ATTACK_SKILL then
+		local profile = BasicAttackProfileRegistry.resolve(CombatLoadoutService.get(casterId))
+		local node, tree = MasteryTrees.nodeForShape(profile.id)
+		if not node or not tree then
+			return nil
+		end
+		return { track = tree.track, branches = MasteryTree.creditFor(node), tier = 1 }
+	end
+	local spec = if skillName then (ClientSpec :: any)[skillName] else nil
+	local mastery = spec and spec.mastery
+	if not mastery then
+		return nil
+	end
+	return { track = mastery.track, branches = { [mastery.branch] = 1 }, tier = mastery.tier or 1 }
+end
+
+local function grantSplit(player: Player, credit: Credit, amount: number)
+	for branch, weight in pairs(credit.branches) do
+		MasteryService.grant(player, credit.track, branch, amount * weight)
+	end
+end
+
+local function belowTrainingCap(data: PlayerSaveData, trackId: string): boolean
+	return MasteryXP.levelOf(totalOf(data, trackId)) < MasteryXP.TRAINING_CAP_LEVEL
+end
+
+local function onUsed(casterId: string, skillName: string)
+	local player = Registrar.getPlayerById(casterId)
+	local data = player and PlayerDataService.get(player)
+	if not player or not data then
+		return
+	end
+	local credit = creditFor(casterId, skillName)
+	if credit and belowTrainingCap(data, credit.track) then
+		grantSplit(player, credit, MasteryXP.USE_XP)
+	end
+end
+
+local function onHit(sourceEntityId: string, targetEntityId: string, result: any, metadata: any)
+	if sourceEntityId == targetEntityId or Registrar.isPlayerEntity(targetEntityId) then
 		return
 	end
 	local player = Registrar.getPlayerById(sourceEntityId)
-	if not player then
+	local data = player and PlayerDataService.get(player)
+	local target = Registrar.getEntityById(targetEntityId)
+	if not player or not data or not target then
 		return
 	end
-	local classKey = BasicAttackProfileRegistry.classKeyOf(CombatLoadoutService.get(sourceEntityId))
-	local track = MasteryTracks.forClassKey(classKey)
-	if track then
-		MasteryService.grant(player, track.id, MasteryTracks.XP_PER_HIT)
+	local credit = creditFor(sourceEntityId, metadata.skillId)
+
+	if target:GetAttribute("TrainingTarget") == true then
+		if credit and belowTrainingCap(data, credit.track) then
+			grantSplit(player, credit, MasteryXP.TRAINING_HIT_XP)
+		end
+		return
+	end
+
+	local value = target:GetAttribute("MasteryValue")
+	local maxHealth = StatsManager.getPoolMaxValue(targetEntityId, StatTypes.PoolStats.Health)
+	local removed = result.healthRemoved
+	if type(value) ~= "number" or value <= 0 or not maxHealth or maxHealth <= 0 or type(removed) ~= "number" then
+		return
+	end
+	local earned = MasteryXP.connectXp(value, removed / maxHealth, if credit then credit.tier else 1)
+	if earned <= 0 then
+		return
+	end
+
+	if credit then
+		grantSplit(player, credit, math.min(earned, MasteryXP.ceilingFor(totalOf(data, credit.track))))
+	end
+
+	-- Each element in the hit is credited for its share of the damage, to its trunk until
+	-- infusions exist to say which branch.
+	local total = result.totalDamage
+	if type(total) == "number" and total > 0 and type(result.byType) == "table" then
+		for damageType, amount in pairs(result.byType) do
+			local element = MasteryTracks.forDamageType(damageType)
+			if element and type(amount) == "number" and amount > 0 then
+				local share = earned * amount / total
+				MasteryService.grant(player, element.id, "trunk", math.min(share, MasteryXP.ceilingFor(totalOf(data, element.id))))
+			end
+		end
 	end
 end
 
 function MasteryService.start()
 	CombatService.onHit(onHit)
+	BaseSkill.onUsed(onUsed)
 
 	dispatcher:onRequest("ProgressionSnapshot", function(_payload, _meta, context)
 		local player = context.player

@@ -3,12 +3,12 @@
 --
 -- Three looks, one per thing the player can know about it: a fogged node is only its corners and a
 -- question mark (it exists, nothing more); a locked node shows its name and what it takes; an
--- unlocked node is lit and can be chosen, the one in use outlined in the focus colour.
+-- unlocked node is lit, the form in use outlined in the focus colour. Only forms are chosen here;
+-- other unlocked nodes say what kind of node they are.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
-local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
 
 local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
@@ -32,14 +32,28 @@ export type Props = {
 	onActivated: () -> (),
 }
 
-local function requirementText(node: MasteryTree.Node): string
-	local parts: { string } = {}
-	for _, requirement in ipairs(node.requirements) do
-		local track = MasteryTracks.get(requirement.track)
-		local name = if track then track.displayName else requirement.track
-		table.insert(parts, `{string.upper(name)} {requirement.level}`)
+local KIND_LABEL: { [string]: string } = {
+	infusion = "INFUSION",
+	passive = "PASSIVE",
+	select = "SELECTABLE PASSIVE",
+	attuned = "ATTUNED",
+}
+
+-- The one line under the name: what the node is to the player right now.
+local function statusText(node: MasteryTree.Node): string
+	if not node.unlocked then
+		return node.requirement or "LOCKED"
 	end
-	return "REQUIRES " .. table.concat(parts, "  ·  ")
+	if node.selected then
+		return "IN USE"
+	end
+	if node.kind == "form" then
+		if node.shapeId then
+			return "AVAILABLE"
+		end
+		return if node.built then "DOES NOT FIT YOUR WEAPON" else "NOT BUILT YET"
+	end
+	return KIND_LABEL[node.kind] or "UNLOCKED"
 end
 
 local function NodeView(props: Props)
@@ -52,9 +66,7 @@ local function NodeView(props: Props)
 	local focus = theme.color.accent
 	local frameColor = if node.selected then focus else if fogged then theme.color.textDisabled else theme.color.stroke
 	local nameColor = if node.unlocked then theme.color.textHeading else theme.color.textMuted
-	local status = if node.selected
-		then "IN USE"
-		else if node.unlocked then "AVAILABLE" else requirementText(node)
+	local status = statusText(node)
 	local statusColor = if node.selected
 		then focus
 		else if node.unlocked then theme.color.textMuted else theme.color.danger

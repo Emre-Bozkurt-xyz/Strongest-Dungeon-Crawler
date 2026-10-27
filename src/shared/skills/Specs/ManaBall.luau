@@ -9,6 +9,8 @@ local spec: Types.SkillSpec & { projectile: Types.ProjectileSpec } = {
 	class = "BasicSkill",
 	icon = "rbxassetid://13050670424",
 	label = "Mana Ball",
+	-- A single homing bolt: the single-target branch.
+	mastery = { track = "Magic", branch = "a" },
 	anim = {
 		start = { key = "SpellCast_Basic" },
 	},

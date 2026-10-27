@@ -18,7 +18,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
 local BasicAttackProfileTypes = require(ReplicatedStorage.Shared.skills.BasicAttackProfileTypes)
-local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
+local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
 
 local Server = ServerScriptService.Server
 local PlayerDataService = require(Server.PlayerData.PlayerDataService)
@@ -51,19 +51,9 @@ local function withinRate(player: Player): boolean
 	return rate.count <= RATE_MAX
 end
 
--- Track id -> level from the save, the shape the shared unlock rule (MasteryTracks.meets) reads.
-function FormService.levelsOf(data: PlayerSaveData): { [string]: number }
-	local levels: { [string]: number } = {}
-	for track, entry in pairs(data.progression.masteries) do
-		if type(entry) == "table" and type(entry.level) == "number" then
-			levels[track] = entry.level
-		end
-	end
-	return levels
-end
-
+-- The shared unlock rule (MasteryTree), over the player's saved branch XP.
 function FormService.isUnlocked(data: PlayerSaveData, shape: Shape): boolean
-	return MasteryTracks.meets(FormService.levelsOf(data), shape.requires)
+	return MasteryTree.isShapeUnlocked(shape.id, MasteryService.masteriesOf(data))
 end
 
 -- The shape to write into this snapshot: the player's selection for what they hold, if it still
@@ -126,8 +116,8 @@ end
 function FormService.start()
 	CombatLoadoutService.setShapeSelector(selectedShape)
 
-	-- A level change can unlock or lock the selected shape; re-deciding it applies that at once.
-	MasteryService.onLevelUp(function(player)
+	-- Progress can unlock or lock the selected shape; re-deciding it applies that at once.
+	MasteryService.onUnlocksChanged(function(player)
 		FormService.refresh(player)
 	end)
 

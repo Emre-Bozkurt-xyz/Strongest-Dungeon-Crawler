@@ -1,9 +1,8 @@
 # Progression Direction — masteries, attunement, classes, forms
 
-Status: **direction agreed 2026-10-25; XP, tracks and branches revised 2026-10-26.** Build steps 1–2
-are done and a first cut of step 3 exists on the old one-track-per-weapon model (see "Build order").
-Content (the actual masteries, trees, classes, numbers) and the management space are still to be
-designed.
+Status: **direction agreed 2026-10-25; XP, tracks and branches revised 2026-10-26.** Build steps 1–3
+are done (see "Build order"). Content (the actual masteries, trees, classes, numbers) and the
+management space are still to be designed.
 
 ## What it has to achieve
 
@@ -194,6 +193,9 @@ and rarity:
   12", independent of tree size); nodes unlock at branch-XP thresholds (a joining node needs both);
   continuous in-node scaling keys on branch XP. (Rejected: level = number of unlocked nodes, which
   ties the level to tree size and leaves nothing continuous to scale on.)
+- **A branch's first rank unlocks from the trunk** (proposed while building, to confirm): XP only
+  reaches a branch through a form selected in it or a skill tagged for it, so without this a branch
+  whose first node is a form could never start.
 - **Branches complete.** A branch (or trunk) runs a stretch past its last node while that form's
   scaling grows, then is **Mastered** and stops taking XP; nothing is redirected elsewhere, so focus
   still decides what grows. A track's level therefore has a natural maximum. The UI marks a mastered
@@ -367,7 +369,7 @@ rather than replace the mechanism:
 > combination override if one exists → resolved form (today's profile shape plus cost and on-hit
 > effects)
 
-- **Unlocks are derived, not stored.** Save mastery levels, attunement, and the selections; compute
+- **Unlocks are derived, not stored.** Save branch XP, attunement, and the selections; compute
   what is available from them. Rebalancing an unlock level then needs no save migration, and the two
   peers cannot disagree about what is unlocked.
 - **Cost moves onto the form.** Today it is static on the `BasicAttack` skill data
@@ -393,12 +395,14 @@ rather than replace the mechanism:
    them per class key in the save, and writes the selected, unlocked shape into the combat loadout
    snapshot (`basicAttackShape`), which both peers resolve from. Proven with `unarmed_rapid_jabs`
    (needs Unarmed 1; `ServerStorage.DevSetMastery` stands in for mastery until step 3). No UI yet.
-3. **Mastery service (minimal)** and the mastery page with fog and locked nodes. *First cut done
-   (2026-10-25), verified in play 2026-10-26:* `server/Progression/MasteryService` (levels and XP
-   in the save, one XP per basic attack hit, progression sent to the client) and the mastery canvas
-   (M). It still uses one track per weapon class (`shared/progression/MasteryTracks`: Unarmed,
-   Sword, Dagger, Wand) and per-hit XP; both are superseded by the attack-type tracks, branch XP and
-   damage-share XP above. Track ids are save keys, so rename them before any real player has a save.
+3. **Mastery service and the mastery page.** *Done (2026-10-26, verified in play;
+   `docs/tasks/mastery-model-v2.md`):* the six launch tracks; trees as data
+   (`shared/progression/MasteryTrees`, from `progression-launch-content.md`); XP saved per branch
+   (save schema v2, migrating the first cut's per-weapon tracks); use XP below the training cap,
+   damage-share XP from NPC hits with a per-use ceiling, element XP from `byType`; form unlocks from
+   the tree; the canvas drawing the new trees with branch progress. Not yet: attunement, attribute
+   requirements (shown, not enforced), passive effects, and real enemy values (NPC specs carry a
+   placeholder `progression.masteryValue`).
 4. **Infusions and named combinations,** including new on-hit mechanics (e.g. the crescent).
 5. **Unique-weapon forms.**
 

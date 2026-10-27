@@ -1,27 +1,32 @@
 --!strict
--- ProgressionClient: the client's copy of the player's mastery progress and shape selections
+-- ProgressionClient: the client's copy of the player's mastery progress and form selections
 -- (server: MasteryService), and the System's announcements when they change.
 --
--- The server sends the whole progression whenever any of it changes; this keeps the latest and lets
--- the mastery canvas re-render from it. Selecting a shape goes to the server, which answers with an
--- update rather than this guessing ahead: a selection is a menu action, not a combat one, so a round
--- trip costs nothing the player feels.
+-- The server sends the whole progression -- XP per track and branch, and the selected form per
+-- weapon context -- whenever any of it changes; this keeps the latest and lets the mastery canvas
+-- re-render from it. Selecting a form goes to the server, which answers with an update rather than
+-- this guessing ahead: a selection is a menu action, not a combat one, so a round trip costs nothing
+-- the player feels.
+--
+-- Announcements compare each update with the last: a level reached (the server marks those), and
+-- any node that opened or branch that was Mastered since.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
-local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
+local MasteryTrees = require(ReplicatedStorage.Shared.progression.MasteryTrees)
+local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
+local MasteryXP = require(ReplicatedStorage.Shared.progression.MasteryXP)
 local NotificationClient = require(script.Parent.Parent.ui.controllers.NotificationClient)
 local UISound = require(script.Parent.Parent.ui.UISound)
 
 local dispatcher = Networking.client() :: any
 
-export type MasteryProgress = { level: number, xp: number }
-
 export type Snapshot = {
-	masteries: { [string]: MasteryProgress },
-	-- Class key -> selected shape id.
+	-- Track id -> branch ("trunk", "a", "b") -> XP.
+	masteries: { [string]: { [string]: number } },
+	-- Weapon context -> selected profile id.
 	shapes: { [string]: string },
 }
 
@@ -29,6 +34,13 @@ local ProgressionClient = {}
 
 local snapshot: Snapshot? = nil
 local listeners: { [{}]: () -> () } = {}
+
+local NEW_NODE_TAG: { [string]: string } = {
+	form = "NEW FORM",
+	infusion = "NEW INFUSION",
+	passive = "NEW PASSIVE",
+	select = "NEW PASSIVE",
+}
 
 local function publish()
 	for _, listener in pairs(listeners) do
@@ -40,13 +52,16 @@ local function sanitize(raw: any): Snapshot?
 	if type(raw) ~= "table" or type(raw.masteries) ~= "table" then
 		return nil
 	end
-	local masteries: { [string]: MasteryProgress } = {}
+	local masteries: { [string]: { [string]: number } } = {}
 	for track, entry in pairs(raw.masteries) do
-		if type(track) == "string" and type(entry) == "table" then
-			masteries[track] = {
-				level = if type(entry.level) == "number" then entry.level else 0,
-				xp = if type(entry.xp) == "number" then entry.xp else 0,
-			}
+		if type(track) == "string" and type(entry) == "table" and type(entry.branches) == "table" then
+			local branches: { [string]: number } = {}
+			for branch, xp in pairs(entry.branches) do
+				if type(branch) == "string" and type(xp) == "number" then
+					branches[branch] = xp
+				end
+			end
+			masteries[track] = branches
 		end
 	end
 	local shapes: { [string]: string } = {}
@@ -60,43 +75,68 @@ local function sanitize(raw: any): Snapshot?
 	return { masteries = masteries, shapes = shapes }
 end
 
--- A level reached is announced, along with any form it opened up.
-local function announce(levelUp: any, levels: { [string]: number })
-	if type(levelUp) ~= "table" or type(levelUp.level) ~= "number" then
-		return
+local function announce(previous: Snapshot, current: Snapshot, levelUps: any)
+	if type(levelUps) == "table" then
+		for _, levelUp in ipairs(levelUps) do
+			local track = type(levelUp) == "table" and MasteryTracks.get(levelUp.track)
+			if track and type(levelUp.level) == "number" then
+				NotificationClient.push({
+					tag = "MASTERY UP",
+					tone = "success",
+					text = `{string.upper(track.displayName)}  LV {levelUp.level}`,
+					glyph = track.glyph,
+				})
+			end
+		end
 	end
-	local track = MasteryTracks.get(levelUp.track)
-	if not track then
-		return
-	end
-	NotificationClient.push({
-		tag = "MASTERY UP",
-		tone = "success",
-		text = `{string.upper(track.displayName)}  LV {levelUp.level}`,
-		glyph = track.glyph,
-	})
-	for _, shape in ipairs(BasicAttackProfileRegistry.list()) do
-		local required = shape.requires and shape.requires.mastery and shape.requires.mastery[track.id]
-		if required == levelUp.level and MasteryTracks.meets(levels, shape.requires) then
-			NotificationClient.push({
-				tag = "NEW FORM",
-				tone = "success",
-				text = string.upper(shape.displayName),
-				glyph = track.glyph,
-			})
+
+	for _, track in ipairs(MasteryTracks.list()) do
+		local tree = MasteryTrees.get(track.id)
+		local before = previous.masteries[track.id] or {}
+		local after = current.masteries[track.id] or {}
+		if tree then
+			for _, node in ipairs(tree.nodes) do
+				local tag = NEW_NODE_TAG[node.kind]
+				if
+					tag
+					and (node.rank or 0) > 0
+					and MasteryTree.isUnlocked(node, after, nil)
+					and not MasteryTree.isUnlocked(node, before, nil)
+				then
+					NotificationClient.push({
+						tag = tag,
+						tone = "success",
+						text = string.upper(node.displayName),
+						glyph = track.glyph,
+					})
+				end
+			end
+			for _, branch in ipairs({ "trunk", "a", "b" }) do
+				if MasteryXP.isMastered(branch, after) and not MasteryXP.isMastered(branch, before) then
+					local name = if branch == "trunk" then "TRUNK" else string.upper((tree.branches :: any)[branch])
+					NotificationClient.push({
+						tag = "MASTERED",
+						tone = "success",
+						text = `{string.upper(track.displayName)}  {name}`,
+						glyph = track.glyph,
+					})
+				end
+			end
 		end
 	end
 end
 
 local function adopt(raw: any)
-	local next = sanitize(raw)
-	if not next then
+	local nextSnapshot = sanitize(raw)
+	if not nextSnapshot then
 		return
 	end
-	snapshot = next
+	local previous = snapshot
+	snapshot = nextSnapshot
 	publish()
-	if type(raw.levelUp) == "table" then
-		announce(raw.levelUp, ProgressionClient.levels())
+	-- The first snapshot is where the player already is, not news.
+	if previous then
+		announce(previous, nextSnapshot, raw.levelUps)
 	end
 end
 
@@ -104,15 +144,13 @@ function ProgressionClient.get(): Snapshot?
 	return snapshot
 end
 
--- Track id -> level, the input MasteryTracks.meets and MasteryTree read.
-function ProgressionClient.levels(): { [string]: number }
-	local levels: { [string]: number } = {}
-	if snapshot then
-		for track, entry in pairs(snapshot.masteries) do
-			levels[track] = entry.level
-		end
-	end
-	return levels
+-- A track's XP per branch.
+function ProgressionClient.branches(trackId: string): { [string]: number }
+	return if snapshot then snapshot.masteries[trackId] or {} else {}
+end
+
+function ProgressionClient.level(trackId: string): number
+	return MasteryXP.levelOf(MasteryXP.totalOf(ProgressionClient.branches(trackId)))
 end
 
 function ProgressionClient.onChanged(callback: () -> ()): () -> ()

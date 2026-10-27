@@ -39,6 +39,8 @@ return {
 		fleeHealthThreshold = 0,
 		resumeHealthThreshold = 0,
 	}),
+	-- Hits teach only the flat training amount, and only while a mastery is below the training cap.
+	progression = { training = true },
 	damageable = {
 		configure = function(stats)
 			local healthPool = stats[StatTypes.PoolStats.Health]

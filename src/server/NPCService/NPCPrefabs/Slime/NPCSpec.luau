@@ -34,6 +34,8 @@ return {
 		fleeHealthThreshold = 0.2,
 		resumeHealthThreshold = 0.5,
 	}),
+	-- Mastery XP for removing all of its health (placeholder until area level, type and rank).
+	progression = { masteryValue = 40 },
 	damageable = {
 		configure = function(stats)
 			local healthPool = stats[StatTypes.PoolStats.Health]

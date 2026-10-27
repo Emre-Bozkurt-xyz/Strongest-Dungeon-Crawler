@@ -21,6 +21,7 @@ local Workspace = game:GetService("Workspace")
 local React = require(ReplicatedStorage.Packages.React)
 local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
+local MasteryXP = require(ReplicatedStorage.Shared.progression.MasteryXP)
 local Ease = require(ReplicatedStorage.Shared.ui.Ease)
 
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
@@ -42,6 +43,8 @@ local GAP = Vector2.new(96, 36)
 local MARGIN = 320
 -- Spacing of the faint grid that shows the field moving.
 local GRID_STEP = 120
+-- Where across the screen the node in use is framed on opening, as a fraction of its width.
+local FOCUS_X = 0.3
 
 local OPEN_TIME = 0.55
 local CLOSE_TIME = 0.18
@@ -196,11 +199,12 @@ local function MasteryCanvas()
 	local reveal = useReveal(canvas.open)
 
 	local track = MasteryTracks.get(canvas.track) or MasteryTracks.list()[1]
-	local levels = ProgressionClient.levels()
-	local selectedShape = if progression then progression.shapes[track.classKey] else nil
+	local context = MasteryCanvasController.context()
+	local branches = ProgressionClient.branches(track.id)
+	local selectedShape = if progression then progression.shapes[context] else nil
 	local tree = React.useMemo(function()
-		return MasteryTree.build(track.id, levels, selectedShape)
-	end, { track.id, progression } :: { any })
+		return MasteryTree.build(track.id, branches, context, selectedShape, nil)
+	end, { track.id, progression, context } :: { any })
 	local minimum, maximum = treeBounds(tree)
 
 	local pan, setPan = React.useBinding(Vector2.zero)
@@ -228,7 +232,10 @@ local function MasteryCanvas()
 			end
 		end
 		if focusNode then
-			applyPan(viewSize() / 2 - (nodePosition(focusNode) + Node.SIZE / 2))
+			-- Left of centre: trees grow rightward, and the track list sits at the top right.
+			local view = viewSize()
+			local anchor = Vector2.new(view.X * FOCUS_X, view.Y / 2)
+			applyPan(anchor - (nodePosition(focusNode) + Node.SIZE / 2))
 		end
 	end, { canvas.open, track.id } :: { any })
 
@@ -335,23 +342,37 @@ local function MasteryCanvas()
 					return columnStage(r, node.column)
 				end),
 				onActivated = function()
-					if not node.unlocked then
+					-- Only an unlocked form that has a profile for the held weapon can be chosen.
+					local shapeId = node.shapeId
+					if not node.unlocked or node.kind ~= "form" or not shapeId then
 						UISound.play("error")
 						return
 					end
 					if node.selected then
 						return
 					end
-					ProgressionClient.selectShape(track.classKey, if node.isDefault then "" else node.id)
+					ProgressionClient.selectShape(context, if node.isDefault then "" else shapeId)
 				end,
 			})
 		end
 	end
 
-	local progress = progression and progression.masteries[track.id]
-	local level = if progress then progress.level else 0
-	local xp = if progress then progress.xp else 0
-	local needed = MasteryTracks.xpToNext(level)
+	local progress = MasteryXP.progressOf(MasteryXP.totalOf(branches))
+	local level = progress.level
+	local xp = math.floor(progress.into)
+	local needed = progress.needed
+
+	-- One line per branch: how far along it is, or that it is Mastered.
+	local branchParts: { string } = {}
+	if tree then
+		for _, branch in ipairs({ "trunk", "a", "b" }) do
+			local entry = tree.branches[branch]
+			if entry then
+				local amount = if entry.mastered then "MASTERED" else `{math.floor(entry.xp)}/{entry.cap}`
+				table.insert(branchParts, `{string.upper(entry.name)} {amount}`)
+			end
+		end
+	end
 
 	local trackRows: { [string]: any } = {
 		Layout = e("UIListLayout", {
@@ -361,10 +382,9 @@ local function MasteryCanvas()
 		}),
 	}
 	for index, entry in ipairs(MasteryTracks.list()) do
-		local entryProgress = progression and progression.masteries[entry.id]
 		trackRows[entry.id] = e(TrackRow, {
 			track = entry,
-			level = if entryProgress then entryProgress.level else 0,
+			level = ProgressionClient.level(entry.id),
 			current = entry.id == track.id,
 			layoutOrder = index,
 		})
@@ -424,7 +444,7 @@ local function MasteryCanvas()
 		}),
 
 		Header = e("Frame", {
-			Size = UDim2.fromOffset(460, 120),
+			Size = UDim2.fromOffset(460, 140),
 			Position = UDim2.fromOffset(56, 48),
 			BackgroundTransparency = 1,
 			ZIndex = 10,
@@ -493,10 +513,21 @@ local function MasteryCanvas()
 				TextTransparency = hudFade(0),
 				TextXAlignment = Enum.TextXAlignment.Left,
 			}),
+			Branches = e("TextLabel", {
+				Size = UDim2.fromOffset(460, 16),
+				Position = UDim2.fromOffset(0, 120),
+				BackgroundTransparency = 1,
+				Text = table.concat(branchParts, "   ·   "),
+				FontFace = theme.face.mono,
+				TextSize = theme.type.label,
+				TextColor3 = theme.color.textMuted,
+				TextTransparency = hudFade(0),
+				TextXAlignment = Enum.TextXAlignment.Left,
+			}),
 		}),
 
 		Tracks = e("CanvasGroup", {
-			Size = UDim2.fromOffset(236, 4 * 42),
+			Size = UDim2.fromOffset(236, #MasteryTracks.list() * 42),
 			Position = UDim2.new(1, -56, 0, 48),
 			AnchorPoint = Vector2.new(1, 0),
 			BackgroundTransparency = 1,

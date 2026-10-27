@@ -88,14 +88,14 @@ function Dev.start(ctx)
 		end
 	end)
 
-	-- Sets a mastery level outright, so shape unlocks and the mastery canvas can be exercised without
-	-- earning it: ServerStorage.DevSetMastery:Fire(player, "Unarmed", 1).
+	-- Sets a branch's XP outright, so unlocks and the mastery canvas can be exercised without earning
+	-- them: ServerStorage.DevSetMastery:Fire(player, "Blunt", "trunk", 120).
 	local devSetMastery = Instance.new("BindableEvent")
 	devSetMastery.Name = "DevSetMastery"
 	devSetMastery.Parent = game:GetService("ServerStorage")
-	devSetMastery.Event:Connect(function(player: Player, track: string, level: number)
+	devSetMastery.Event:Connect(function(player: Player, track: string, branch: string, xp: number)
 		local masteryService = require(script.Parent.Parent.Progression.MasteryService)
-		masteryService.setLevel(player, track, level)
+		masteryService.setBranchXp(player, track, branch, xp)
 	end)
 
 	-- Drops the first `count` bag items in front of the player, for checking the loot labels:

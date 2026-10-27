@@ -13,9 +13,8 @@ local profile: Types.BasicAttackProfile = {
 	displayName = "Rapid Jabs",
 	-- Not a default for anything: selectable for empty hands only.
 	weaponClasses = {},
+	-- Unlocked in the mastery trees (Blunt, Brawler rank 1: shared/progression/MasteryTrees).
 	shapeFor = { Types.UNARMED_CLASS_KEY },
-	parent = "unarmed_basic",
-	requires = { mastery = { Unarmed = 1 } },
 	cost = { resource = "Stamina", steps = { 6, 6 } },
 	combo = {
 		steps = 2,

@@ -61,13 +61,6 @@ local function validateProfile(def: BasicAttackProfile, sourceName: string)
 			`BasicAttackProfile '{def.id}': shapeFor '{classKey}' is not a weapon class or '{BasicAttackProfileTypes.UNARMED_CLASS_KEY}'`
 		)
 	end
-	local mastery = def.requires and def.requires.mastery
-	for track, level in pairs(mastery or {}) do
-		assert(
-			type(track) == "string" and type(level) == "number",
-			`BasicAttackProfile '{def.id}': requires.mastery must map track ids to levels`
-		)
-	end
 
 	for i, step in ipairs(def.steps) do
 		-- Phase C: `hand` may be nil (HandResolver decides at swing time -- D9) in addition to an
@@ -144,14 +137,6 @@ assert(
 	`BasicAttackProfileRegistry: required profile '{UNARMED_PROFILE_ID}' is missing`
 )
 
--- After every profile is loaded, so a parent can be authored in any file.
-for _, id in ipairs(orderedIds) do
-	local parent = byId[id].parent
-	assert(
-		parent == nil or byId[parent] ~= nil,
-		`BasicAttackProfile '{id}': parent '{tostring(parent)}' does not exist`
-	)
-end
 
 function BasicAttackProfileRegistry.get(id: string): BasicAttackProfile?
 	return byId[id]

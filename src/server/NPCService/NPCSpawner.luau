@@ -169,6 +169,24 @@ local function resolveParent(explicitParent: Instance?, fallback: Instance?): In
 	return Workspace
 end
 
+-- What fighting this NPC teaches, as attributes on the model for MasteryService to read. A
+-- placeholder until area level, enemy type and rank exist (docs/planning/progression-direction.md,
+-- "Character XP from enemies"):
+--   progression = { masteryValue = 40 }  -- mastery XP for removing all of its health
+--   progression = { training = true }    -- a training target: flat training XP only
+local function applyProgression(model: Model, specOptions: { [string]: any })
+	local progression = specOptions.progression
+	if type(progression) ~= "table" then
+		return
+	end
+	if type(progression.masteryValue) == "number" then
+		model:SetAttribute("MasteryValue", progression.masteryValue)
+	end
+	if progression.training == true then
+		model:SetAttribute("TrainingTarget", true)
+	end
+end
+
 local function attachComponents(
 	model: Model,
 	prefabName: string,
@@ -216,6 +234,7 @@ function NPCSpawner.spawn(prefabName: string, options: { [string]: any }?): (Mod
 	end
 
 	local specOptions = readSpecByName(prefabName)
+	applyProgression(clone, specOptions)
 	local handles = attachComponents(clone, prefabName, specOptions, settings.components)
 
 	return clone, handles
@@ -248,6 +267,7 @@ function NPCSpawner.spawnAtMarker(
 	end
 
 	local specOptions = readSpecByName(prefabName)
+	applyProgression(clone, specOptions)
 	local handles = attachComponents(clone, prefabName, specOptions, settings.components)
 
 	return clone, handles

@@ -40,8 +40,10 @@ A mastery is a progression track with its own level, raised by use. Two families
   its branches suit weapon types implicitly (a heavier, slower path suits greatswords, a faster one
   daggers) without locking them. A skill feeds the track of what it does; a skill that needs a sword
   needs one equipped and feeds Blade. Shapes live in these trees.
-- **Element masteries — what the attack carries:** Fire, Frost, ... An element is not tied to a
-  weapon: fire mastery shapes a mage's bolt and a warrior's slash alike. Infusions live here.
+- **Element masteries — what the attack carries:** Fire and Frost at launch (more later). An element is not tied to a
+  weapon: fire mastery shapes a mage's bolt and a warrior's slash alike. Infusions live here. An
+  element mastery's passives modify that element's stats, so they improve every skill that uses the
+  element, not only forms; the selected infusion is what modifies the form.
 
 Growth by use means a new player progresses visibly with zero decisions, and System notifications
 ("Wand Mastery 3") give the frequent, small rewards this audience needs.
@@ -61,6 +63,35 @@ This is the one rule a player needs to understand ("you can focus on two things"
 power at any moment. Grinding every mastery on one character is allowed; using them all at once is
 not. Swapping mid-fight is not possible.
 
+**Revised 2026-10-26 — attunement works differently per family:**
+
+- **Attack-type masteries need attunement.** Unattuned, they provide nothing — except the root form,
+  which always works as the fallback, so anyone can still swing a sword.
+- **Element masteries are always active; attunement strengthens them.** A full elemental build
+  should not be an endgame goal gated behind many slots. One line for players: *weapon skills need
+  attunement; elements always work, and attunement makes them stronger.*
+- This keeps breadth horizontal, not vertical: an attack carries one element, so mastering Frost
+  does nothing for a Fire attack, and someone with every element maxed has more options, not more
+  power per attack. Element XP only comes from dealing that element, so breadth costs real time.
+- **Content rules that keep it fair** (breadth only becomes power through these):
+  1. Element trees modify only their own element (its damage, penetration, ailment chance and
+     duration). No generic stats (max life, crit, cast speed, "+all damage") — those stack across
+     elements and belong in attack-type trees and classes.
+  2. Element trees may give resistance to their own element (the character grows used to it), but
+     capped low — roughly 15–20% from the tree out of the overall cap, a little more when attuned —
+     so gear stays the main source and a veteran with every element still needs it to reach the
+     cap. The same small cap applies to defences against that element's ailments. Raising the
+     maximum resistance never comes from trees, only from classes and unique gear. (Elemental
+     resistance stats do not exist yet; `StatTypes` has only Armor.)
+  3. Cross-element synergies ("+damage against chilled enemies") live only in classes.
+  4. Late content is balanced assuming veterans have every element maxed.
+
+- **Attuning an element** multiplies its tree's stats and opens an attunement-only node at the end of
+  its tree. An infusion can be selected without attuning its element, just weaker.
+- **Two slots at launch**, not handed out together: the first early (onboarding), the second soon
+  after (around level 5–10, by pacing), with room for a third; the elemental mage no longer needs
+  more.
+
 ### 4. Class — offered by the System, not picked
 
 At milestones the System reads the attuned masteries and the leading attribute and offers a class:
@@ -74,6 +105,37 @@ At milestones the System reads the attuned masteries and the leading attribute a
   table of combinations, so its size stays under control.
 - A class does not own forms. It can gate higher infusion tiers or specific named combinations
   (below), which lets classes shape forms without duplicating them.
+
+**Decided 2026-10-26:**
+
+- **Class names are authored** behind combinations of masteries and level thresholds; attributes and
+  branch choice can also distinguish classes, since masteries are broad.
+- **The System offers; the player accepts in the world**, at a location, NPC or device. The offer
+  is itself the next goal ("Class available: Pyromancer. Seek the Ember Shrine.") and stays pending
+  until accepted.
+- **A class can be reverted at a shrine for an even larger cost** than an attribute respec.
+- **Accepting a class can take a trial**: early tiers are simple (defeat these enemies), later ones
+  bespoke (a Guardian defends an NPC from waves). Trials are quests built from reusable objectives
+  (kill N of a type in an area, survive waves, protect an NPC, beat a time limit), so they come from
+  the quest system (`docs/planning/dialogue-and-quest-system.md`) rather than a system of their own.
+
+**Proposed, not yet confirmed:**
+
+- **A class is a rule matched against the masteries** (attuned attack types, element levels), not
+  an entry in a table of exact pairs, so many combinations stay manageable. Attunement and track levels are the core of
+  every rule; the leading attribute and furthest branch pick variants where that adds flavour.
+
+  | Class | Matches when |
+  |---|---|
+  | Pyromancer | Fire attuned, Fire ≥ 10 |
+  | Flame Knight | Blade + Fire attuned, both ≥ 15 |
+  | Berserker | Blade ≥ 15, Strength leads, heavy branch furthest |
+  | Elementalist | Fire + Frost (+ Lightning later) attuned, each ≥ 20 |
+
+- **Combination rewards are what a class gives**, not a second list: the Elementalist grants
+  +10% elemental damage; a fire + poison class grants ailment damage and duration. One class at a
+  time; matching several rules means several offers, and choosing is the identity decision.
+- Un-attuning a mastery the class needs makes the class dormant until re-attuned or changed.
 
 ### 5. Gear requirements — soft, not locks
 
@@ -206,7 +268,8 @@ is a Fire Bolt.
   mechanics:
   - Piercing Bolt + Fire II → **Fire Bolt** (own projectile)
   - Mana Ball + Fire III → **Fireball** (explodes)
-  - Slash + Fire III → **Fire Crescent** (a crescent leaves the swing; reach grows with Fire mastery)
+  - Wide Slash + Fire III → **Fire Crescent** (a crescent leaves the swing; reach grows with Fire
+    mastery)
 
   Adding an element or a shape never requires authoring every pairing; only the ones worth
   hand-crafting are.
@@ -227,7 +290,8 @@ is a Fire Bolt.
 - No element attuned: the shape alone, uninfused.
 - Two attack-type masteries attuned: shapes from either that fit the held weapon's context are
   selectable; no infusion.
-- Unattuning an element at the NPC: the infusion drops; the shape and all progress remain.
+- Unattuning an element at the NPC: the infusion stays selected but loses the attunement bonus; the
+  shape and all progress remain.
 - Changing weapons: the shape is remembered per weapon context; the infusion carries over, so
   picking up a sword with Fire attuned gives a fire slash immediately.
 
@@ -340,7 +404,7 @@ rather than replace the mechanism:
 
 ## Open questions
 
-- Tree sizes; the launch set of masteries, classes and hybrids; milestone levels.
-- Whether element masteries also improve skills, or only forms.
+- The launch trees, classes and milestones have a first draft in `progression-launch-content.md`,
+  expected to change as content gets more thought.
 - The mastery canvas entry sequence: what it looks like, and how long it may take before it feels
   slow on the tenth visit.

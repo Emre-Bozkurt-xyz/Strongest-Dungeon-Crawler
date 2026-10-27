@@ -1,7 +1,9 @@
 # Progression Direction — masteries, attunement, classes, forms
 
-Status: **direction agreed 2026-10-25, nothing built.** This fixes the shape of the system. Content
-(the actual masteries, trees, classes, numbers) and the management space are still to be designed.
+Status: **direction agreed 2026-10-25; XP, tracks and branches revised 2026-10-26.** Build steps 1–2
+are done and a first cut of step 3 exists on the old one-track-per-weapon model (see "Build order").
+Content (the actual masteries, trees, classes, numbers) and the management space are still to be
+designed.
 
 ## What it has to achieve
 
@@ -30,12 +32,16 @@ point not in Strength, which is the first, natural pressure toward a focus.
 
 ### 2. Masteries — grow by doing
 
-A mastery is a progression track with its own level, raised by use: swinging a sword raises Sword,
-dealing fire damage raises Fire. Two families:
+A mastery is a progression track with its own level, raised by use. Two families (revised
+2026-10-26):
 
-- **Weapon masteries** — Sword, Wand, Dagger, ... (one per weapon class).
-- **Element masteries** — Fire, Frost, ... An element is not tied to a weapon: fire mastery shapes a
-  mage's bolt and a warrior's slash alike.
+- **Attack-type masteries — how you fight:** Magic, Blade, Blunt, Ranged. Not one per weapon: a mage
+  does not need a wand to cast, and a bare-handed fireball is Magic. Blade covers swords and daggers;
+  its branches suit weapon types implicitly (a heavier, slower path suits greatswords, a faster one
+  daggers) without locking them. A skill feeds the track of what it does; a skill that needs a sword
+  needs one equipped and feeds Blade. Shapes live in these trees.
+- **Element masteries — what the attack carries:** Fire, Frost, ... An element is not tied to a
+  weapon: fire mastery shapes a mage's bolt and a warrior's slash alike. Infusions live here.
 
 Growth by use means a new player progresses visibly with zero decisions, and System notifications
 ("Wand Mastery 3") give the frequent, small rewards this audience needs.
@@ -75,6 +81,75 @@ Weapons ask for attributes. Below the requirement the weapon still works, with a
 damage, slower swings). Together with a low weapon mastery (base form only, no bonuses) this is what
 makes off-spec play weak rather than forbidden.
 
+## Experience
+
+*Agreed 2026-10-26; numbers and the open points below still to settle.*
+
+Character XP and mastery XP are **two independent streams**. Neither draws from the other, so
+training a weapon never costs character progress.
+
+- **Character XP** comes from many sources: enemies, quests, bounties, looting, discovery. Quests and
+  bounties are the big rewards. Proper level-by-level requirement scaling.
+- **Mastery XP** comes from **use**, not kills, but **difficulty drives it**: harder fights give much
+  more, and later requirements are high enough that only hard fights reach them in reasonable time.
+- **Training is real but small.** An empty swing gives a little mastery XP — the character is
+  practising — but it only matters for the first few levels. AFK swinging must never max a mastery.
+- **No visible power number** of any kind. A hidden power estimate (from attributes, gear, nodes) was
+  considered and shelved: gameable by unequipping gear, and nothing to calibrate it against yet.
+
+### Character XP from enemies
+
+Modelled on Path of Exile, where every monster in an area shares the area's level and differs by type
+and rarity:
+
+- **A map has an area level; its enemies inherit it.** Map builders do not vary enemy levels to
+  balance a map.
+- **Each enemy type carries an XP multiplier** for what it actually is: a worm that spawns forty at a
+  time is worth a fraction of a skeleton of the same level.
+- **Ranks: Normal, Magic, Elite, Unique.** Rolled by chance per batch when the dungeon loads, and
+  optionally forced by the map builder. A Unique is a very rare spawn under specific conditions in
+  specific maps. Rank raises XP (PoE, for reference: magic +250%, rare +750%, unique +450%).
+- **Bosses are dedicated entities**, never a promoted normal enemy, and use a type multiplier like
+  everything else, so a higher-level run of a dungeon makes its boss worth more.
+- Many kills per level, each giving a small amount. **Pacing: fast early (the hook), then mid and
+  late levels that take real, dedicated effort**; tuned continuously.
+- **Kill XP is shared by contribution.** With a very light level-difference penalty and level /
+  mastery / attribute requirements on skills and gear, carrying cannot break progression.
+
+### Mastery XP from use
+
+- **The basic attack grows the branch of the selected focus** (form): with Piercing Bolt selected,
+  basic attacks progress that branch.
+- **Skills grant mastery by what they do**, from their data: an area skill grows the weapon's area
+  branch even while the form's focus is piercing; a fire skill also grows Fire.
+- **A skill's tier scales its mastery gain** (set in skill data): a late-game nuke teaches more per
+  use than an early fireball.
+- **A new track must not jump many levels at once**, even at endgame.
+- **Each branch has its own XP.** XP always lands in a branch — the selected focus's for basic
+  attacks, the matching branch for a skill, the track's shared trunk when nothing matches. The track
+  level comes from total XP across branches on a curve (stable for requirements like "needs Blade
+  12", independent of tree size); nodes unlock at branch-XP thresholds (a joining node needs both);
+  continuous in-node scaling keys on branch XP. (Rejected: level = number of unlocked nodes, which
+  ties the level to tree size and leaves nothing continuous to scale on.)
+- **Branches complete.** A branch (or trunk) runs a stretch past its last node while that form's
+  scaling grows, then is **Mastered** and stops taking XP; nothing is redirected elsewhere, so focus
+  still decides what grows. A track's level therefore has a natural maximum. The UI marks a mastered
+  branch clearly, which doubles as a nudge toward the next branch or track.
+- **Support skills (heals, buffs, shields) give no mastery XP.** They match no branch. A defence or
+  shield track may come later if defensive content grows.
+- **What a use earns:**
+  - Any use: small flat XP. The training dummy gives a little more early on. Both only below a
+    training cap.
+  - A use that connects: the enemy's mastery value (area level × type × rank) × the share of its max
+    HP removed, × the skill's tier. Damage beyond the enemy's remaining HP does not count.
+  - Damage share is what limits a new track against a strong enemy (low mastery and the wrong
+    attributes mean a small share), and it rewards a strong build in proportion. A generous hard
+    ceiling per use (≈ 20% of the next requirement) only guards against bugs and exploits.
+
+Open:
+
+- Whether the STATUS panel shows a character level number at all.
+
 ## Mastery trees
 
 Each mastery has a **small tree**: roughly 6–10 nodes, two branches, and a node that needs both.
@@ -84,9 +159,8 @@ Each mastery has a **small tree**: roughly 6–10 nodes, two branches, and a nod
 - Fire: an infusion that applies to whatever weapon is held, then branches toward reach (flames
   extend slashes; bolts become fireballs) and toward spread (lingering burn, splash).
 
-Open: whether a branch grows from how the player fights (single-target hits feed the single-target
-branch) or from a chosen training focus. The first fits "grow by doing"; the second is easier to
-read.
+Branches grow from the chosen focus and from what skills do (decided 2026-10-26; see "Mastery XP
+from use").
 
 ### Node kinds
 
@@ -94,9 +168,32 @@ Every node is one of three kinds, so it is always clear what selecting it does:
 
 | Kind | Lives in | Selection |
 |---|---|---|
-| **Shape** | weapon trees | One per weapon class. How the basic attack is delivered: Mana Ball, Piercing Bolt, Scatter, Slash. |
+| **Shape** | attack-type trees | One per weapon context. How the basic attack is delivered: Mana Ball, Piercing Bolt, Scatter, Slash. |
 | **Infusion** | element trees | One or none. What the basic attack carries. Applies to any weapon held. |
-| **Passive** | any tree | Always on once unlocked. Nothing to select. |
+| **Passive** | any tree | Always on once unlocked, everywhere. Nothing to select. |
+| **Selectable passive** *(working name)* | any tree | Choose up to N. Stronger, playstyle-specific stat improvements; may be limited to weapon contexts. |
+
+**Weapon contexts.** A shape node declares the contexts it physically fits (unarmed, one-handed
+blade, dual daggers, two-handed, wand, ...). In a context, any unlocked shape from an attuned track
+that fits it can be selected, and the choice is remembered per context. Bare-handed with a Magic
+shape selected, the basic attack is that magical attack; with no fitting shape, bare hands punch
+(Blunt). A dual-dagger form cannot be picked while holding a greatsword, but the rest of its branch
+still can.
+
+**Root forms and fallback.** Every track starts from one root node: its basic form, animated per
+weapon but the same form. When the selected form does not fit what is held, or its requirements stop
+being met, the weapon's default (the root of its track) is used as a fallback, and the selection is
+kept for when it fits again. Selectable passives that do not fit go dormant the same way. The N
+selectable passives are **one shared pool** for the character, so choices from both attuned tracks
+compete.
+
+**Attribute requirements.** Form nodes can require attributes as well as mastery, so the attribute
+budget gates what a character can do: a strength-focused starter cannot shoot mana balls.
+Attributes from gear count toward requirements (an attribute's source is metadata, not gameplay),
+so an Intelligence ring can open Mana Ball and removing it triggers the fallback. When a weapon's
+default form is itself gated (a wand's Mana Ball needs Intelligence), the character swings the
+weapon physically, reusing an existing swing animation — chosen form → weapon default → physical
+swing. At a shrine, attributes can be partially rewound or fully reset, both at a large cost.
 
 ## Forms — the basic attack
 
@@ -131,10 +228,11 @@ is a Fire Bolt.
 ### Edge cases
 
 - No element attuned: the shape alone, uninfused.
-- Two weapon masteries attuned: the held weapon's tree supplies the shape; no infusion.
+- Two attack-type masteries attuned: shapes from either that fit the held weapon's context are
+  selectable; no infusion.
 - Unattuning an element at the NPC: the infusion drops; the shape and all progress remain.
-- Changing weapons: the shape is remembered per weapon class; the infusion carries over, so picking
-  up a sword with Fire attuned gives a fire slash immediately.
+- Changing weapons: the shape is remembered per weapon context; the infusion carries over, so
+  picking up a sword with Fire attuned gives a fire slash immediately.
 
 ## Player-facing UI
 
@@ -234,14 +332,18 @@ rather than replace the mechanism:
    them per class key in the save, and writes the selected, unlocked shape into the combat loadout
    snapshot (`basicAttackShape`), which both peers resolve from. Proven with `unarmed_rapid_jabs`
    (needs Unarmed 1; `ServerStorage.DevSetMastery` stands in for mastery until step 3). No UI yet.
-3. **Mastery service (minimal)** and the mastery page with fog and locked nodes.
+3. **Mastery service (minimal)** and the mastery page with fog and locked nodes. *First cut done
+   (2026-10-25), verified in play 2026-10-26:* `server/Progression/MasteryService` (levels and XP
+   in the save, one XP per basic attack hit, progression sent to the client) and the mastery canvas
+   (M). It still uses one track per weapon class (`shared/progression/MasteryTracks`: Unarmed,
+   Sword, Dagger, Wand) and per-hit XP; both are superseded by the attack-type tracks, branch XP and
+   damage-share XP above. Track ids are save keys, so rename them before any real player has a save.
 4. **Infusions and named combinations,** including new on-hit mechanics (e.g. the crescent).
 5. **Unique-weapon forms.**
 
 ## Open questions
 
-- How XP splits between character level and masteries, and what feeds each mastery.
-- Branch growth: by how the player fights, or by a chosen focus.
+- XP: the open points at the end of "Experience" above.
 - Tree sizes; the launch set of masteries, classes and hybrids; milestone levels.
 - Whether element masteries also improve skills, or only forms.
 - The mastery canvas entry sequence: what it looks like, and how long it may take before it feels

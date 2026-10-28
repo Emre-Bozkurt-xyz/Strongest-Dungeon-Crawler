@@ -21,11 +21,12 @@ local useSpring = require(script.Parent.Parent.Parent.hooks.useSpring)
 local Glyph = require(script.Parent.Parent.Parent.components.Glyph)
 local UISound = require(script.Parent.Parent.Parent.UISound)
 local ProgressionClient = require(script.Parent.Parent.Parent.Parent.Progression.ProgressionClient)
+local Burst = require(script.Parent.Burst)
 
 local e = React.createElement
 
-local BOX = Vector2.new(230, 168)
-local GAP = 20
+local BOX = Vector2.new(300, 220)
+local GAP = 24
 local WIDTH = BOX.X * 4 + GAP * 3
 -- Placeholder boxes after the elements, so the row reads as a set still being discovered.
 local UNFELT = 2
@@ -47,8 +48,8 @@ local function join(base: { [string]: any }, extra: { [string]: any }): { [strin
 end
 
 -- Embroidery on an attuned box: the four corner pieces, each pinned just outside its corner.
-local CORNER_SIZE = 34
-local CORNER_OUTSET = 7
+local CORNER_SIZE = 46
+local CORNER_OUTSET = 9
 
 local function cornerPieces(): { [string]: any }?
 	local pieces = MasteryArt.corners()
@@ -110,6 +111,12 @@ local function usingFrom(track: MasteryTracks.Track, context: string): (string?,
 	return "FORM", if node then node.displayName else nil
 end
 
+local function fitScale(size: Vector2): number
+	local camera = workspace.CurrentCamera
+	local view = if camera then camera.ViewportSize else Vector2.new(1920, 1080)
+	return math.min(1, (view.X - 96) / size.X, (view.Y - 200) / size.Y)
+end
+
 local function Pip(props: { filled: boolean, layoutOrder: number })
 	return e("Frame", {
 		Size = UDim2.fromOffset(7, 7),
@@ -129,6 +136,9 @@ type BoxProps = {
 	shrine: boolean,
 	context: string,
 	layoutOrder: number,
+	-- Set when this mastery was just attuned: the box bursts once (the number tells bursts apart).
+	celebrate: number?,
+	onCelebrated: () -> (),
 	onActivated: () -> (),
 }
 
@@ -186,7 +196,7 @@ local function Box(props: BoxProps)
 				then e(
 					"ImageLabel",
 					join(MasteryArt.imageProps(emblem), {
-						Size = UDim2.fromOffset(76, 76),
+						Size = UDim2.fromOffset(104, 104),
 						Position = UDim2.fromScale(0.5, 0.42),
 						AnchorPoint = Vector2.new(0.5, 0.5),
 						BackgroundTransparency = 1,
@@ -203,31 +213,31 @@ local function Box(props: BoxProps)
 					Glyph = e(Glyph, { glyph = track.glyph, color = ink, thickness = 1.25 }),
 				}),
 			Name = e("TextLabel", {
-				Size = UDim2.fromOffset(110, 14),
-				Position = UDim2.new(0, 14, 1, -26),
+				Size = UDim2.fromOffset(150, 16),
+				Position = UDim2.new(0, 18, 1, -32),
 				AnchorPoint = Vector2.new(0, 1),
 				BackgroundTransparency = 1,
 				Text = string.upper(track.displayName),
 				FontFace = theme.face.display,
-				TextSize = 11,
+				TextSize = 14,
 				TextColor3 = ink,
 				TextXAlignment = Enum.TextXAlignment.Left,
 			}),
 			Level = e("TextLabel", {
-				Size = UDim2.fromOffset(120, 14),
-				Position = UDim2.new(1, -14, 1, -26),
+				Size = UDim2.fromOffset(160, 16),
+				Position = UDim2.new(1, -18, 1, -32),
 				AnchorPoint = Vector2.new(1, 1),
 				BackgroundTransparency = 1,
 				Text = levelText,
 				FontFace = theme.face.mono,
-				TextSize = 11,
+				TextSize = 13,
 				TextColor3 = INK,
 				TextTransparency = 0.28,
 				TextXAlignment = Enum.TextXAlignment.Right,
 			}),
 			Bar = e("Frame", {
-				Size = UDim2.new(1, -28, 0, 1),
-				Position = UDim2.new(0, 14, 1, -14),
+				Size = UDim2.new(1, -36, 0, 1),
+				Position = UDim2.new(0, 18, 1, -18),
 				BackgroundColor3 = FAINT,
 				BorderSizePixel = 0,
 			}, {
@@ -240,27 +250,27 @@ local function Box(props: BoxProps)
 			}),
 			Using = if usingKind and usingName
 				then e("Frame", {
-					Size = UDim2.new(0.6, 0, 0, 30),
-					Position = UDim2.new(1, -12, 0, 10),
+					Size = UDim2.new(0.6, 0, 0, 36),
+					Position = UDim2.new(1, -16, 0, 14),
 					AnchorPoint = Vector2.new(1, 0),
 					BackgroundTransparency = 1,
 				}, {
 					Kind = e("TextLabel", {
-						Size = UDim2.new(1, 0, 0, 12),
+						Size = UDim2.new(1, 0, 0, 14),
 						BackgroundTransparency = 1,
 						Text = usingKind,
 						FontFace = theme.face.display,
-						TextSize = 9,
+						TextSize = 11,
 						TextColor3 = INK,
 						TextXAlignment = Enum.TextXAlignment.Right,
 					}),
 					Name = e("TextLabel", {
-						Size = UDim2.new(1, 0, 0, 14),
-						Position = UDim2.fromOffset(0, 14),
+						Size = UDim2.new(1, 0, 0, 16),
+						Position = UDim2.fromOffset(0, 18),
 						BackgroundTransparency = 1,
 						Text = usingName,
 						FontFace = theme.face.mono,
-						TextSize = 11,
+						TextSize = 13,
 						TextColor3 = INK,
 						TextTransparency = 0.28,
 						TextXAlignment = Enum.TextXAlignment.Right,
@@ -270,6 +280,15 @@ local function Box(props: BoxProps)
 				else nil,
 			Corners = if props.attuned
 				then e("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, cornerPieces())
+				else nil,
+			-- Keyed by the attunement, so a second one restarts the burst rather than reusing it.
+			[`Burst{props.celebrate or 0}`] = if props.celebrate
+				then e(Burst, {
+					position = Vector2.new(BOX.X / 2, BOX.Y * 0.42),
+					strength = 1.8,
+					seed = props.celebrate,
+					onDone = props.onCelebrated,
+				})
 				else nil,
 		}),
 	})
@@ -284,23 +303,23 @@ local function UnfeltBox(props: { layoutOrder: number })
 	}, {
 		Stroke = e("UIStroke", { Color = FAINT, Thickness = 1 }),
 		Mark = e("TextLabel", {
-			Size = UDim2.fromOffset(40, 40),
-			Position = UDim2.fromScale(0.5, 0.44),
+			Size = UDim2.fromOffset(48, 48),
+			Position = UDim2.fromScale(0.5, 0.42),
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			BackgroundTransparency = 1,
 			Text = "?",
 			FontFace = theme.face.display,
-			TextSize = 22,
+			TextSize = 28,
 			TextColor3 = FAINT,
 		}),
 		Name = e("TextLabel", {
-			Size = UDim2.fromOffset(110, 14),
-			Position = UDim2.new(0, 14, 1, -26),
+			Size = UDim2.fromOffset(150, 16),
+			Position = UDim2.new(0, 18, 1, -32),
 			AnchorPoint = Vector2.new(0, 1),
 			BackgroundTransparency = 1,
 			Text = "UNFELT",
 			FontFace = theme.face.display,
-			TextSize = 11,
+			TextSize = 14,
 			TextColor3 = Color3.fromRGB(93, 99, 111),
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}),
@@ -315,7 +334,7 @@ local function Label(props: { text: string, position: UDim2, color: Color3?, siz
 		BackgroundTransparency = 1,
 		Text = props.text,
 		FontFace = theme.face.display,
-		TextSize = props.size or 10,
+		TextSize = props.size or 12,
 		TextColor3 = props.color or Color3.fromRGB(93, 99, 111),
 		TextXAlignment = Enum.TextXAlignment.Left,
 	})
@@ -324,6 +343,9 @@ end
 export type Props = {
 	shrine: boolean,
 	context: string,
+	-- The mastery just attuned, to burst on its box.
+	celebrate: { track: string, id: number }?,
+	onCelebrated: () -> (),
 	onChoose: (trackId: string) -> (),
 }
 
@@ -352,6 +374,10 @@ local function Menu(props: Props)
 					shrine = props.shrine,
 					context = props.context,
 					layoutOrder = count,
+					celebrate = if props.celebrate and props.celebrate.track == track.id
+						then props.celebrate.id
+						else nil,
+					onCelebrated = props.onCelebrated,
 					onActivated = function()
 						props.onChoose(track.id)
 					end,
@@ -389,10 +415,10 @@ local function Menu(props: Props)
 		return position
 	end
 
-	local titlePosition = at(20, 36)
-	local attackLabel = at(16, 8)
-	local attackRow = at(BOX.Y, 28)
-	local elementLabel = at(16, 8)
+	local titlePosition = at(24, 40)
+	local attackLabel = at(16, 12)
+	local attackRow = at(BOX.Y, 36)
+	local elementLabel = at(16, 12)
 	local elementRow = at(BOX.Y, 0)
 
 	return e("Frame", {
@@ -401,13 +427,15 @@ local function Menu(props: Props)
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundTransparency = 1,
 	}, {
+		-- Shrinks to fit a small screen; never grows past its design size.
+		Fit = e("UIScale", { Scale = fitScale(Vector2.new(WIDTH, top)) }),
 		Title = e("TextLabel", {
 			Size = UDim2.fromOffset(400, 20),
 			Position = titlePosition,
 			BackgroundTransparency = 1,
 			Text = if props.shrine then "MASTERIES  ·  SHRINE" else "MASTERIES",
 			FontFace = theme.face.display,
-			TextSize = 15,
+			TextSize = 20,
 			TextColor3 = INK,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}),
@@ -430,7 +458,7 @@ local function Menu(props: Props)
 				BackgroundTransparency = 1,
 				Text = if slots == 0 then "ATTUNED  —" else "ATTUNED",
 				FontFace = theme.face.display,
-				TextSize = 10,
+				TextSize = 12,
 				TextColor3 = INK,
 				TextTransparency = 0.28,
 				LayoutOrder = 1,
@@ -449,7 +477,7 @@ local function Menu(props: Props)
 				BackgroundTransparency = 1,
 				Text = `      PASSIVES  {math.min(chosen, passiveSlots)} / {passiveSlots}`,
 				FontFace = theme.face.display,
-				TextSize = 10,
+				TextSize = 12,
 				TextColor3 = INK,
 				TextTransparency = 0.28,
 				LayoutOrder = 3,

@@ -20,8 +20,8 @@ local ProgressionClient = require(script.Parent.Parent.Parent.Parent.Progression
 
 local e = React.createElement
 
-local WIDTH = 440
-local PADDING = 28
+local WIDTH = 540
+local PADDING = 32
 local INK = Color3.fromRGB(238, 241, 246)
 
 -- The mind-space's own button: white on black, filled white when it is the choice that will be
@@ -51,7 +51,7 @@ local function MonoButton(props: {
 		BorderSizePixel = 0,
 		Text = props.text,
 		FontFace = theme.face.display,
-		TextSize = 10,
+		TextSize = 12,
 		TextColor3 = if filled then Color3.fromRGB(4, 5, 8) else INK,
 		TextTransparency = if enabled then 0 else 0.6,
 		LayoutOrder = props.layoutOrder,
@@ -154,7 +154,7 @@ local function ShrineDialog(props: Props)
 			BackgroundTransparency = 1,
 			Text = title,
 			FontFace = theme.face.display,
-			TextSize = 13,
+			TextSize = 16,
 			TextColor3 = INK,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			LayoutOrder = 1,
@@ -167,7 +167,7 @@ local function ShrineDialog(props: Props)
 			BackgroundTransparency = 1,
 			Text = line,
 			FontFace = theme.face.body,
-			TextSize = 16,
+			TextSize = 18,
 			TextColor3 = INK,
 			TextTransparency = if index == 1 then 0.1 else 0.3,
 			TextWrapped = true,
@@ -196,7 +196,7 @@ local function ShrineDialog(props: Props)
 			})
 		end
 		children.Choices = e("Frame", {
-			Size = UDim2.new(1, 0, 0, 34),
+			Size = UDim2.new(1, 0, 0, 42),
 			BackgroundTransparency = 1,
 			LayoutOrder = 10,
 		}, row)
@@ -238,7 +238,7 @@ local function ShrineDialog(props: Props)
 		})
 	end
 	children.Buttons = e("Frame", {
-		Size = UDim2.new(1, 0, 0, 36),
+		Size = UDim2.new(1, 0, 0, 42),
 		BackgroundTransparency = 1,
 		LayoutOrder = 12,
 	}, {
@@ -250,7 +250,7 @@ local function ShrineDialog(props: Props)
 		}),
 		Close = e(MonoButton, {
 			text = if confirm then "CANCEL" else "CLOSE",
-			size = UDim2.new(0, 120, 1, 0),
+			size = UDim2.new(0, 140, 1, 0),
 			layoutOrder = 1,
 			onActivated = props.onClose,
 		}),
@@ -259,9 +259,10 @@ local function ShrineDialog(props: Props)
 				text = confirm,
 				filled = true,
 				enabled = canConfirm,
-				size = UDim2.new(0, 140, 1, 0),
+				size = UDim2.new(0, 160, 1, 0),
 				layoutOrder = 2,
 				onActivated = function()
+					UISound.play("attune")
 					if release then
 						ProgressionClient.swapAttuned(release, track.id)
 					else

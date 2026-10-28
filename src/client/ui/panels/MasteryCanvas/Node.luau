@@ -30,21 +30,32 @@ local GREY = Color3.fromRGB(93, 99, 111)
 local VOID = Color3.fromRGB(4, 5, 8)
 
 -- Body radius by kind, in pixels.
-Node.RADIUS = { passive = 11, select = 17, attuned = 17, form = 23, infusion = 23 } :: { [string]: number }
+Node.RADIUS = { passive = 11, select = 25, attuned = 25, form = 34, infusion = 34 } :: { [string]: number }
 
 -- Embroidery per kind: the frame art, and how far past the body its outer edge reaches.
 local FRAMES: { [string]: { key: string, reach: number } } = {
-	select = { key = "frame.select", reach = 11 },
-	attuned = { key = "frame.attuned_node", reach = 10 },
-	form = { key = "frame.form", reach = 15 },
-	infusion = { key = "frame.form", reach = 15 },
+	select = { key = "frame.select", reach = 16 },
+	attuned = { key = "frame.attuned_node", reach = 15 },
+	form = { key = "frame.form", reach = 22 },
+	infusion = { key = "frame.form", reach = 22 },
 }
 
 -- How far past the body a form's bracket corners sit.
-local BRACKET_REACH = 25
+local BRACKET_REACH = 36
+
+-- How far a node's drawing reaches from its centre: where a tooltip beside it starts.
+function Node.reachOf(kind: string): number
+	local r = Node.RADIUS[kind] or Node.RADIUS.passive
+	if kind == "form" or kind == "infusion" then
+		return r + BRACKET_REACH
+	end
+	local frame = FRAMES[kind]
+	return r + (if frame then frame.reach else 4)
+end
+
 -- One pulse: a ring swelling out from the node and fading.
 local PULSE_PERIOD = 1.6
-local PULSE_TRAVEL = 22
+local PULSE_TRAVEL = 28
 
 export type Props = {
 	node: MasteryTree.Node,
@@ -58,6 +69,7 @@ export type Props = {
 	-- Seconds binding, shared by every pulse so they beat together.
 	clock: any,
 	onHover: () -> (),
+	onLeave: () -> (),
 	onActivated: () -> (),
 }
 
@@ -206,13 +218,13 @@ local function NodeView(props: Props)
 		end
 		local below = if kind == "form" or kind == "infusion" then BRACKET_REACH + 8 else (frame and frame.reach or 6) + 8
 		children.Name = e("TextLabel", {
-			Size = UDim2.fromOffset(200, 14),
+			Size = UDim2.fromOffset(240, 16),
 			Position = UDim2.new(0.5, 0, 0.5, r + below),
 			AnchorPoint = Vector2.new(0.5, 0),
 			BackgroundTransparency = 1,
 			Text = string.upper(node.displayName),
 			FontFace = theme.face.display,
-			TextSize = 10,
+			TextSize = 13,
 			TextColor3 = if lit then (if on then INK else MID) else GREY,
 			ZIndex = 3,
 		})
@@ -257,6 +269,7 @@ local function NodeView(props: Props)
 		end,
 		[React.Event.MouseLeave] = function()
 			setHovered(false)
+			props.onLeave()
 		end,
 		[React.Event.Activated] = props.onActivated,
 	}, children)

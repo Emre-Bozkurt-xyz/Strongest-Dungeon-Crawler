@@ -47,6 +47,9 @@ export type Snapshot = {
 
 local ProgressionClient = {}
 
+-- Requests sound only when refused: the mastery canvas plays its own cue the moment the player
+-- acts, so a success sound here would play twice.
+
 local snapshot: Snapshot? = nil
 local listeners: { [{}]: () -> () } = {}
 
@@ -281,7 +284,6 @@ function ProgressionClient.selectShape(classKey: string, shapeId: string)
 			return dispatcher:request("LoadoutSelectShape", { classKey = classKey, shapeId = shapeId })
 		end)
 		if ok and type(response) == "table" and response.ok then
-			UISound.play("confirm")
 			return
 		end
 		UISound.play("error")
@@ -297,7 +299,6 @@ function ProgressionClient.selectInfusion(infusionId: string)
 			return dispatcher:request("LoadoutSelectInfusion", { infusionId = infusionId })
 		end)
 		if ok and type(response) == "table" and response.ok then
-			UISound.play("confirm")
 			return
 		end
 		UISound.play("error")
@@ -340,7 +341,6 @@ function ProgressionClient.selectPassive(nodeId: string, selected: boolean)
 			return dispatcher:request("ProgressionSelectPassive", { nodeId = nodeId, selected = selected })
 		end)
 		if ok and type(response) == "table" and response.ok then
-			UISound.play("confirm")
 			return
 		end
 		UISound.play("error")
@@ -374,7 +374,6 @@ function ProgressionClient.setAttuned(trackId: string, attuned: boolean)
 			return dispatcher:request("ProgressionAttune", { track = trackId, attuned = attuned })
 		end)
 		if ok and type(response) == "table" and response.ok then
-			UISound.play("confirm")
 			return
 		end
 		UISound.play("error")
@@ -420,7 +419,6 @@ function ProgressionClient.swapAttuned(release: string, trackId: string)
 			return dispatcher:request("ProgressionAttune", { track = trackId, release = release })
 		end)
 		if ok and type(response) == "table" and response.ok then
-			UISound.play("confirm")
 			return
 		end
 		UISound.play("error")

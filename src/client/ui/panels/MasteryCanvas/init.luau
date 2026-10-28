@@ -39,15 +39,17 @@ local Edge = require(script.Edge)
 local Menu = require(script.Menu)
 local ShrineDialog = require(script.ShrineDialog)
 local Starfield = require(script.Starfield)
+local Tooltip = require(script.Tooltip)
+local Burst = require(script.Burst)
 
 local e = React.createElement
 
 -- The constellation's spacing: pixels between ranks, and how far each rank of branches "a" (above)
 -- and "b" (below) sits from the trunk. Branches bow outward and back in toward the join.
-local COLUMN = 195
-local BRANCH_RISE = { 0, 146, 195, 210, 182 }
+local COLUMN = 255
+local BRANCH_RISE = { 0, 190, 255, 275, 238 }
 -- How far a node may stray from its place, so the tree reads as stars rather than a grid.
-local JITTER = 28
+local JITTER = 34
 -- How far past the tree's edge the view's centre may travel.
 local MARGIN = 260
 -- Where across the screen the node in use is framed on opening, as a fraction of its width.
@@ -101,9 +103,9 @@ local function nodePosition(node: MasteryTree.Node): Vector2
 		local rise = BRANCH_RISE[rank + 1] or BRANCH_RISE[#BRANCH_RISE]
 		return Vector2.new(rank * COLUMN + jitter("x"), (if node.branch == "a" then -rise else rise) + jitter("y"))
 	elseif node.branch == "join" then
-		return Vector2.new(5 * COLUMN + 13, 0)
+		return Vector2.new(5 * COLUMN + 16, 0)
 	end
-	return Vector2.new(6 * COLUMN + 26, 0)
+	return Vector2.new(6 * COLUMN + 32, 0)
 end
 
 -- An instance name for a node id: dots would read as path separators to tools that find it.
@@ -136,6 +138,57 @@ local function clampPan(pan: Vector2, minimum: Vector2, maximum: Vector2): Vecto
 		math.clamp(pan.X, centre.X - (maximum.X + MARGIN), centre.X - (minimum.X - MARGIN)),
 		math.clamp(pan.Y, centre.Y - (maximum.Y + MARGIN), centre.Y - (minimum.Y - MARGIN))
 	)
+end
+
+-- A second click on a pinned node this soon after pinning it is the tail of a reflexive
+-- double-click, not a decision: it only opens the node.
+local DOUBLE_CLICK_GUARD = 0.3
+
+-- What a second click on a node does, and the standing it already has.
+type NodeAction = { label: string, enabled: boolean, run: (() -> ())?, sound: string }
+
+local function actionFor(node: MasteryTree.Node, context: string): (NodeAction?, string?)
+	if not node.unlocked then
+		return nil, nil
+	end
+	if node.kind == "form" then
+		if node.selected then
+			return nil, "IN USE"
+		end
+		local shapeId = node.shapeId
+		if node.dormant or not shapeId then
+			return { label = "USE THIS FORM", enabled = false, sound = "error" }, nil
+		end
+		return {
+			label = "USE THIS FORM",
+			enabled = true,
+			sound = "formEquip",
+			run = function()
+				ProgressionClient.selectShape(context, if node.isDefault then "" else shapeId)
+			end,
+		}, nil
+	elseif node.kind == "infusion" then
+		-- An infusion toggles: there is one or none, so choosing the one in use clears it.
+		return {
+			label = if node.selected then "REMOVE INFUSION" else "INFUSE",
+			enabled = node.selectable,
+			sound = "formEquip",
+			run = function()
+				ProgressionClient.selectInfusion(if node.selected then "" else node.id)
+			end,
+		}, if node.selected then "IN USE" else nil
+	elseif node.kind == "select" then
+		-- A selectable passive toggles in and out of the shared slots.
+		return {
+			label = if node.selected then "RELEASE" else "CHOOSE",
+			enabled = node.selectable,
+			sound = "nodeSelect",
+			run = function()
+				ProgressionClient.selectPassive(node.id, not node.selected)
+			end,
+		}, if node.selected then "CHOSEN" else nil
+	end
+	return nil, if node.dormant then "DORMANT" else "ACTIVE"
 end
 
 local function useSubscription<T>(read: () -> T, subscribe: (() -> ()) -> () -> ()): T
@@ -178,6 +231,7 @@ local function MasteryCanvas()
 	local inTree = canvas.view == "tree"
 	local depth = useSpring(if inTree then 1 else 0, theme.motion.settle)
 	local dialog, setDialog = React.useState(nil :: string?)
+	local celebrate, setCelebrate = React.useState(nil :: { track: string, id: number }?)
 	local atShrine = canvas.shrine ~= nil
 	-- The shrine's dialog belongs to the shrine and the menu: leaving either drops it.
 	React.useEffect(function()
@@ -214,7 +268,39 @@ local function MasteryCanvas()
 	local panRef = React.useRef(Vector2.zero)
 	local boundsRef = React.useRef({ minimum, maximum })
 	boundsRef.current = { minimum, maximum }
-	local dragRef = React.useRef(nil :: { origin: Vector2, start: Vector2? }?)
+	local dragRef = React.useRef(nil :: { origin: Vector2, start: Vector2?, moved: boolean }?)
+	-- The node under the pointer, and the node pinned by a click (with when it was pinned).
+	local hoveredId, setHoveredId = React.useState(nil :: string?)
+	local pinned, setPinned = React.useState(nil :: { id: string, at: number }?)
+	local bursts, setBursts = React.useState({} :: { { id: number, position: Vector2 } })
+	local burstCount = React.useRef(0)
+
+	local function burstAt(position: Vector2)
+		burstCount.current = (burstCount.current :: number) + 1
+		local id = burstCount.current :: number
+		setBursts(function(current)
+			local nextBursts = table.clone(current)
+			table.insert(nextBursts, { id = id, position = position })
+			return nextBursts
+		end)
+	end
+	local function removeBurst(id: number)
+		setBursts(function(current)
+			local nextBursts = {}
+			for _, burst in ipairs(current) do
+				if burst.id ~= id then
+					table.insert(nextBursts, burst)
+				end
+			end
+			return nextBursts
+		end)
+	end
+
+	-- A tooltip belongs to the tree it was opened in.
+	React.useEffect(function()
+		setPinned(nil)
+		setHoveredId(nil)
+	end, { canvas.open, track.id, canvas.view } :: { any })
 
 	local function applyPan(value: Vector2)
 		local bounds = boundsRef.current :: { Vector2 }
@@ -265,7 +351,11 @@ local function MasteryCanvas()
 				drag.start = position
 				return
 			end
-			applyPan(drag.origin + (position - drag.start))
+			local offset = position - (drag.start :: Vector2)
+			if offset.Magnitude > 4 then
+				drag.moved = true
+			end
+			applyPan(drag.origin + offset)
 		end)
 		local ended = UserInputService.InputEnded:Connect(function(input)
 			if
@@ -314,6 +404,7 @@ local function MasteryCanvas()
 
 	-- The constellation: lines under, nodes over.
 	local content: { [string]: any } = {}
+	local tooltip: any = nil
 	if tree then
 		local byId: { [string]: MasteryTree.Node } = {}
 		for _, node in ipairs(tree.nodes) do
@@ -354,42 +445,72 @@ local function MasteryCanvas()
 					return columnStage(d, node.column)
 				end),
 				clock = clock,
-				-- Looking at a new node is reading it.
 				onHover = function()
+					setHoveredId(node.id)
+					-- Looking at a new node is reading it.
 					if node.unlocked then
 						ProgressionClient.markSeen(node.id)
 					end
 				end,
+				onLeave = function()
+					setHoveredId(function(current)
+						return if current == node.id then nil else current
+					end)
+				end,
+				-- The first click pins the tooltip; a second click on the pinned node acts.
 				onActivated = function()
-					-- An infusion toggles: there is one or none, so choosing the one in use clears it.
-					if node.kind == "infusion" then
-						if not node.selectable then
-							UISound.play("error")
-							return
-						end
-						ProgressionClient.selectInfusion(if node.selected then "" else node.id)
+					if not pinned or pinned.id ~= node.id then
+						UISound.play("nodePin")
+						setPinned({ id = node.id, at = os.clock() })
 						return
 					end
-					-- A selectable passive toggles in and out of the shared slots.
-					if node.kind == "select" then
-						if not node.selectable then
-							UISound.play("error")
-							return
-						end
-						ProgressionClient.selectPassive(node.id, not node.selected)
+					if os.clock() - pinned.at < DOUBLE_CLICK_GUARD then
 						return
 					end
-					-- Only an unlocked form that has a profile for the held weapon can be chosen.
-					local shapeId = node.shapeId
-					if not node.unlocked or node.dormant or node.kind ~= "form" or not shapeId then
+					local action = actionFor(node, context)
+					if not action then
+						return
+					end
+					if not action.enabled or not action.run then
 						UISound.play("error")
 						return
 					end
-					if node.selected then
-						return
-					end
-					ProgressionClient.selectShape(context, if node.isDefault then "" else shapeId)
+					UISound.play(action.sound)
+					burstAt(nodePosition(node))
+					action.run()
 				end,
+			})
+		end
+	end
+	for _, burst in ipairs(bursts) do
+		content[`Burst{burst.id}`] = e(Burst, {
+			position = burst.position,
+			seed = burst.id,
+			color = if track.color then Color3.new(1, 1, 1):Lerp(track.color, 0.5) else nil,
+			onDone = function()
+				removeBurst(burst.id)
+			end,
+		})
+	end
+
+	-- The tooltip: the pinned node's, else the hovered node's.
+	local shownId = if pinned then pinned.id else hoveredId
+	for _, node in ipairs(if tree then tree.nodes else {}) do
+		if node.id == shownId and node.visibility ~= "fogged" then
+			local action, state = actionFor(node, context)
+			local position = nodePosition(node)
+			tooltip = e(Tooltip, {
+				node = node,
+				trackId = track.id,
+				branches = branches,
+				attuned = attuned,
+				pinned = pinned ~= nil and pinned.id == node.id,
+				action = if action then { label = action.label, enabled = action.enabled } else nil,
+				state = state,
+				anchor = pan:map(function(value: Vector2)
+					return value + position
+				end),
+				reach = Node.reachOf(node.kind),
 			})
 		end
 	end
@@ -432,6 +553,7 @@ local function MasteryCanvas()
 		}, {
 			Stars = e(Starfield, {
 				active = canvas.open,
+				tint = if inTree then track.color else nil,
 				presence = reveal:map(function(r: number)
 					return stage(r, 0.2, 0.7)
 				end),
@@ -460,6 +582,10 @@ local function MasteryCanvas()
 			Menu = e(Menu, {
 				shrine = atShrine,
 				context = context,
+				celebrate = celebrate,
+				onCelebrated = function()
+					setCelebrate(nil)
+				end,
 				onChoose = function(trackId: string)
 					if inTree then
 						return
@@ -481,7 +607,10 @@ local function MasteryCanvas()
 				onClose = function()
 					setDialog(nil)
 				end,
-				onAttuned = function() end,
+				onAttuned = function(trackId: string)
+					burstCount.current = (burstCount.current :: number) + 1
+					setCelebrate({ track = trackId, id = burstCount.current :: number })
+				end,
 			})
 			else nil,
 
@@ -513,7 +642,14 @@ local function MasteryCanvas()
 				Text = "",
 				ClipsDescendants = true,
 				[React.Event.MouseButton1Down] = function()
-					dragRef.current = { origin = panRef.current :: Vector2, start = nil }
+					dragRef.current = { origin = panRef.current :: Vector2, start = nil, moved = false }
+				end,
+				-- A click on empty sky (not the end of a drag) lets go of a pinned tooltip.
+				[React.Event.Activated] = function()
+					local drag = dragRef.current
+					if not (drag and drag.moved) then
+						setPinned(nil)
+					end
 				end,
 			}, {
 				Content = e("Frame", {
@@ -525,6 +661,14 @@ local function MasteryCanvas()
 				}, content),
 			}),
 		}),
+
+		Tooltip = if inTree and tooltip
+			then e("Frame", {
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				ZIndex = 20,
+			}, { Tip = tooltip })
+			else nil,
 
 		-- Takes presses on the empty sky in the menu, so the world behind stays out of reach.
 		Shield = e("TextButton", {
@@ -565,7 +709,7 @@ local function MasteryCanvas()
 				BackgroundTransparency = 1,
 				Text = "‹   MASTERIES",
 				FontFace = theme.face.display,
-				TextSize = 11,
+				TextSize = 13,
 				TextColor3 = INK,
 				TextTransparency = hudFade(0.3),
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -575,12 +719,12 @@ local function MasteryCanvas()
 				[React.Event.Activated] = MasteryCanvasController.back,
 			}),
 			Name = e("TextLabel", {
-				Size = UDim2.fromOffset(480, 16),
-				Position = UDim2.fromOffset(0, 34),
+				Size = UDim2.fromOffset(480, 20),
+				Position = UDim2.fromOffset(0, 36),
 				BackgroundTransparency = 1,
 				Text = treeName,
 				FontFace = theme.face.display,
-				TextSize = 12,
+				TextSize = 15,
 				TextColor3 = INK,
 				TextTransparency = hudFade(0.28),
 				TextXAlignment = Enum.TextXAlignment.Left,

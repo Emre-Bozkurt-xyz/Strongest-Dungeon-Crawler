@@ -16,6 +16,7 @@
 
 local MasteryTrees = require(script.Parent.MasteryTrees)
 local MasteryTracks = require(script.Parent.MasteryTracks)
+local MasteryXP = require(script.Parent.MasteryXP)
 
 -- When an effect applies. Every field given must hold; an empty or missing filter always holds.
 export type Filter = {
@@ -235,6 +236,42 @@ end
 
 function NodeEffects.of(nodeId: string): { Effect }?
 	return EFFECTS[nodeId]
+end
+
+-- How far a node has grown inside itself: 0 when just unlocked, 1 when its branch is Mastered.
+function NodeEffects.growthOf(node: MasteryTrees.NodeDef, branches: { [string]: number }): number
+	local function along(branch: string, from: number): number
+		local cap = MasteryXP.capOf(branch)
+		if cap <= from then
+			return 1
+		end
+		return math.clamp(((branches[branch] or 0) - from) / (cap - from), 0, 1)
+	end
+	local rank = node.rank or 0
+	if node.branch == "trunk" then
+		return along("trunk", MasteryXP.TRUNK_RANKS[rank] or 0)
+	elseif node.branch == "a" or node.branch == "b" then
+		return along(node.branch, MasteryXP.BRANCH_RANKS[rank] or 0)
+	end
+	-- Join and end nodes sit past both branches: they grow with the slower of the two.
+	local from = MasteryXP.BRANCH_RANKS[MasteryXP.JOIN_RANK] or 0
+	return math.min(along("a", from), along("b", from))
+end
+
+-- What a node's growing magnitudes are multiplied by now: its growth, and attunement for an element.
+-- The server applies this and the canvas shows it, so they cannot disagree.
+function NodeEffects.scaleOf(
+	node: MasteryTrees.NodeDef,
+	trackId: string,
+	branches: { [string]: number },
+	attuned: boolean
+): number
+	local scale = 1 + NodeEffects.GROWTH * NodeEffects.growthOf(node, branches)
+	local track = MasteryTracks.get(trackId)
+	if track and track.family == "element" and attuned then
+		scale *= NodeEffects.ATTUNED_ELEMENT
+	end
+	return scale
 end
 
 -- Whether a node of this kind carries effects (and is therefore covered here).

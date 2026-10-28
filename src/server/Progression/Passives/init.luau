@@ -25,7 +25,6 @@ local Networking = require(ReplicatedStorage.Shared.Networking)
 local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
 local MasteryTrees = require(ReplicatedStorage.Shared.progression.MasteryTrees)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
-local MasteryXP = require(ReplicatedStorage.Shared.progression.MasteryXP)
 local NodeEffects = require(ReplicatedStorage.Shared.progression.NodeEffects)
 local PassivePool = require(ReplicatedStorage.Shared.progression.PassivePool)
 
@@ -85,26 +84,6 @@ local lastHitBy: { [string]: { sourceId: string, at: number } } = {}
 local pendingRefresh: { [Player]: boolean } = {}
 local rates: { [Player]: { windowStart: number, count: number } } = {}
 
--- How far a node has grown inside itself: 0 when just unlocked, 1 when its branch is Mastered.
-local function growthOf(node: MasteryTrees.NodeDef, branches: { [string]: number }): number
-	local function along(branch: string, from: number): number
-		local cap = MasteryXP.capOf(branch)
-		if cap <= from then
-			return 1
-		end
-		return math.clamp(((branches[branch] or 0) - from) / (cap - from), 0, 1)
-	end
-	local rank = node.rank or 0
-	if node.branch == "trunk" then
-		return along("trunk", MasteryXP.TRUNK_RANKS[rank] or 0)
-	elseif node.branch == "a" or node.branch == "b" then
-		return along(node.branch, MasteryXP.BRANCH_RANKS[rank] or 0)
-	end
-	-- Join and end nodes sit past both branches: they grow with the slower of the two.
-	local from = MasteryXP.BRANCH_RANKS[MasteryXP.JOIN_RANK] or 0
-	return math.min(along("a", from), along("b", from))
-end
-
 -- The selectable passives a character has chosen that their level has slots for.
 function PassiveService.chosenOf(player: Player, data: PlayerSaveData): { string }
 	local saved = data.progression.passives
@@ -143,10 +122,7 @@ local function activesFor(player: Player, data: PlayerSaveData): { [string]: { A
 			then
 				continue
 			end
-			local scale = 1 + NodeEffects.GROWTH * growthOf(node, branches)
-			if track.family == "element" and attuned then
-				scale *= NodeEffects.ATTUNED_ELEMENT
-			end
+			local scale = NodeEffects.scaleOf(node, track.id, branches, attuned)
 			for index, effect in ipairs(effects) do
 				local list = grouped[effect.kind] or {}
 				table.insert(list, {

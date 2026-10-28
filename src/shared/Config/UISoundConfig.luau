@@ -33,6 +33,12 @@ local UISoundConfig = {
 		error = { id = "rbxassetid://15675062723", volume = 0.5 },
 		-- Roblox_UI_Small_Click, high and quiet: a skill coming off cooldown, mid-fight.
 		ready = { id = "rbxassetid://15675032796", volume = 0.2, speed = 1.6 },
+		-- The mastery mind-space. Placeholders from the stock set until real sounds are chosen:
+		-- pinning a node, taking a node's action, equipping a form or infusion, and attuning.
+		nodePin = { id = "rbxassetid://15675032796", volume = 0.3, speed = 0.85 },
+		nodeSelect = { id = "rbxassetid://15675043410", volume = 0.4, speed = 1.3 },
+		formEquip = { id = "rbxassetid://15675043410", volume = 0.5, speed = 0.9 },
+		attune = { id = "rbxassetid://15675046931", volume = 0.55, speed = 0.75 },
 	} :: { [string]: Cue },
 
 	-- Pickup notices, by rarity: the notify stinger pitched up as the drop gets rarer.

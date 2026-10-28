@@ -10,6 +10,7 @@ local Workspace = game:GetService("Workspace")
 local ComponentManager = require(script.Parent.ComponentManager)
 local NPCAnimationController = require(script.Parent.NPCAnimationController)
 local CharacterSpecRegistry = require(ReplicatedStorage.Shared.Characters.CharacterSpecRegistry)
+local EnemyRewards = require(ReplicatedStorage.Shared.progression.EnemyRewards)
 
 local PREFABS_FOLDER_NAME = "NPCPrefabs"
 local ASSETS_ROOT_NAME = "Assets" -- Studio-managed assets root (not controlled by Rojo)
@@ -169,26 +170,59 @@ local function resolveParent(explicitParent: Instance?, fallback: Instance?): In
 	return Workspace
 end
 
--- What fighting this NPC teaches, as attributes on the model for MasteryService and
--- CharacterService to read. A placeholder until area level, enemy type and rank exist
--- (docs/planning/progression-direction.md, "Character XP from enemies"):
---   progression = { masteryValue = 40 }  -- mastery XP for removing all of its health
---   progression = { xp = 12 }            -- character XP for killing it, shared by contribution
---   progression = { training = true }    -- a training target: flat training XP only
-local function applyProgression(model: Model, specOptions: { [string]: any })
+-- The area level an NPC inherits: given at spawn (`areaLevel`), else the nearest ancestor of where
+-- it is placed that carries an `AreaLevel` attribute -- a map folder, set by the map builder -- else 1.
+local function areaLevelFor(model: Model, settings: { [string]: any }): number
+	if type(settings.areaLevel) == "number" then
+		return settings.areaLevel
+	end
+	local node: Instance? = model.Parent
+	while node do
+		local level = node:GetAttribute("AreaLevel")
+		if type(level) == "number" then
+			return level
+		end
+		node = node.Parent
+	end
+	return 1
+end
+
+-- What fighting this NPC teaches and its kill is worth, as attributes for MasteryService and
+-- CharacterService to read (docs/planning/progression-direction.md, "Character XP from enemies";
+-- shared/progression/EnemyRewards). The spec says what the enemy is:
+--   progression = { type = 1.0 }                   -- its type multiplier (both XP and mastery)
+--   progression = { type = 0.3, mastery = 0.6 }    -- teaches more than its kill is worth
+--   progression = { training = true }              -- a training target: flat training XP only
+-- The spawn says where and how strong: `areaLevel` (else inherited, areaLevelFor) and `rank` (forced
+-- by the map builder; otherwise rolled). `xp` and `masteryValue` in either set an exact value, for
+-- one-off encounters.
+local function applyProgression(model: Model, specOptions: { [string]: any }, settings: { [string]: any })
 	local progression = specOptions.progression
 	if type(progression) ~= "table" then
 		return
 	end
-	if type(progression.masteryValue) == "number" then
-		model:SetAttribute("MasteryValue", progression.masteryValue)
-	end
-	if type(progression.xp) == "number" then
-		model:SetAttribute("XPValue", progression.xp)
-	end
 	if progression.training == true then
 		model:SetAttribute("TrainingTarget", true)
+		return
 	end
+	local areaLevel = areaLevelFor(model, settings)
+	local forced = EnemyRewards.isRank(settings.rank)
+	local rank: EnemyRewards.Rank = if forced then settings.rank else EnemyRewards.rollRank()
+	local typeMultiplier = if type(progression.type) == "number" then progression.type else 1
+	local masteryMultiplier = if type(progression.mastery) == "number" then progression.mastery else nil
+	local xp, masteryValue = EnemyRewards.valuesFor(areaLevel, typeMultiplier, rank, masteryMultiplier)
+	xp = if type(settings.xp) == "number" then settings.xp elseif type(progression.xp) == "number" then progression.xp else xp
+	masteryValue = if type(settings.masteryValue) == "number"
+		then settings.masteryValue
+		elseif type(progression.masteryValue) == "number" then progression.masteryValue
+		else masteryValue
+	model:SetAttribute("AreaLevel", areaLevel)
+	model:SetAttribute("Rank", rank)
+	if forced then
+		model:SetAttribute("RankForced", true)
+	end
+	model:SetAttribute("XPValue", xp)
+	model:SetAttribute("MasteryValue", masteryValue)
 end
 
 -- What NPCDeath needs when this NPC's health runs out: whether it dies at all (`immortal` in the
@@ -251,7 +285,7 @@ function NPCSpawner.spawn(prefabName: string, options: { [string]: any }?): (Mod
 	end
 
 	local specOptions = readSpecByName(prefabName)
-	applyProgression(clone, specOptions)
+	applyProgression(clone, specOptions, settings)
 	applyLifecycle(clone, specOptions, settings)
 	local handles = attachComponents(clone, prefabName, specOptions, settings.components)
 
@@ -285,7 +319,7 @@ function NPCSpawner.spawnAtMarker(
 	end
 
 	local specOptions = readSpecByName(prefabName)
-	applyProgression(clone, specOptions)
+	applyProgression(clone, specOptions, settings)
 	applyLifecycle(clone, specOptions, settings)
 	local handles = attachComponents(clone, prefabName, specOptions, settings.components)
 

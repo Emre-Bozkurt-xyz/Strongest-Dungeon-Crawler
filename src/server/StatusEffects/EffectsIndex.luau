@@ -15,6 +15,7 @@ defs.Burn = {
 	stacking = "multi",
 	durationPolicy = "independent",
 	capPolicy = "refreshWeakest",
+	potencyKeys = { "damagePerTick" },
 	getPotency = function(params: any)
 		if not params then
 			return 0
@@ -101,6 +102,14 @@ defs.Frenzy = {
 	capPolicy = "refreshOldest",
 	-- onApply/onRemove can notify UI or recalc derived stats
 }
+
+-- Ailments that passive nodes apply (docs/tasks/passives.md): Chill and Freeze from frost, Bleed from
+-- blades, Sunder (armor break) and Slow.
+defs.Chill = require(script.Parent.Ailments.Chill)
+defs.Freeze = require(script.Parent.Ailments.Freeze)
+defs.Bleed = require(script.Parent.Ailments.Bleed)
+defs.Sunder = require(script.Parent.Ailments.Sunder)
+defs.Slow = require(script.Parent.Ailments.Slow)
 
 -- Blocking effects (use lowercase keys to match id fields)
 defs.stagger = require(script.Parent.Blocking.Stagger)

@@ -1,7 +1,8 @@
 # Progression Direction — masteries, attunement, classes, forms
 
 Status: **direction agreed 2026-10-25; XP, tracks and branches revised 2026-10-26.** Build steps 1–3
-are done, plus attunement and hard gear requirements, and a first cut of step 4 (see "Build order"). Content (the actual masteries, trees, classes, numbers) and the
+are done, plus attunement, hard gear requirements, a first cut of step 4, passive effects and real
+enemy values (see "Build order"). Content (the actual masteries, trees, classes, numbers) and the
 management space are still to be designed.
 
 ## What it has to achieve
@@ -419,8 +420,13 @@ rather than replace the mechanism:
    (conversion scaled by element level and attunement, cost surcharge), element XP through the
    infusion's node, element-coloured projectiles, impacts and hits, and the named-combination table
    with Fireball (Mana Ball + Fire III: larger orb that explodes) as the first built pair. Not yet:
-   the other six pairs (their shapes have no profile), passive effects such as Ignite and Chill, and
-   a second cost resource.
+   the other six pairs (their shapes have no profile).
+   *Also done (2026-10-27, `docs/tasks/passives.md`):* every passive, selectable passive and
+   attunement-only node does what it says, through a data-driven effect system (effects as data,
+   one module per effect kind) with five new statuses (Chill, Freeze, Bleed, Sunder, Slow); the
+   selectable passive pool (slots at levels 10/25/50); element resistance and penetration; a second
+   cost resource (infusions cost mana per step); and enemy values from area level × type × rank with
+   a light level-difference penalty.
 5. **Unique-weapon forms.**
 
 ## Open questions

@@ -24,6 +24,8 @@ export type SkillMetadata = {
 	cost: number?, -- Final calculated cost after all modifiers
 	costResource: string?, -- Which resource to consume ("Mana", "Stamina", "Health", etc.)
 	comboCosts: { number }?, -- Per-step costs for combo skills
+	-- Costs in other resources, paid alongside the main one: per step for combo skills.
+	extraCosts: { { resource: string, cost: number?, comboCosts: { number }? } }?,
 	
 	-- Combo timing (required for window calculation)
 	combo: {

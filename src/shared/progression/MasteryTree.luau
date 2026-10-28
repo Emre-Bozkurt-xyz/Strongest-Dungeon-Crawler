@@ -39,10 +39,10 @@ export type Node = {
 	-- Whether any profile implements this node at all, for telling "not built yet" from "does not fit
 	-- what you hold".
 	built: boolean,
-	-- Infusion nodes: whether it can be selected now (earned and in effect).
+	-- Infusion and selectable passive nodes: whether it can be chosen now (earned and in effect).
 	selectable: boolean,
 	-- The form in use for the held weapon (the player's selection, or the default when none is made),
-	-- or the infusion in use.
+	-- the infusion in use, or a chosen selectable passive.
 	selected: boolean,
 	-- The named combination this node makes with the other half of the current form -- the infusion
 	-- in use for a form node, the form in use for an infusion node -- if they are a named pair.
@@ -238,6 +238,8 @@ export type Pairing = {
 	shapeNode: string?,
 	-- Node id of the infusion in use.
 	infusion: string?,
+	-- Chosen selectable passives that have a slot.
+	passives: { string }?,
 }
 
 -- The form in effect for `context`, by the rules the server applies when it writes the combat
@@ -351,7 +353,13 @@ function MasteryTree.build(
 					break
 				end
 			end
-			local selectable = node.kind == "infusion" and unlocked[node.id] and not dormant[node.id]
+			local selectable = (node.kind == "infusion" or node.kind == "select")
+				and unlocked[node.id]
+				and not dormant[node.id]
+			local chosen = node.kind == "select"
+				and pairing ~= nil
+				and pairing.passives ~= nil
+				and table.find(pairing.passives, node.id) ~= nil
 			local combination = if node.kind == "form"
 				then FormCombinations.find(node.id, pairing and pairing.infusion)
 				elseif node.kind == "infusion" then FormCombinations.find(pairing and pairing.shapeNode, node.id)
@@ -369,7 +377,8 @@ function MasteryTree.build(
 				built = node.shapes ~= nil and #node.shapes > 0,
 				selectable = selectable,
 				selected = (shapeId ~= nil and shapeId == inUse)
-					or (selectable and pairing ~= nil and pairing.infusion == node.id),
+					or (node.kind == "infusion" and selectable and pairing ~= nil and pairing.infusion == node.id)
+					or (selectable and chosen),
 				combination = if combination then combination.displayName else nil,
 				isDefault = shapeId ~= nil and shapeId == defaultShape,
 				requirement = if unlocked[node.id] then nil else requirementOf(tree, track, node),

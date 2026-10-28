@@ -38,8 +38,15 @@ export type Form = {
 	shapeNode: string?,
 	infusion: ActiveInfusion?,
 	combination: FormCombinations.Combination?,
-	-- The shape's cost with the infusion's and combination's surcharges applied.
-	cost: { resource: string, steps: { number } },
+	-- What each step costs: the shape's own resource (with a combination's surcharge, and the
+	-- infusion's cost when it spends the same resource), and `extra` resources besides.
+	cost: Cost,
+}
+
+export type Cost = {
+	resource: string,
+	steps: { number },
+	extra: { { resource: string, steps: { number } } },
 }
 
 -- Same shape as AttackResolver.TypedDamage; restated so shared code need not reach into the server.
@@ -84,17 +91,26 @@ function BasicAttackForm.resolve(loadout: ItemTypes.CombatLoadoutSnapshot?): For
 	local infusion = infusionOf(loadout)
 	local combination = if infusion and shapeNode then FormCombinations.find(shapeNode.id, infusion.id) else nil
 
-	local surcharge = 0
-	if infusion then
-		local node = MasteryTrees.node(infusion.id)
-		surcharge += if node and node.infusion then node.infusion.surcharge else 0
-	end
-	if combination then
-		surcharge += combination.surcharge or 0
-	end
+	local surcharge = if combination then combination.surcharge or 0 else 0
 	local steps: { number } = {}
 	for i, amount in ipairs(profile.cost.steps) do
 		steps[i] = math.floor(amount * (1 + surcharge) + 0.5)
+	end
+	local extra: { { resource: string, steps: { number } } } = {}
+	local infusionNode = if infusion then MasteryTrees.node(infusion.id) else nil
+	local infusionCost = infusionNode and infusionNode.infusion and infusionNode.infusion.cost
+	if infusionCost and infusionCost.perStep > 0 then
+		if infusionCost.resource == profile.cost.resource then
+			for i in ipairs(steps) do
+				steps[i] += infusionCost.perStep
+			end
+		else
+			local perStep: { number } = {}
+			for i in ipairs(steps) do
+				perStep[i] = infusionCost.perStep
+			end
+			table.insert(extra, { resource = infusionCost.resource, steps = perStep })
+		end
 	end
 
 	local displayName = if combination
@@ -108,7 +124,7 @@ function BasicAttackForm.resolve(loadout: ItemTypes.CombatLoadoutSnapshot?): For
 		shapeNode = if shapeNode then shapeNode.id else nil,
 		infusion = infusion,
 		combination = combination,
-		cost = { resource = profile.cost.resource, steps = steps },
+		cost = { resource = profile.cost.resource, steps = steps, extra = extra },
 	}
 end
 

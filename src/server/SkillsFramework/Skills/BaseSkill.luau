@@ -381,15 +381,39 @@ function BaseSkill:_notifyUsed()
 	end
 end
 
+-- Everything one use costs, before modifiers: the main resource (`baseResource` with `cost` /
+-- `costs`), then each of `config.extraCosts` -- a second resource, like the mana an infused punch
+-- spends on top of its stamina. An extra cost gives `steps` (per combo step) or `amount`.
+function BaseSkill:getCosts(data: any?): { { resource: any, amount: number } }
+	local costs: { { resource: any, amount: number } } = {}
+	local main = self:getBaseCost(data)
+	if main > 0 then
+		table.insert(costs, {
+			resource = self.config and self.config.baseResource or StatTypes.PoolStats.Stamina,
+			amount = main,
+		})
+	end
+	local step = data and data.combo and data.combo.step or 1
+	for _, extra in ipairs(self.config and self.config.extraCosts or {}) do
+		local amount = if type(extra.steps) == "table"
+			then extra.steps[step] or extra.steps[#extra.steps] or 0
+			else extra.amount or 0
+		if amount > 0 and extra.resource then
+			table.insert(costs, { resource = extra.resource, amount = amount })
+		end
+	end
+	return costs
+end
+
 -- Every skill pays for a use through here exactly once, which is what makes it the place a use is
--- announced from.
+-- announced from. A use with several costs is paid in full or not at all: every one is checked
+-- (together, where two land on the same pool) before any is taken.
 function BaseSkill:applyResourceCost(data: any?): boolean
 	local comboConfig = data and data.combo or nil
 	local timingInfo = data and data.timing
-	local cost = self:getBaseCost(data)
-	local baseResource = self.config and self.config.baseResource or StatTypes.PoolStats.Stamina
+	local costs = self:getCosts(data)
 
-	if cost <= 0 then
+	if #costs == 0 then
 		self:_notifyUsed()
 		return true
 	end
@@ -404,23 +428,32 @@ function BaseSkill:applyResourceCost(data: any?): boolean
 		end
 	end
 
-	local ctx = self:_buildCostContext(baseResource, cost, costMetadata)
-	local result = SkillMediator.resolve(ctx)
-	local values = result.values
-	local resolvedResource = (values and values.resource) or baseResource
-	local resolvedAmount = (values and values.amount) or cost
-
-	-- Check affordability using resolved values
-	local preview = StatsManager.resolvePoolCost(self.casterId, resolvedResource, resolvedAmount, {
-		metadata = ctx.metadata,
-	})
-	if not preview or (preview.currentValue + 1e-3 < preview.finalCost) then
-		return false
+	local charges: { { resource: any, amount: number, metadata: any } } = {}
+	local totals: { [any]: number } = {}
+	for _, cost in ipairs(costs) do
+		local ctx = self:_buildCostContext(cost.resource, cost.amount, costMetadata)
+		local result = SkillMediator.resolve(ctx)
+		local values = result.values
+		local resolvedResource = (values and values.resource) or cost.resource
+		local resolvedAmount = (values and values.amount) or cost.amount
+		local preview = StatsManager.resolvePoolCost(self.casterId, resolvedResource, resolvedAmount, {
+			metadata = ctx.metadata,
+		})
+		if not preview then
+			return false
+		end
+		totals[resolvedResource] = (totals[resolvedResource] or 0) + preview.finalCost
+		if preview.currentValue + 1e-3 < totals[resolvedResource] then
+			return false
+		end
+		table.insert(charges, { resource = resolvedResource, amount = resolvedAmount, metadata = ctx.metadata })
 	end
 
-	StatsManager.removeFromPool(self.casterId, resolvedResource, resolvedAmount, {
-		metadata = ctx.metadata,
-	})
+	for _, charge in ipairs(charges) do
+		StatsManager.removeFromPool(self.casterId, charge.resource, charge.amount, {
+			metadata = charge.metadata,
+		})
+	end
 	self:_notifyUsed()
 	return true
 end
@@ -492,6 +525,10 @@ function BaseSkill:resolveAttack(base: {
 	}
 	metadata.skillId = metadata.skillId or self.name
 	metadata.tags = metadata.tags or (self.config and self.config.tags or nil)
+	-- How it reaches the target ("melee", "projectile", "area"), for passives and other attack hooks.
+	if type(base.delivery) == "string" then
+		metadata.delivery = base.delivery
+	end
 
 	return {
 		packets = result.packets,

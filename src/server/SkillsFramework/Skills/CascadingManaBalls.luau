@@ -264,6 +264,7 @@ function CascadingManaBalls:_spawnProjectiles(req: any)
 				local attack = self:resolveAttack({
 					damage = baseDamage,
 					damageType = "Magic",
+					delivery = if impactCfg.mode == "explode" then "area" else "projectile",
 				})
 
 				if impactCfg.mode == "explode" then
@@ -303,6 +304,7 @@ function CascadingManaBalls:_spawnProjectiles(req: any)
 				local attack = self:resolveAttack({
 					damage = baseDamage,
 					damageType = "Magic",
+					delivery = "area",
 				})
 				for _, model in ipairs(targets) do
 					local targetEntityId = Registrar.getEntityId(model)

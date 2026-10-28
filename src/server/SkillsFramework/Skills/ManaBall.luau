@@ -102,6 +102,7 @@ function ManaBall:use(requestData: any?)
 				local attack = self:resolveAttack({
 					damage = magicDmg,
 					damageType = "Magic",
+					delivery = "projectile",
 				})
 				CombatService.applyAttack(targetEntityId, attack, self.casterId)
 			else

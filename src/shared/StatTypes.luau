@@ -49,6 +49,10 @@ export type StaticStatType =
 	| "StaminaRegeneration"
 	| "PerceptionDistance"
 	| "PerceptionTier"
+	| "FireResistance"
+	| "FrostResistance"
+	| "FirePenetration"
+	| "FrostPenetration"
 
 -- Pool stat names (current/max values like health, mana)
 export type PoolType = "Health" | "Mana" | "Stamina" | "ManaShield"
@@ -86,6 +90,10 @@ export type PlayerStats = {
 	StaminaRegeneration: typeof(Stat.new({ baseValue = 0, name = "" })),
 	PerceptionDistance: typeof(Stat.new({ baseValue = 0, name = "" })),
 	PerceptionTier: typeof(Stat.new({ baseValue = 0, name = "" })),
+	FireResistance: typeof(Stat.new({ baseValue = 0, name = "" })),
+	FrostResistance: typeof(Stat.new({ baseValue = 0, name = "" })),
+	FirePenetration: typeof(Stat.new({ baseValue = 0, name = "" })),
+	FrostPenetration: typeof(Stat.new({ baseValue = 0, name = "" })),
 }
 
 export type EntityStats = {
@@ -164,6 +172,11 @@ Types.StaticStats = {
 	StaminaRegeneration = "StaminaRegeneration" :: StaticStatType,
 	PerceptionDistance = "PerceptionDistance" :: StaticStatType,
 	PerceptionTier = "PerceptionTier" :: StaticStatType,
+	-- Percentage points of that element's damage resisted, and ignored of the target's resistance.
+	FireResistance = "FireResistance" :: StaticStatType,
+	FrostResistance = "FrostResistance" :: StaticStatType,
+	FirePenetration = "FirePenetration" :: StaticStatType,
+	FrostPenetration = "FrostPenetration" :: StaticStatType,
 }
 
 -- Pool stat names (like C# enum)
@@ -208,6 +221,10 @@ Types.AllStaticStatNames = {
 	"StaminaRegeneration",
 	"PerceptionDistance",
 	"PerceptionTier",
+	"FireResistance",
+	"FrostResistance",
+	"FirePenetration",
+	"FrostPenetration",
 } :: { StaticStatType }
 
 Types.AllPoolStatNames = {
@@ -239,6 +256,10 @@ Types.AllStatNames = {
 	"StaminaRegeneration",
 	"PerceptionDistance",
 	"PerceptionTier",
+	"FireResistance",
+	"FrostResistance",
+	"FirePenetration",
+	"FrostPenetration",
 	"AttackSpeed",
 	"SpellCastSpeed",
 	"Armor",

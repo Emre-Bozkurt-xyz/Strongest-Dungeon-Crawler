@@ -71,6 +71,25 @@ function ClientStatsStore.canAfford(
 		affordable = false
 	end
 
+	-- A second resource (an infused punch's mana) must be affordable too; where it is the main
+	-- resource's pool as well, the two are needed together.
+	if affordable and metadata and type(metadata.extraCosts) == "table" then
+		local needed: { [string]: number } = {}
+		if resource and cost then
+			needed[resource] = cost
+		end
+		for _, extra in ipairs(metadata.extraCosts) do
+			local amount = if step and type(extra.comboCosts) == "table" then extra.comboCosts[step] else extra.cost
+			if type(extra.resource) == "string" and type(amount) == "number" and amount > 0 then
+				needed[extra.resource] = (needed[extra.resource] or 0) + amount
+				local have = StatsClient.getPoolCurrent(extra.resource)
+				if have == nil or have + 1e-3 < needed[extra.resource] then
+					affordable = false
+				end
+			end
+		end
+	end
+
 	return {
 		affordable = affordable,
 		cost = cost,

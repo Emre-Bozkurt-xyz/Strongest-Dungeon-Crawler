@@ -8,7 +8,6 @@ local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
 local AttributeTypes = require(ReplicatedStorage.Shared.AttributeTypes)
 local PercentOfStatModifier = require(ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
-local SkillQueryTypes = require(ReplicatedStorage.Shared.skills.SkillQueryTypes)
 
 local Dev = {}
 local devTuneRemote: RemoteEvent? = nil
@@ -213,18 +212,16 @@ function Dev.start(ctx)
 	end)
 end
 
--- Once per player session (not per respawn). Skills, test modifiers and NPCs are session state and
+-- Once per player session (not per respawn). Skills, regeneration and NPCs are session state and
 -- are set up every time; the starter items and attribute point are saved, so only a new save gets
 -- them.
-function Dev.onSessionStart(player: Player, character: Model, grantStarterKit: boolean)
+function Dev.onSessionStart(player: Player, _character: Model, grantStarterKit: boolean)
 	local registrar = require(script.Parent.Parent.Services.Registrar)
 	local statsManager = require(script.Parent.Parent.Stats.StatsManager)
 	local attributesManager = require(script.Parent.Parent.Stats.AttributesManager)
 	local skillsManager = require(script.Parent.Parent.SkillsFramework.SkillsManager)
 	local inventoryService = require(script.Parent.Parent.Inventory.InventoryService)
-	local skillModifierRegistry = require(script.Parent.Parent.Stats.SkillModifierRegistry)
 	local npcSpawner = require(script.Parent.Parent.NPCService.NPCSpawner)
-	local testModifiers = require(script.Parent.Parent.SkillsFramework.TestModifiers)
 
 	local playerId = registrar.getPlayerId(player)
 
@@ -274,40 +271,6 @@ function Dev.onSessionStart(player: Player, character: Model, grantStarterKit: b
 		})
 	)
 
-	local meleeDoubleCost: any = {
-		id = "Test_MeleeManaDouble",
-		priority = 100,
-		matches = function(ctx: SkillQueryTypes.SkillQueryContext): boolean
-			if ctx.event ~= "resolveSkillCost" then
-				return false
-			end
-			local base = ctx.base
-			if base.resource ~= StatTypes.PoolStats.Stamina then
-				return false
-			end
-			local tags = ctx.tags
-			if not tags then
-				return false
-			end
-			for _, tag in ipairs(tags) do
-				if tag == "melee" then
-					return true
-				end
-			end
-			return false
-		end,
-		apply = function(_ctx: SkillQueryTypes.SkillQueryContext, result: SkillQueryTypes.SkillQueryResult)
-			local baseAmount = result.values.amount
-			if typeof(baseAmount) ~= "number" then
-				return
-			end
-			result.values.resource = StatTypes.PoolStats.Health
-			result.values.amount = baseAmount * 1.5
-		end,
-	}
-
-	skillModifierRegistry.register(playerId, "resolveSkillCost", meleeDoubleCost)
-
 	task.delay(5, function()
 		statsManager.setBaseStat(playerId, StatTypes.StaticStats.AttackSpeed, 1)
 		statsManager.addModifier(
@@ -329,13 +292,6 @@ function Dev.onSessionStart(player: Player, character: Model, grantStarterKit: b
 		task.delay(5, function()
 			attributesManager.applyAllScaling(player)
 		end)
-	end)
-
-	task.delay(1.0, function()
-		local entityId = registrar.getEntityId(character)
-		if entityId then
-			testModifiers.runTests(entityId)
-		end
 	end)
 end
 

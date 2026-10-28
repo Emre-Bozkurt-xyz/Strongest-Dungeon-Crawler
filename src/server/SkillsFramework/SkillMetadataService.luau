@@ -176,6 +176,40 @@ local function calculateCost(entityId: string, skillName: string, skillData: Ski
 	return cost, costResource, comboCosts
 end
 
+-- A skill's costs in resources besides its main one (`extraCosts`), resolved like the main cost, per
+-- combo step for a combo: `{ resource, cost, comboCosts }` each.
+local function calculateExtraCosts(entityId: string, skillName: string, skillData: SkillData): { any }?
+	local extras = (skillData :: any).extraCosts
+	if type(extras) ~= "table" or #extras == 0 then
+		return nil
+	end
+	local out = {}
+	for _, extra in ipairs(extras) do
+		local resource: string = extra.resource
+		local function baseFor(step: number?): number
+			if type(extra.steps) == "table" then
+				return extra.steps[step or 1] or extra.steps[#extra.steps] or 0
+			end
+			return extra.amount or 0
+		end
+		local entry: { [string]: any } = { resource = resource }
+		if skillData.combo then
+			local perStep = {}
+			for step = 1, skillData.combo.steps do
+				local preview = resolveCostPreview(entityId, skillName, skillData, resource :: any, baseFor(step), step)
+				perStep[step] = preview and preview.finalCost or baseFor(step)
+			end
+			entry.comboCosts = perStep
+			entry.cost = perStep[1]
+		else
+			local preview = resolveCostPreview(entityId, skillName, skillData, resource :: any, baseFor(nil), nil)
+			entry.cost = preview and preview.finalCost or baseFor(nil)
+		end
+		table.insert(out, entry)
+	end
+	return out
+end
+
 local function isAdaptiveBasicAttack(skillData: SkillData): boolean
 	local requirements = (skillData :: any).requirements
 	return requirements ~= nil and requirements.weapon ~= nil and requirements.weapon.mode == "adaptive"
@@ -190,6 +224,7 @@ local function withResolvedShape(entityId: string, skillData: SkillData): SkillD
 	data.combo = form.profile.combo
 	data.costs = form.cost.steps
 	data.baseResource = form.cost.resource
+	data.extraCosts = form.cost.extra
 	return data :: any
 end
 
@@ -216,6 +251,10 @@ local function calculateMetadata(entityId: string, skillName: string): { [string
 	if comboCosts then
 		metadata.comboCosts = comboCosts
 	end
+
+	-- Costs in a second resource (an infused punch's mana), which the client checks alongside the
+	-- main cost before predicting a use.
+	metadata.extraCosts = calculateExtraCosts(entityId, skillName, skillData)
 
 	-- Add combo timing information so client can calculate windows
 	if skillData.combo then

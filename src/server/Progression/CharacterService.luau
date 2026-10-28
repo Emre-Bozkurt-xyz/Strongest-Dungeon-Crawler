@@ -8,13 +8,16 @@
 --
 -- Sources so far: killing an NPC. Its XP value is shared by contribution -- each player gets the
 -- share of the NPC's health they removed -- so a player who tagged a monster once gets almost
--- nothing, which is what keeps carrying from breaking progression. Quests, bounties, looting and
--- discovery grant through `grant` once they exist.
+-- nothing, which is what keeps carrying from breaking progression. The value is the NPC's
+-- (EnemyRewards: area level, type, rank), less a very light penalty for the gap between each
+-- player's level and the area's. Quests, bounties, looting and discovery grant through `grant` once
+-- they exist.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local CharacterXP = require(ReplicatedStorage.Shared.progression.CharacterXP)
+local EnemyRewards = require(ReplicatedStorage.Shared.progression.EnemyRewards)
 
 local Server = ServerScriptService.Server
 local PlayerDataService = require(Server.PlayerData.PlayerDataService)
@@ -99,9 +102,13 @@ local function onDeath(entityId: string, model: Model)
 	if total <= 0 then
 		return
 	end
+	local areaLevel = model:GetAttribute("AreaLevel")
 	for player, amount in pairs(byPlayer) do
 		if player.Parent then
-			CharacterService.grant(player, value * amount / total)
+			local penalty = if type(areaLevel) == "number"
+				then EnemyRewards.levelPenalty(CharacterService.getLevel(player), areaLevel)
+				else 1
+			CharacterService.grant(player, value * amount / total * penalty)
 		end
 	end
 end

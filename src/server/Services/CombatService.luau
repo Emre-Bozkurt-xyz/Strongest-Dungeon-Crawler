@@ -37,12 +37,37 @@ function CombatService.onHit(listener: HitListener)
 	table.insert(hitListeners, listener)
 end
 
+-- What an attack hook sees: one attack, about to land on one target. Hooks may change it in place
+-- -- scale damage packets, add effect packets, set a packet's crit chance bonus or penetration,
+-- scale knockback, set `metadata.staggerScale` -- and must not yield.
+export type AttackHookContext = {
+	sourceId: string,
+	targetId: string,
+	packets: { AttackTypes.AttackPacket },
+	metadata: AttackTypes.AttackMetadata,
+}
+
+export type AttackHook = (ctx: AttackHookContext) -> ()
+
+local attackHooks: { AttackHook } = {}
+
+-- Called for every attack before it is applied, with the packets copied for that target, so
+-- systems that change attacks by who is attacking or who is hit (passives) do so without the skills
+-- or CombatService knowing about them. One attack context is shared by every target a swing
+-- reaches; the copy keeps a change aimed at one target from leaking into the next.
+function CombatService.addAttackHook(hook: AttackHook)
+	table.insert(attackHooks, hook)
+end
+
 export type DamageEffect = { id: string, chance: number?, params: any? }
 
 export type DamageOptions = {
 	kind: string?, -- "physical" | "magic" | "true" | custom
 	element: string?, -- e.g., fire, ice
 	critAllowed: boolean?,
+	critChanceBonus: number?, -- percentage points added to the attacker's crit chance
+	critDamageBonus: number?, -- added to the crit multiplier
+	resistancePenetration: number?, -- percentage points of the target's resistance ignored
 	bypassShield: boolean?,
 	bypassArmor: boolean?,
 	effects: { DamageEffect }?,
@@ -73,6 +98,9 @@ export type AttackResult = DamageResult & {
 	byType: { [string]: number }, -- Damage breakdown by type (Physical, Fire, etc)
 	blocked: boolean, -- Was attack blocked by shield/guard
 	totalDamage: number, -- Sum of all damage types
+	-- Damage types of the packets that crit, for reactions to a crit of a kind ("fire crits ignite").
+	-- Server-only.
+	critTypes: { [string]: boolean }?,
 	staggerApplied: boolean?, -- Was stagger applied to target
 	knockback: Knockback?, -- Push applied to the target, resolved to a world direction
 	-- Health the target actually lost: `appliedToHealth` is what was dealt, which overshoots on a
@@ -194,6 +222,19 @@ end
 
 local ARMOR_K = 100 -- tuning constant for armor diminishing returns
 
+-- Elements are mitigated by resistance, not armor (armor is a physical defence). Percentage points,
+-- capped at MAX_RESISTANCE; raising the cap is for classes and unique gear, never trees
+-- (progression-direction.md, attunement content rules).
+local MAX_RESISTANCE = 75
+local RESISTANCE_STAT: { [string]: string } = {
+	Fire = "FireResistance",
+	Frost = "FrostResistance",
+}
+local PENETRATION_STAT: { [string]: string } = {
+	Fire = "FirePenetration",
+	Frost = "FrostPenetration",
+}
+
 local function normalizeChance(v: number?): number
 	if not v then
 		return 0
@@ -271,7 +312,7 @@ local function _applyDamageInternal(
 				target = targetEntityId,
 				source = sourceEntityId,
 			},
-		}))
+		}) + (if opts and opts.critChanceBonus then opts.critChanceBonus else 0))
 		local critDamage = getEntityStatValueByName(sourceEntityId, "CriticalHitDamage", {
 			event = "preDamageQuery",
 			metadata = {
@@ -299,12 +340,28 @@ local function _applyDamageInternal(
 			else
 				multiplier = 1.5
 			end
+			multiplier += if opts and opts.critDamageBonus then opts.critDamageBonus else 0
 			amount = amount * multiplier
 		end
 	end
 
-	-- Mitigation (armor/reduction) if present
-	if not (opts and opts.bypassArmor) then
+	local element = opts and opts.element
+	local resistanceStat = if element then RESISTANCE_STAT[element] else nil
+	if resistanceStat then
+		-- An element: resisted by its resistance, less what the attacker penetrates. Penetration only
+		-- lowers resistance to zero; it never turns resistance into a weakness.
+		local resistance = math.min(getEntityStatValueByName(targetEntityId, resistanceStat), MAX_RESISTANCE)
+		local penetrationStat = PENETRATION_STAT[element :: string]
+		local penetration = (if penetrationStat then getEntityStatValueByName(sourceEntityId, penetrationStat) else 0)
+			+ (if opts and opts.resistancePenetration then opts.resistancePenetration else 0)
+		if resistance > 0 then
+			resistance = math.max(0, resistance - penetration)
+		end
+		local resisted = amount * resistance / 100
+		amount -= resisted
+		result.mitigated = resisted
+	elseif not (opts and opts.bypassArmor) then
+		-- Mitigation (armor/reduction) if present
 		local damageReduction = getEntityStatValueByName(targetEntityId, "DamageReduction", {
 			event = "preDamageQuery",
 			metadata = {
@@ -439,6 +496,9 @@ local function applyDamagePacket(
 		kind = packet.damageType or "generic",
 		element = packet.damageType,
 		critAllowed = metadata.isCrit ~= false, -- allow crit unless explicitly disabled
+		critChanceBonus = packet.critChanceBonus,
+		critDamageBonus = packet.critDamageBonus,
+		resistancePenetration = packet.resistancePenetration,
 		bypassShield = false,
 		bypassArmor = packet.penetration and packet.penetration >= 1.0,
 		effects = nil,
@@ -521,6 +581,31 @@ function CombatService.applyAttack(
 	attack: AttackTypes.AttackContext,
 	sourceEntityId: string
 ): AttackResult
+	if #attackHooks > 0 then
+		local packets: { AttackTypes.AttackPacket } = {}
+		for _, packet in ipairs(attack.packets) do
+			table.insert(packets, table.clone(packet))
+		end
+		local copy: AttackTypes.AttackContext = {
+			packets = packets,
+			sourceId = attack.sourceId,
+			metadata = table.clone(attack.metadata),
+		}
+		local ctx: AttackHookContext = {
+			sourceId = sourceEntityId,
+			targetId = targetEntityId,
+			packets = copy.packets,
+			metadata = copy.metadata,
+		}
+		for _, hook in ipairs(attackHooks) do
+			local ok, err = pcall(hook :: any, ctx)
+			if not ok then
+				warn("[CombatService] attack hook failed:", err)
+			end
+		end
+		attack = copy
+	end
+
 	local invuln, _ = StatusEffectsService.hasBlockingEffect(targetEntityId, "damage")
 	local healthBefore = StatsManager.getPoolCurrentValue(targetEntityId, StatTypes.PoolStats.Health)
 	-- Initialize attack result
@@ -553,6 +638,12 @@ function CombatService.applyAttack(
 			-- Accumulate damage by type
 			local damageType = packet.damageType or "Physical"
 			attackResult.byType[damageType] = (attackResult.byType[damageType] or 0) + result.finalAmount
+			if result.crit then
+				attackResult.crit = true
+				local critTypes = attackResult.critTypes or {}
+				critTypes[damageType] = true
+				attackResult.critTypes = critTypes
+			end
 
 			-- Aggregate overall stats
 			attackResult.totalDamage = attackResult.totalDamage + result.finalAmount
@@ -654,8 +745,10 @@ function CombatService.applyAttack(
 			end
 		end
 
-		attackResult.staggerApplied =
-			StaggerSystem.tryStagger(targetEntityId, attackResult.totalDamage, sourceEntityId, specId)
+		local staggerScale = attack.metadata.staggerScale
+		local staggerDamage = attackResult.totalDamage * (if type(staggerScale) == "number" then staggerScale else 1)
+		attackResult.staggerApplied = staggerDamage > 0
+			and StaggerSystem.tryStagger(targetEntityId, staggerDamage, sourceEntityId, specId)
 	end
 
 	-- Broadcast hit event to clients for damage numbers

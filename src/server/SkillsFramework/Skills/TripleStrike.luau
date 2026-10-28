@@ -88,6 +88,7 @@ function TripleStrike:use(requestData)
 							damage = damage,
 							damageType = "Physical",
 							comboStep = hitIndex,
+							delivery = "melee",
 						})
 
 						-- Apply to all targets

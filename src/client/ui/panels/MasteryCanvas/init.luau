@@ -237,6 +237,9 @@ local function MasteryCanvas()
 				progression.attunement
 			)
 			else nil
+		if pairing then
+			pairing.passives = ProgressionClient.chosenPassives()
+		end
 		return MasteryTree.build(track.id, branches, context, selectedShape, attuned, pairing)
 	end, { track.id, progression, context } :: { any })
 	local minimum, maximum = treeBounds(tree)
@@ -383,6 +386,15 @@ local function MasteryCanvas()
 							return
 						end
 						ProgressionClient.selectInfusion(if node.selected then "" else node.id)
+						return
+					end
+					-- A selectable passive toggles in and out of the shared slots.
+					if node.kind == "select" then
+						if not node.selectable then
+							UISound.play("error")
+							return
+						end
+						ProgressionClient.selectPassive(node.id, not node.selected)
 						return
 					end
 					-- Only an unlocked form that has a profile for the held weapon can be chosen.
@@ -700,7 +712,7 @@ local function MasteryCanvas()
 			BackgroundTransparency = 1,
 			Text = if atShrine
 				then "DRAG TO MOVE   /   CHOOSE A MASTERY ON THE RIGHT TO ATTUNE OR RELEASE IT"
-				else "DRAG TO MOVE   /   CHOOSE AN UNLOCKED FORM OR INFUSION TO USE IT",
+				else "DRAG TO MOVE   /   CHOOSE AN UNLOCKED FORM, INFUSION OR SELECTABLE PASSIVE TO USE IT",
 			FontFace = theme.face.display,
 			TextSize = theme.type.label,
 			TextColor3 = theme.color.textMuted,

@@ -13,11 +13,15 @@ All numbers are placeholders, to tune with combat.
 1. **Infusion data lives on the tree nodes** (`MasteryTrees`, `infusion = { element, conversion,
    surcharge }`):
 
-   | Tier | Converts | Cost surcharge |
+   | Tier | Converts | Cost |
    |---|---|---|
-   | Fire I / Frost I | 25% | +10% |
-   | Fire II / Frost II | 50% | +20% |
-   | Fire III / Frost III | 100% | +30% |
+   | Fire I / Frost I | 25% | 2 Mana per step |
+   | Fire II / Frost II | 50% | 3 Mana per step |
+   | Fire III / Frost III | 100% | 4 Mana per step |
+
+   *Revised 2026-10-27 (`docs/tasks/passives.md`):* the cost was first a +10/20/30% surcharge on the
+   form's own resource; it is now mana per step, paid as a second resource by forms that spend
+   something else.
 
    Fire III and Frost III are join nodes: they need rank 3 in both branches.
 2. **The generic rule** (`shared/skills/BasicAttackForm`):
@@ -26,9 +30,8 @@ All numbers are placeholders, to tune with combat.
    - **Potency** scales the converted part: `1 + 1% × element level`, with the per-level part ×1.5
      when the element is attuned. This is the continuous growth inside a node, and what attuning
      an element strengthens.
-3. **Cost:** an infusion adds its surcharge to the shape's cost, on the shape's own resource.
-   Charging a second resource (stamina and a little mana) needs the cost pipeline to carry more than
-   one resource; left for later.
+3. **Cost:** see the table above. A form that spends Mana adds the infusion's cost to its own; any
+   other form pays it as a second resource (`BasicAttackForm` `cost.extra`).
 4. **Selection:**
    - One infusion or none, for the character, carried over to any weapon. Saved as
      `progression.infusion`.
@@ -97,7 +100,6 @@ The dev save was put back afterwards: Fire trunk 22.38, no infusion, wand unequi
 - **The place file has an old, unregistered Slime model** in Workspace at (23, 0, 15.5). It has the
   pre-fix layout (RootPart, AnimationController), like the stray Dummy removed earlier.
 - **Not in this step:**
-  - passive effects (Ignite, Chill and the rest still do nothing);
-  - attunement-only end nodes' effects;
+  - passive effects and attunement-only end nodes' effects (since done: `docs/tasks/passives.md`);
   - the other six combinations, which wait on their shapes;
-  - a second cost resource.
+  - a second cost resource (since done, same doc).

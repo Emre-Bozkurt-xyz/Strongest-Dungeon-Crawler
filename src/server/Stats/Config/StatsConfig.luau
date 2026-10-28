@@ -83,6 +83,12 @@ StatsConfig.DEFAULT_STATS = {
 		maxValue = 10,
 		name = "Perception Tier",
 	},
+	-- Percentage points. Resistance can go negative (a debuff); what it may reach is capped where
+	-- damage is taken (CombatService), not here, so the cap can rise from classes and gear.
+	[Types.StaticStats.FireResistance] = { baseValue = 0, minValue = -100, maxValue = 100, name = "Fire Resistance" },
+	[Types.StaticStats.FrostResistance] = { baseValue = 0, minValue = -100, maxValue = 100, name = "Frost Resistance" },
+	[Types.StaticStats.FirePenetration] = { baseValue = 0, minValue = 0, maxValue = 100, name = "Fire Penetration" },
+	[Types.StaticStats.FrostPenetration] = { baseValue = 0, minValue = 0, maxValue = 100, name = "Frost Penetration" },
 }
 
 StatsConfig.DEFAULT_RESOURCES = {

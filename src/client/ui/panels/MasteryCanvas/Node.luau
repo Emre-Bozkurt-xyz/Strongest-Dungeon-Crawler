@@ -56,7 +56,7 @@ local function statusText(node: MasteryTree.Node): string
 			return if node.built then "DOES NOT FIT YOUR WEAPON" else "NOT BUILT YET"
 		end
 		status = "AVAILABLE"
-	elseif node.kind == "infusion" then
+	elseif node.kind == "infusion" or node.kind == "select" then
 		status = "AVAILABLE"
 	else
 		return KIND_LABEL[node.kind] or "UNLOCKED"

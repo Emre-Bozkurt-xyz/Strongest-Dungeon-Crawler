@@ -45,6 +45,10 @@ export type EffectDef = {
 	onRefresh: ((target: string, source: string?, params: any?, stacks: number) -> ())?,
 	onTick: ((target: string, source: string?, params: any?, stacks: number, dt: number, ctx: EffectContext) -> ())?,
 	onRemove: ((target: string, source: string?, stacks: number) -> ())?,
+	-- Parameters an application starts from, and which of them are the effect's strength (what a
+	-- "stronger burn" scales). Read by whoever prepares an application (passives' StatusParams).
+	defaultParams: { [string]: any }?,
+	potencyKeys: { string }?,
 }
 
 export type ActiveEntry = {
@@ -202,6 +206,33 @@ function StatusEffectsService.clearAll(target: string)
 	active[target] = nil
 end
 
+function StatusEffectsService.getDef(id: string): EffectDef?
+	return registry[id]
+end
+
+-- The parameters of the strongest application in force (by the definition's potency, else the
+-- latest), for passing a status on to another target.
+function StatusEffectsService.getParams(target: string, id: string): any?
+	local bucket = active[target]
+	local st = bucket and bucket[id]
+	if not st then
+		return nil
+	end
+	local entries = st.entries
+	if entries and #entries > 0 then
+		local best = entries[#entries]
+		if st.def.getPotency then
+			for _, entry in ipairs(entries) do
+				if st.def.getPotency(entry.params) > st.def.getPotency(best.params) then
+					best = entry
+				end
+			end
+		end
+		return best.params
+	end
+	return st.params
+end
+
 function StatusEffectsService.isHarmful(id: string): boolean
 	local def = registry[id]
 	if not def then
@@ -238,6 +269,14 @@ local function ensureState(
 	return state
 end
 
+-- A caller may raise one application's stack cap (`params.maxStacks`), for things that let an effect
+-- stack further for one source ("burns stack once more"); never lower it below the definition's.
+local function maxStacksFor(def: EffectDef, params: any?): number
+	local base = def.maxStacks or 1
+	local raised = if type(params) == "table" and type(params.maxStacks) == "number" then params.maxStacks else 0
+	return math.max(base, raised)
+end
+
 local function addOrReplaceEntry(
 	st: ActiveEffectState,
 	def: EffectDef,
@@ -252,7 +291,7 @@ local function addOrReplaceEntry(
 		entriesOpt = st.entries
 	end
 	local entriesNN = entriesOpt :: { ActiveEntry }
-	local maxStacks = def.maxStacks or 1
+	local maxStacks = maxStacksFor(def, params)
 	local newEntry: ActiveEntry = {
 		params = params,
 		source = source,
@@ -335,7 +374,7 @@ function StatusEffectsService.apply(target: string, id: string, source: string?,
 		active[target] = bucket
 	end
 	local st = bucket[id]
-	local maxStacks = def.maxStacks or 1
+	local maxStacks = maxStacksFor(def, params)
 	local duration = (params and (params :: any).duration) or def.duration or 0
 	local mode: StackingMode = def.stacking or "aggregate"
 	local durationPolicy: DurationPolicy = def.durationPolicy or "refresh"

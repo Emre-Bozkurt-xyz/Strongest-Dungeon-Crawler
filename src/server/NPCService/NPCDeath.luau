@@ -18,6 +18,7 @@ local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local Server = ServerScriptService.Server
 local StatsManager = require(Server.Stats.StatsManager)
 local Registrar = require(Server.Services.Registrar)
+local StatusEffectsService = require(Server.StatusEffects.StatusEffectsService)
 local NPCManager = require(script.Parent.NPCManager)
 local NPCSpawner = require(script.Parent.NPCSpawner)
 
@@ -54,8 +55,18 @@ local function scheduleRespawn(model: Model)
 	if type(delay) ~= "number" or typeof(cframe) ~= "CFrame" or type(prefab) ~= "string" then
 		return
 	end
+	-- It comes back in the same area; a rolled rank rolls again, a forced one stays.
+	local areaLevel = model:GetAttribute("AreaLevel")
+	local rank = if model:GetAttribute("RankForced") == true then model:GetAttribute("Rank") else nil
+	local parent = model.Parent
 	task.delay(delay, function()
-		NPCSpawner.spawn(prefab, { cframe = cframe, respawnDelay = delay })
+		NPCSpawner.spawn(prefab, {
+			cframe = cframe,
+			respawnDelay = delay,
+			areaLevel = areaLevel,
+			rank = rank,
+			parent = parent,
+		})
 	end)
 end
 
@@ -63,6 +74,9 @@ local function die(entityId: string, model: Model)
 	for _, listener in ipairs(listeners) do
 		task.spawn(listener, entityId, model)
 	end
+	-- A dead body stops burning, bleeding and slowing. After the listeners, which read what was on it
+	-- as it died (a kill passive that needs the enemy burning).
+	task.defer(StatusEffectsService.clearAll, entityId)
 	scheduleRespawn(model)
 	task.delay(LINGER_TIME, function()
 		fadeOut(model)

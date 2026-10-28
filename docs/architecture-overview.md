@@ -231,10 +231,10 @@ What it does
   including what each step costs. Each weapon class has one default; alternatives declare
   `shapeFor` and are unlocked through the mastery tree node that names them.
 - An *infusion* is an element tree node (`MasteryTrees`, `infusion = { element, conversion,
-  surcharge }`). One or none is selected for the character and carries over to any weapon.
+  cost }`). One or none is selected for the character and carries over to any weapon.
 - A *form* is shape + infusion (`BasicAttackForm.resolve`): the infusion converts its share of every
-  step's damage to its element, scaled by potency (element level, ×1.5 attuned), and adds its
-  surcharge to the cost. A named pair (`FormCombinations`, e.g. Mana Ball + Fire III = Fireball) adds
+  step's damage to its element, scaled by potency (element level, ×1.5 attuned), and costs mana per
+  step -- added to the form's own cost when it spends mana, a second resource otherwise. A named pair (`FormCombinations`, e.g. Mana Ball + Fire III = Fireball) adds
   its own name, cost and projectile override (size, explosion).
 - `FormService` keeps the shape per class key (weapon class or `unarmed`) and the infusion in the
   save, validates `LoadoutSelectShape` / `LoadoutSelectInfusion`, and is the combat loadout's shape
@@ -249,13 +249,50 @@ Key decisions
 - Unlocks are derived from saved mastery XP and attunement, never stored.
 - Cost lives on the form: `BasicAttack:applyResolvedShape` sets the charged cost, and
   `SkillMetadataService` computes the client's cost preview from the same form, refreshed whenever
-  the combat loadout changes. Infusions only add a surcharge on the shape's own resource; a second
-  resource (stamina and mana) needs the cost pipeline to carry more than one.
+  the combat loadout changes. A second resource goes in `config.extraCosts`; `BaseSkill` checks every
+  cost before taking any, and metadata previews each (`extraCosts`) for the client's check.
 - An infusion never changes combo timing, which the client predicts; it changes what the damage is
   and how a projectile looks (`extraData.element` / `scale` / `impactScale`, recoloured on the client
   by `client/fx/ElementLook`).
 - `SkillsManager` asks a skill to `resolveComboConfig()` (when it has one) before opening or
   advancing a chain, so a chain always uses the current shape's step count and window.
+
+### 3.8c Passives
+Paths: `src/server/Progression/Passives/` (PassiveService, Filters, Facts, Kinds/),
+`src/shared/progression/NodeEffects.luau`, `src/shared/progression/PassivePool.luau`
+
+What it does
+- Puts passive, selectable passive and attunement-only nodes into effect. Their effects are data
+  (`NodeEffects`: `{ kind, when, ... }` per node); each `kind` is one module in `Kinds/` that acts at
+  the moments it needs -- ahead of time (`apply`: stat and cost modifiers, numbers skills read through
+  `PassiveQuery`), on attacks about to land (`outgoing`/`incoming`, through CombatService attack
+  hooks), after a direct hit (`afterHit`), on a kill (`onKill`), on a skill use (`onUse`).
+- Selectable passives: one shared pool of slots by character level (`PassivePool`), saved as
+  `progression.passives`, chosen with `ProgressionSelectPassive`.
+
+Key decisions
+- What is in effect is derived from saved branch XP, attunement and the chosen passives, recomputed
+  on any change to them or to what is held. Magnitudes grow with the node's branch (up to +50% at
+  Mastered) and with an attuned element (×1.5).
+- A new behaviour is a new kind, not a special case in the service; content only names kinds.
+- Only direct hits trigger after-hit effects: a status's own damage (`metadata.effectId`) does not,
+  so a burn cannot feed itself.
+- Statuses live in `server/StatusEffects` (Ailments: Chill, Freeze, Bleed, Sunder, Slow); slows go
+  through `server/Movement/SpeedModifiers` so overlapping slows and hastes combine.
+
+### 3.8d Combat hooks, resistance and enemy values
+Paths: `src/server/Services/CombatService.luau`, `src/shared/progression/EnemyRewards.luau`,
+`src/server/NPCService/NPCSpawner.luau`
+
+- `CombatService.addAttackHook` lets a system change an attack per target before it lands (packets
+  copied per target). Packets may carry `critChanceBonus`, `critDamageBonus` and
+  `resistancePenetration`; metadata carries `delivery` and `staggerScale`.
+- Elements are mitigated by `<Element>Resistance` (capped at 75, reduced by penetration, never below
+  zero), not armor; armor is for non-element damage.
+- NPC rewards: a spec declares its type multiplier (`progression = { type }`); the spawn gives area
+  level (option, else an ancestor's `AreaLevel` attribute) and rank (forced or rolled);
+  `EnemyRewards` turns them into `XPValue` / `MasteryValue`. Kill XP takes a light level-difference
+  penalty.
 
 ### 3.9 Projectile system
 Path: `src/server/Services/ProjectileService.luau`

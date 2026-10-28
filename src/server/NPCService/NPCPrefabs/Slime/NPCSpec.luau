@@ -34,9 +34,8 @@ return {
 		fleeHealthThreshold = 0.2,
 		resumeHealthThreshold = 0.5,
 	}),
-	-- Mastery XP for removing all of its health (placeholder until area level, type and rank).
-	-- Character XP for the kill is shared by contribution.
-	progression = { masteryValue = 40, xp = 12 },
+	-- An ordinary enemy: XP and mastery value come from its area level and rank (EnemyRewards).
+	progression = { type = 1 },
 	damageable = {
 		configure = function(stats)
 			local healthPool = stats[StatTypes.PoolStats.Health]

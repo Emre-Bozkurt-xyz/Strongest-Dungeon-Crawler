@@ -30,6 +30,14 @@ export type MovementConfig = {
 
 export type MovementState = "idle" | "walking" | "running" | "patrolling" | "chasing" | "stuck"
 
+-- Set the Humanoid to `speed` times whatever slows or hastes are in force (SpeedModifiers keeps the
+-- model's `SpeedScale`), remembering `speed` so a slow that starts or ends later scales from it.
+local function setHumanoidSpeed(model: Model, humanoid: Humanoid, speed: number)
+	model:SetAttribute("CurrentBaseSpeed", speed)
+	local scale = model:GetAttribute("SpeedScale")
+	humanoid.WalkSpeed = speed * (if type(scale) == "number" then scale else 1)
+end
+
 -- Create a Movement component for an NPC
 function Movement.new(npcModel: Model, config: MovementConfig): any
 	local component = NPCManager.addComponent(npcModel, "Movement")
@@ -59,7 +67,7 @@ function Movement.new(npcModel: Model, config: MovementConfig): any
 	-- Set up Humanoid movement properties
 	local humanoid = npcModel:FindFirstChild("Humanoid") :: Humanoid?
 	if humanoid then
-		humanoid.WalkSpeed = config.walkSpeed or 8
+		setHumanoidSpeed(npcModel, humanoid, config.walkSpeed or 8)
 		humanoid.JumpHeight = config.jumpHeight or 7.2
 	end
 
@@ -107,7 +115,7 @@ function Movement:setWalkSpeed(speed: number)
 	self.model:SetAttribute("WalkSpeed", speed)
 	local humanoid = self.model:FindFirstChild("Humanoid") :: Humanoid?
 	if humanoid then
-		humanoid.WalkSpeed = speed
+		setHumanoidSpeed(self.model, humanoid, speed)
 	end
 end
 
@@ -121,7 +129,7 @@ function Movement:enableRunning()
 	local runSpeed = self.model:GetAttribute("RunSpeed") or 16
 	local humanoid = self.model:FindFirstChild("Humanoid") :: Humanoid?
 	if humanoid then
-		humanoid.WalkSpeed = runSpeed
+		setHumanoidSpeed(self.model, humanoid, runSpeed)
 	end
 end
 
@@ -130,7 +138,7 @@ function Movement:enableWalking()
 	local walkSpeed = self.model:GetAttribute("WalkSpeed") or 8
 	local humanoid = self.model:FindFirstChild("Humanoid") :: Humanoid?
 	if humanoid then
-		humanoid.WalkSpeed = walkSpeed
+		setHumanoidSpeed(self.model, humanoid, walkSpeed)
 	end
 end
 

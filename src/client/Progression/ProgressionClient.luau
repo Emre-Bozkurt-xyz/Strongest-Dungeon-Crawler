@@ -22,6 +22,7 @@ local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
 local MasteryXP = require(ReplicatedStorage.Shared.progression.MasteryXP)
 local CharacterXP = require(ReplicatedStorage.Shared.progression.CharacterXP)
 local Attunement = require(ReplicatedStorage.Shared.progression.Attunement)
+local PassivePool = require(ReplicatedStorage.Shared.progression.PassivePool)
 local NotificationClient = require(script.Parent.Parent.ui.controllers.NotificationClient)
 local UISound = require(script.Parent.Parent.ui.UISound)
 
@@ -36,6 +37,8 @@ export type Snapshot = {
 	shapes: { [string]: string },
 	-- Selected infusion node id, or "" for none.
 	infusion: string,
+	-- Chosen selectable passive node ids, in the order chosen (before cutting to the slots).
+	passives: { string },
 	-- Attuned track ids, in the order they were attuned.
 	attunement: { string },
 }
@@ -44,6 +47,11 @@ local ProgressionClient = {}
 
 local snapshot: Snapshot? = nil
 local listeners: { [{}]: () -> () } = {}
+
+-- What the server's refusal of a selectable passive means to the player.
+local PASSIVE_FAILURES: { [string]: string } = {
+	locked = "NOT AVAILABLE",
+}
 
 -- What the server's refusal of an attunement change means to the player.
 local ATTUNE_FAILURES: { [string]: string } = {
@@ -99,11 +107,20 @@ local function sanitize(raw: any): Snapshot?
 	local character = raw.character
 	local characterXp = if type(character) == "table" and type(character.xp) == "number" then character.xp else 0
 	local infusion = if type(raw.infusion) == "string" then raw.infusion else ""
+	local passives: { string } = {}
+	if type(raw.passives) == "table" then
+		for _, nodeId in ipairs(raw.passives) do
+			if type(nodeId) == "string" then
+				table.insert(passives, nodeId)
+			end
+		end
+	end
 	return {
 		characterXp = characterXp,
 		masteries = masteries,
 		shapes = shapes,
 		infusion = infusion,
+		passives = passives,
 		attunement = attunement,
 	}
 end
@@ -277,6 +294,64 @@ function ProgressionClient.selectInfusion(infusionId: string)
 			"ProgressionClient: infusion selection failed:",
 			if ok and type(response) == "table" then response.error else response
 		)
+	end)
+end
+
+-- How many selectable passives the character may have chosen at their level, and the level that
+-- opens the next slot (nil once all are open).
+function ProgressionClient.passiveSlots(): (number, number?)
+	local level = ProgressionClient.characterProgress().level
+	local slots = PassivePool.slotsFor(level)
+	return slots, PassivePool.SLOT_LEVELS[slots + 1]
+end
+
+-- The chosen selectable passives that have a slot, by the server's rule (PassiveService.chosenOf).
+function ProgressionClient.chosenPassives(): { string }
+	local out: { string } = {}
+	if not snapshot then
+		return out
+	end
+	local slots = ProgressionClient.passiveSlots()
+	for _, nodeId in ipairs(snapshot.passives) do
+		if #out >= slots then
+			break
+		end
+		table.insert(out, nodeId)
+	end
+	return out
+end
+
+-- Ask the server to choose the selectable passive `nodeId`, or drop it. The server's progression
+-- update follows on success.
+function ProgressionClient.selectPassive(nodeId: string, selected: boolean)
+	task.spawn(function()
+		local ok, response = pcall(function()
+			return dispatcher:request("ProgressionSelectPassive", { nodeId = nodeId, selected = selected })
+		end)
+		if ok and type(response) == "table" and response.ok then
+			UISound.play("confirm")
+			return
+		end
+		UISound.play("error")
+		local reason = if ok and type(response) == "table" then response.error else nil
+		if reason == "no_free_slot" then
+			local slots, nextAt = ProgressionClient.passiveSlots()
+			NotificationClient.push({
+				tag = "NO FREE SLOT",
+				tone = "warning",
+				text = if nextAt then `{slots} PASSIVE SLOTS  ·  NEXT AT LV {nextAt}` else `{slots} PASSIVE SLOTS IN USE`,
+				key = "passive:no_free_slot",
+			})
+		elseif reason and PASSIVE_FAILURES[reason] then
+			NotificationClient.push({
+				tag = "CANNOT CHOOSE",
+				tone = "warning",
+				text = PASSIVE_FAILURES[reason],
+				key = `passive:{reason}`,
+			})
+		else
+			warn("ProgressionClient: passive selection failed:", reason or response)
+		end
 	end)
 end
 

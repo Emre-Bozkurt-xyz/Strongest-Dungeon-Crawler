@@ -29,7 +29,7 @@ export type Combination = {
 	-- Shape node and infusion node it pairs.
 	shape: string,
 	infusion: string,
-	-- Added to the form's cost on top of the infusion's surcharge.
+	-- Added to the form's own cost, as a share of it, on top of what the infusion costs.
 	surcharge: number?,
 	projectile: ProjectileOverride?,
 }

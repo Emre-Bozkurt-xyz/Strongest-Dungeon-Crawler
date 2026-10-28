@@ -26,6 +26,7 @@ local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.Basic
 local BasicAttackProfileTypes = require(ReplicatedStorage.Shared.skills.BasicAttackProfileTypes)
 local BasicAttackForm = require(ReplicatedStorage.Shared.skills.BasicAttackForm)
 local FormCombinations = require(ReplicatedStorage.Shared.progression.FormCombinations)
+local PassiveQuery = require(Server.Progression.Passives.PassiveQuery)
 local HandResolver = require(ReplicatedStorage.Shared.skills.HandResolver)
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local EntityUtils = require(ReplicatedStorage.Shared.EntityUtils)
@@ -94,6 +95,7 @@ function BasicAttack:applyResolvedShape(): BasicAttackProfileTypes.BasicAttackPr
 	-- Read by BaseSkill:applyResourceCost when BaseComboSkill.use charges the step.
 	self.config.costs = form.cost.steps
 	self.config.baseResource = form.cost.resource
+	self.config.extraCosts = form.cost.extra
 	return profile
 end
 
@@ -140,7 +142,7 @@ function BasicAttack:applyConeStep(step: number, coneAngle: number, coneRange: n
 		:casterEntityId(self.casterId)
 		:factionRelation("enemy")
 		:playersOnly(false)
-		:cone(coneAngle, coneRange)
+		:cone(coneAngle, coneRange * PassiveQuery.multiplier(self.casterId, "reach"))
 		:collect({ collectIds = true })
 
 	local targetIds = targets.ids
@@ -154,6 +156,7 @@ function BasicAttack:applyConeStep(step: number, coneAngle: number, coneRange: n
 		damages = damages,
 		comboStep = step,
 		knockback = stepSpec and stepSpec.knockback,
+		delivery = "melee",
 	})
 
 	for _, targetEntityId in ipairs(targetIds) do
@@ -174,6 +177,7 @@ function BasicAttack:explode(
 	if not radius or radius <= 0 then
 		return
 	end
+	radius *= PassiveQuery.multiplier(self.casterId, "area")
 	local share = override.explosionDamage or 1
 	local splash: { AttackResolver.TypedDamage } = {}
 	for _, entry in ipairs(damages) do
@@ -191,7 +195,7 @@ function BasicAttack:explode(
 	end
 	for _, targetEntityId in ipairs(targetIds) do
 		if targetEntityId ~= struckId then
-			local attack = self:resolveAttack({ damages = splash, comboStep = step })
+			local attack = self:resolveAttack({ damages = splash, comboStep = step, delivery = "area" })
 			CombatService.applyAttack(targetEntityId, attack, self.casterId :: string)
 		end
 	end
@@ -242,7 +246,10 @@ function BasicAttack:fireProjectileStep(
 		direction = root.CFrame.LookVector
 	end
 
-	local speed = projectile.launchSpeed
+	-- Passives can make shots fly faster and further (projectileSpeed, reach); the client simulates
+	-- from the same launch speed and lifetime the server sends.
+	local speed = projectile.launchSpeed * PassiveQuery.multiplier(self.casterId, "projectileSpeed")
+	local lifetime = projectile.lifetime * PassiveQuery.multiplier(self.casterId, "reach")
 	local movementType = projectile.movementType or "linear"
 
 	-- The form decides how the shot looks and lands: an infusion colours it (clients tint the
@@ -282,7 +289,7 @@ function BasicAttack:fireProjectileStep(
 		launchSpeed = speed,
 		movementType = movementType,
 		gravity = projectile.gravity,
-		lifetime = projectile.lifetime,
+		lifetime = lifetime,
 		radius = projectile.radius,
 		pierce = projectile.pierce,
 		guidance = guidance,
@@ -299,6 +306,7 @@ function BasicAttack:fireProjectileStep(
 			local attack = self:resolveAttack({
 				damages = damages,
 				comboStep = step,
+				delivery = "projectile",
 			})
 			CombatService.applyAttack(targetEntityId, attack, self.casterId)
 			if override then

@@ -1,7 +1,8 @@
 # Mastery Mind-Space — the mastery menu, tree canvas and attunement shrine
 
-Status: **direction agreed 2026-10-27, mockup confirmed; stage 1 (menu and shrine flow) built
-2026-10-28.** Art: `src/shared/progression/MasteryArt.luau` (asset ids and crop rects).
+Status: **direction agreed 2026-10-27, mockup confirmed; stages 1 (menu and shrine flow) and 2
+(canvas look and layout) built 2026-10-28.** New nodes are saved as `progression.unseen`
+(MasteryService adds a node when it unlocks; hovering it in the canvas clears it). Art: `src/shared/progression/MasteryArt.luau` (asset ids and crop rects).
 It replaces the first-cut canvas (`client/ui/panels/MasteryCanvas`) and the canvas's shrine mode.
 The mechanics behind it are in `progression-direction.md`, `docs/tasks/infusions-and-combinations.md`
 and `docs/tasks/passives.md`.

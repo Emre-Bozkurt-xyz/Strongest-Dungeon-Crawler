@@ -1,196 +1,272 @@
 --!strict
--- One node of a mastery tree: a small card of light in the System chrome.
+-- One node of the constellation (docs/planning/mastery-mind-space.md, "Visual language").
 --
--- Three looks, one per thing the player can know about it: a fogged node is only its corners and a
--- question mark (it exists, nothing more); a locked node shows its name and what it takes; an
--- unlocked node is lit, the form and infusion in use outlined in the focus colour. Forms and
--- infusions are chosen here; other unlocked nodes say what kind of node they are. An earned node of
--- a track that is not attuned is dormant: lit dimly, and not chosen until the track is attuned.
--- A node that would make a named combination with the other half of the current form names it, so
--- the pairing is advertised before it is made.
+-- Monochrome: white for what is yours, grey for what is not yet. A passive is a bare circle. A
+-- selectable passive is larger, embroidered and carries an icon; an attunement-only node's embroidery
+-- is a closed ring. A form or infusion is the most important: the heaviest embroidery, an icon, and
+-- the System's bracket corners, grey while available and white while in use. A fogged node is only a
+-- faint star. An earned node of a track that is not attuned is dormant: earned, but drawn mid-grey.
+--
+-- A node unlocked since the player last looked pulses until they hover it.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
+local MasteryArt = require(ReplicatedStorage.Shared.progression.MasteryArt)
 
 local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
 local useSpring = require(script.Parent.Parent.Parent.hooks.useSpring)
 local Brackets = require(script.Parent.Parent.Parent.components.Brackets)
-local Glyph = require(script.Parent.Parent.Parent.components.Glyph)
 local UISound = require(script.Parent.Parent.Parent.UISound)
 
 local e = React.createElement
 
 local Node = {}
 
-Node.SIZE = Vector2.new(212, 76)
+local INK = Color3.fromRGB(238, 241, 246)
+local MID = Color3.fromRGB(138, 144, 155)
+local GREY = Color3.fromRGB(93, 99, 111)
+local VOID = Color3.fromRGB(4, 5, 8)
+
+-- Body radius by kind, in pixels.
+Node.RADIUS = { passive = 11, select = 17, attuned = 17, form = 23, infusion = 23 } :: { [string]: number }
+
+-- Embroidery per kind: the frame art, and how far past the body its outer edge reaches.
+local FRAMES: { [string]: { key: string, reach: number } } = {
+	select = { key = "frame.select", reach = 11 },
+	attuned = { key = "frame.attuned_node", reach = 10 },
+	form = { key = "frame.form", reach = 15 },
+	infusion = { key = "frame.form", reach = 15 },
+}
+
+-- How far past the body a form's bracket corners sit.
+local BRACKET_REACH = 25
+-- One pulse: a ring swelling out from the node and fading.
+local PULSE_PERIOD = 1.6
+local PULSE_TRAVEL = 22
 
 export type Props = {
 	node: MasteryTree.Node,
-	glyph: string,
+	-- The track's emblem, for nodes whose own art is not made yet.
+	trackId: string,
+	-- Content-space centre.
 	position: Vector2,
-	-- 0..1 binding: this node's part of the canvas's entrance.
+	unseen: boolean,
+	-- 0..1 binding: this node's part of the entrance.
 	appear: any,
+	-- Seconds binding, shared by every pulse so they beat together.
+	clock: any,
+	onHover: () -> (),
 	onActivated: () -> (),
 }
 
-local KIND_LABEL: { [string]: string } = {
-	passive = "PASSIVE",
-	select = "SELECTABLE PASSIVE",
-	attuned = "ATTUNED",
-}
+local function join(base: { [string]: any }, extra: { [string]: any }): { [string]: any }
+	local out = table.clone(base)
+	for key, value in pairs(extra) do
+		out[key] = value
+	end
+	return out
+end
 
--- The one line under the name: what the node is to the player right now.
-local function statusText(node: MasteryTree.Node): string
-	if not node.unlocked then
-		return node.requirement or "LOCKED"
+local function circle(diameter: number, props: { [string]: any }, children: { [string]: any }?)
+	local merged = join({
+		Size = UDim2.fromOffset(diameter, diameter),
+		Position = UDim2.fromScale(0.5, 0.5),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BorderSizePixel = 0,
+	}, props)
+	local inner: { [string]: any } = { Round = e("UICorner", { CornerRadius = UDim.new(1, 0) }) }
+	for key, value in pairs(children or {}) do
+		inner[key] = value
 	end
-	local status
-	if node.selected then
-		status = "IN USE"
-	elseif node.dormant then
-		return "DORMANT · NOT ATTUNED"
-	elseif node.kind == "form" then
-		if not node.shapeId then
-			return if node.built then "DOES NOT FIT YOUR WEAPON" else "NOT BUILT YET"
-		end
-		status = "AVAILABLE"
-	elseif node.kind == "infusion" or node.kind == "select" then
-		status = "AVAILABLE"
-	else
-		return KIND_LABEL[node.kind] or "UNLOCKED"
-	end
-	return if node.combination then `{status} · {string.upper(node.combination)}` else status
+	return e("Frame", merged, inner)
+end
+
+local function FoggedNode(props: Props)
+	return e("Frame", {
+		Size = UDim2.fromOffset(14, 14),
+		Position = UDim2.fromOffset(props.position.X, props.position.Y),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundTransparency = 1,
+		ZIndex = 5,
+		Visible = props.appear:map(function(a: number)
+			return a > 0.02
+		end),
+	}, {
+		Dot = circle(3, { BackgroundColor3 = INK, BackgroundTransparency = 0.45 }),
+		Across = e("Frame", {
+			Size = UDim2.fromOffset(12, 1),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundColor3 = INK,
+			BackgroundTransparency = 0.7,
+			BorderSizePixel = 0,
+		}),
+		Down = e("Frame", {
+			Size = UDim2.fromOffset(1, 12),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundColor3 = INK,
+			BackgroundTransparency = 0.7,
+			BorderSizePixel = 0,
+		}),
+	})
 end
 
 local function NodeView(props: Props)
 	local theme = ThemeContext.useTheme()
 	local hovered, setHovered = React.useState(false)
+	local hover = useSpring(if hovered then 1 else 0, theme.motion.snap)
 	local node = props.node
-	local fogged = node.visibility == "fogged"
-	local hover = useSpring(if hovered and not fogged then 1 else 0, theme.motion.snap)
-
-	local focus = theme.color.accent
-	local frameColor = if node.selected then focus else if fogged then theme.color.textDisabled else theme.color.stroke
+	local kind = node.kind
+	local r = Node.RADIUS[kind] or Node.RADIUS.passive
 	local lit = node.unlocked and not node.dormant
-	local nameColor = if lit then theme.color.textHeading else theme.color.textMuted
-	local status = statusText(node)
-	local statusColor = if node.selected
-		then focus
-		else if node.unlocked then theme.color.textMuted else theme.color.danger
+	local on = node.selected
+	local ring = if kind == "passive"
+		then (if lit then INK elseif node.unlocked then MID else GREY)
+		else (if on then INK elseif lit then MID else GREY)
+	local iconInk = if on then INK elseif lit then MID else GREY
+	local frame = FRAMES[kind]
+	local hit = (r + (if frame then frame.reach else 6)) * 2 + 8
 
-	local function fade(base: number)
-		return props.appear:map(function(a: number)
-			return 1 - (1 - base) * math.clamp(a, 0, 1)
-		end)
-	end
-
-	local card: { [string]: any } = {
+	local children: { [string]: any } = {
 		Scale = e("UIScale", {
-			Scale = hover:map(function(h: number)
-				return 1 + 0.035 * h
-			end),
-		}),
-		Frame = e(Brackets, {
-			size = "small",
-			color = frameColor,
-			progress = props.appear,
-			edgeTransparency = if fogged then 1 elseif node.selected then 0.35 else 0.75,
+			Scale = React.joinBindings({ appear = props.appear, hover = hover }):map(
+				function(values: { appear: number, hover: number })
+					return (0.6 + 0.4 * math.clamp(values.appear, 0, 1)) * (1 + 0.08 * values.hover)
+				end
+			),
 		}),
 	}
 
-	if fogged then
-		card.Unknown = e("TextLabel", {
-			Size = UDim2.fromScale(1, 1),
+	if frame then
+		local art = MasteryArt.get(frame.key)
+		local diameter = (r + frame.reach) * 2
+		children.Embroidery = if art
+			then e(
+				"ImageLabel",
+				join(MasteryArt.imageProps(art), {
+					Size = UDim2.fromOffset(diameter, diameter),
+					Position = UDim2.fromScale(0.5, 0.5),
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					BackgroundTransparency = 1,
+					ImageColor3 = ring,
+					ScaleType = Enum.ScaleType.Fit,
+					ZIndex = 1,
+				})
+			)
+			else circle(diameter - 8, { BackgroundTransparency = 1, ZIndex = 1 }, {
+				Stroke = e("UIStroke", { Color = ring, Thickness = 1, Transparency = 0.2 }),
+			})
+	end
+
+	if (kind == "form" or kind == "infusion") and node.unlocked then
+		local size = (r + BRACKET_REACH) * 2
+		children.Corners = e("Frame", {
+			Size = UDim2.fromOffset(size, size),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
 			BackgroundTransparency = 1,
-			Text = "?",
-			FontFace = theme.face.mono,
-			TextSize = theme.type.title,
-			TextColor3 = theme.color.textDisabled,
-			TextTransparency = fade(0),
-		})
-	else
-		card.Fill = e("Frame", {
-			Size = UDim2.fromScale(1, 1),
-			BackgroundColor3 = theme.color.surface,
-			BackgroundTransparency = props.appear:map(function(a: number)
-				local base = if lit then 0.25 elseif node.unlocked then 0.45 else 0.55
-				return 1 - (1 - base) * math.clamp(a, 0, 1)
-			end),
-			BorderSizePixel = 0,
 			ZIndex = 1,
 		}, {
-			Lit = e("UIGradient", {
-				Rotation = 90,
-				Transparency = NumberSequence.new(0, 0.5),
-			}),
+			Brackets = e(Brackets, { size = "small", color = if on then INK else GREY, edgeTransparency = 1 }),
 		})
-		card.Icon = e("Frame", {
-			Size = UDim2.fromOffset(40, 40),
-			Position = UDim2.new(0, 16, 0.5, 0),
-			AnchorPoint = Vector2.new(0, 0.5),
-			BackgroundTransparency = 1,
-			ZIndex = 3,
-		}, {
-			Glyph = e(Glyph, {
-				glyph = props.glyph,
-				color = if node.selected then focus elseif lit then theme.color.textHeading else theme.color.textDisabled,
-				thickness = 1.5,
-			}),
-		})
-		card.Name = e("TextLabel", {
-			Size = UDim2.new(1, -76, 0, 22),
-			Position = UDim2.fromOffset(66, 14),
+	end
+
+	children.Body = circle(r * 2, { BackgroundColor3 = VOID, ZIndex = 2 }, {
+		Stroke = e("UIStroke", {
+			Color = ring,
+			Thickness = if kind == "passive" then 1.4 else 1.2,
+			-- Dormant: earned but not in effect, so the outline is there but faint.
+			Transparency = if node.unlocked and node.dormant then 0.45 else 0,
+		}),
+		Inner = if on and kind ~= "passive"
+			then circle(r * 2 - 7, { BackgroundTransparency = 1 }, {
+				Stroke = e("UIStroke", { Color = INK, Thickness = 1, Transparency = 0.55 }),
+			})
+			else nil,
+	})
+
+	if kind ~= "passive" then
+		local art = MasteryArt.get(node.id) or MasteryArt.get(`mastery.{props.trackId}`)
+		if art then
+			children.Icon = e(
+				"ImageLabel",
+				join(MasteryArt.imageProps(art), {
+					Size = UDim2.fromOffset(r * 1.3, r * 1.3),
+					Position = UDim2.fromScale(0.5, 0.5),
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					BackgroundTransparency = 1,
+					ImageColor3 = iconInk,
+					ScaleType = Enum.ScaleType.Fit,
+					ZIndex = 3,
+				})
+			)
+		end
+		local below = if kind == "form" or kind == "infusion" then BRACKET_REACH + 8 else (frame and frame.reach or 6) + 8
+		children.Name = e("TextLabel", {
+			Size = UDim2.fromOffset(200, 14),
+			Position = UDim2.new(0.5, 0, 0.5, r + below),
+			AnchorPoint = Vector2.new(0.5, 0),
 			BackgroundTransparency = 1,
 			Text = string.upper(node.displayName),
 			FontFace = theme.face.display,
-			TextSize = theme.type.small,
-			TextColor3 = nameColor,
-			TextTransparency = fade(0),
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextSize = 10,
+			TextColor3 = if lit then (if on then INK else MID) else GREY,
 			ZIndex = 3,
 		})
-		card.Status = e("TextLabel", {
-			Size = UDim2.new(1, -76, 0, 18),
-			Position = UDim2.fromOffset(66, 42),
+	end
+
+	if props.unseen then
+		children.Pulse = circle(r * 2, {
 			BackgroundTransparency = 1,
-			Text = status,
-			FontFace = theme.face.bodyBold,
-			TextSize = theme.type.label,
-			TextColor3 = statusColor,
-			TextTransparency = fade(0),
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextTruncate = Enum.TextTruncate.AtEnd,
-			ZIndex = 3,
+			Size = props.clock:map(function(t: number)
+				local phase = (t % PULSE_PERIOD) / PULSE_PERIOD
+				local diameter = (r + 6 + phase * PULSE_TRAVEL) * 2
+				return UDim2.fromOffset(diameter, diameter)
+			end),
+			ZIndex = 0,
+		}, {
+			Stroke = e("UIStroke", {
+				Color = INK,
+				Thickness = 1,
+				Transparency = props.clock:map(function(t: number)
+					local phase = (t % PULSE_PERIOD) / PULSE_PERIOD
+					return 1 - (1 - phase) * 0.6
+				end),
+			}),
 		})
 	end
 
 	return e("TextButton", {
-		Size = UDim2.fromOffset(Node.SIZE.X, Node.SIZE.Y),
+		Size = UDim2.fromOffset(hit, hit),
 		Position = UDim2.fromOffset(props.position.X, props.position.Y),
+		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundTransparency = 1,
 		AutoButtonColor = false,
 		Text = "",
 		ZIndex = 5,
+		Visible = props.appear:map(function(a: number)
+			return a > 0.02
+		end),
 		[React.Event.MouseEnter] = function()
 			setHovered(true)
-			if not fogged then
-				UISound.play("hover")
-			end
+			UISound.play("hover")
+			props.onHover()
 		end,
 		[React.Event.MouseLeave] = function()
 			setHovered(false)
 		end,
-		[React.Event.Activated] = function()
-			if not fogged then
-				props.onActivated()
-			end
-		end,
-	}, card)
+		[React.Event.Activated] = props.onActivated,
+	}, children)
 end
 
-Node.render = NodeView
+function Node.render(props: Props)
+	if props.node.visibility == "fogged" then
+		return e(FoggedNode, props)
+	end
+	return e(NodeView, props)
+end
 
 return Node

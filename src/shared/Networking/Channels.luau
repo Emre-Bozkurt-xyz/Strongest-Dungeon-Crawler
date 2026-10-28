@@ -145,7 +145,7 @@ local Channels: { [Names.ChannelName]: ChannelDefinition } = {
 		remoteFunction = "ProgressionRequest",
 		direction = "bidirectional",
 		qos = "NORMAL",
-		intents = { "ProgressionSnapshot", "ProgressionAttune", "ProgressionSelectPassive" },
+		intents = { "ProgressionSnapshot", "ProgressionAttune", "ProgressionSelectPassive", "ProgressionSeen" },
 		events = { "ProgressionUpdate" },
 	},
 }

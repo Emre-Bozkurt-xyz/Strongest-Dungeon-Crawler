@@ -41,6 +41,8 @@ export type Snapshot = {
 	passives: { string },
 	-- Attuned track ids, in the order they were attuned.
 	attunement: { string },
+	-- Unlocked node ids the player has not looked at yet.
+	unseen: { [string]: boolean },
 }
 
 local ProgressionClient = {}
@@ -115,6 +117,14 @@ local function sanitize(raw: any): Snapshot?
 			end
 		end
 	end
+	local unseen: { [string]: boolean } = {}
+	if type(raw.unseen) == "table" then
+		for _, nodeId in ipairs(raw.unseen) do
+			if type(nodeId) == "string" then
+				unseen[nodeId] = true
+			end
+		end
+	end
 	return {
 		characterXp = characterXp,
 		masteries = masteries,
@@ -122,6 +132,7 @@ local function sanitize(raw: any): Snapshot?
 		infusion = infusion,
 		passives = passives,
 		attunement = attunement,
+		unseen = unseen,
 	}
 end
 
@@ -374,6 +385,31 @@ function ProgressionClient.setAttuned(trackId: string, attuned: boolean)
 		else
 			warn("ProgressionClient: attunement change failed:", reason or response)
 		end
+	end)
+end
+
+-- Whether a node unlocked since the player last looked at it.
+function ProgressionClient.isUnseen(nodeId: string): boolean
+	return snapshot ~= nil and snapshot.unseen[nodeId] == true
+end
+
+-- The player has looked at `nodeId`. Cleared here at once so the mark stops without waiting on the
+-- server, which saves it.
+function ProgressionClient.markSeen(nodeId: string)
+	if not snapshot or not snapshot.unseen[nodeId] then
+		return
+	end
+	-- A new snapshot rather than an edit, so subscribers comparing by reference see the change.
+	local unseen = table.clone(snapshot.unseen)
+	unseen[nodeId] = nil
+	local nextSnapshot = table.clone(snapshot)
+	nextSnapshot.unseen = unseen
+	snapshot = nextSnapshot
+	publish()
+	task.spawn(function()
+		pcall(function()
+			return dispatcher:request("ProgressionSeen", { nodeIds = { nodeId } })
+		end)
 	end)
 end
 

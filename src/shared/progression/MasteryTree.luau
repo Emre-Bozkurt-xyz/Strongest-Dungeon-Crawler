@@ -30,6 +30,10 @@ export type Node = {
 	-- Grid position: column left to right, row 0 (branch a) / 1 (trunk) / 2 (branch b).
 	column: number,
 	row: number,
+	branch: string,
+	rank: number,
+	-- 0..1: how far the branch XP has come toward opening this node (1 once open).
+	progress: number,
 	unlocked: boolean,
 	-- Earned but not in effect: a node of an attack-type track that is not attuned (Attunement).
 	dormant: boolean,
@@ -138,6 +142,40 @@ function MasteryTree.isUnlocked(node: NodeDef, branches: { [string]: number }, a
 			and MasteryXP.rankOf("b", branches) >= MasteryXP.JOIN_RANK
 	end
 	return false
+end
+
+-- How far `branches` has come toward opening `node`, 0..1, measured from the threshold of the node
+-- before it. The canvas fills the line into a locked node by this much.
+function MasteryTree.progressToward(node: NodeDef, branches: { [string]: number }, attuned: boolean?): number
+	if MasteryTree.isUnlocked(node, branches, attuned) then
+		return 1
+	end
+	local rank = node.rank or 0
+	local function between(xp: number, from: number, to: number): number
+		return if to <= from then 0 else math.clamp((xp - from) / (to - from), 0, 1)
+	end
+	if node.branch == "trunk" then
+		return between(branches.trunk or 0, MasteryXP.TRUNK_RANKS[rank - 1] or 0, MasteryXP.TRUNK_RANKS[rank] or 0)
+	elseif node.branch == "a" or node.branch == "b" then
+		if rank == 1 then
+			-- Entered from the trunk, from the last trunk threshold below the entry.
+			local from = 0
+			for _, threshold in ipairs(MasteryXP.TRUNK_RANKS) do
+				if threshold < MasteryXP.BRANCH_ENTRY then
+					from = math.max(from, threshold)
+				end
+			end
+			return between(branches.trunk or 0, from, MasteryXP.BRANCH_ENTRY)
+		end
+		local xp = branches[node.branch] or 0
+		return between(xp, MasteryXP.BRANCH_RANKS[rank - 1] or 0, MasteryXP.BRANCH_RANKS[rank] or 0)
+	elseif node.branch == "join" then
+		-- The slower branch decides.
+		local target = MasteryXP.BRANCH_RANKS[MasteryXP.JOIN_RANK] or 0
+		local from = MasteryXP.BRANCH_RANKS[MasteryXP.JOIN_RANK - 1] or 0
+		return math.min(between(branches.a or 0, from, target), between(branches.b or 0, from, target))
+	end
+	return 0
 end
 
 -- Whether an earned node is in effect. Attack-type tracks need attunement, except their root form,
@@ -371,6 +409,9 @@ function MasteryTree.build(
 				description = node.description,
 				column = column,
 				row = row,
+				branch = node.branch,
+				rank = node.rank or 0,
+				progress = MasteryTree.progressToward(node, branches, attuned),
 				unlocked = unlocked[node.id],
 				dormant = dormant[node.id],
 				shapeId = shapeId,

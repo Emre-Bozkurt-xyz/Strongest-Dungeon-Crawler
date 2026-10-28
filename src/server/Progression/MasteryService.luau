@@ -38,6 +38,9 @@ local StatsManager = require(Server.Stats.StatsManager)
 local CombatLoadoutService = require(Server.Inventory.CombatLoadout.CombatLoadoutService)
 local BaseSkill = require(Server.SkillsFramework.Skills.BaseSkill)
 local ProgressionSync = require(script.Parent.ProgressionSync)
+local Networking = require(ReplicatedStorage.Shared.Networking)
+
+local dispatcher = Networking.server() :: any
 
 type PlayerSaveData = PlayerDataService.PlayerSaveData
 
@@ -68,6 +71,33 @@ end
 local function totalOf(data: PlayerSaveData, trackId: string): number
 	local entry = data.progression.masteries[trackId]
 	return if type(entry) == "table" and type(entry.branches) == "table" then MasteryXP.totalOf(entry.branches) else 0
+end
+
+-- Nodes of a track open now. End nodes count attunement, so attuning can open one.
+local function unlockedIn(data: PlayerSaveData, trackId: string): { [string]: boolean }
+	local out: { [string]: boolean } = {}
+	local tree = MasteryTrees.get(trackId)
+	if not tree then
+		return out
+	end
+	local branches = branchesOf(data, trackId)
+	local attuned = table.find(data.progression.attunement or {}, trackId) ~= nil
+	for _, node in ipairs(tree.nodes) do
+		if MasteryTree.isUnlocked(node, branches, attuned) then
+			out[node.id] = true
+		end
+	end
+	return out
+end
+
+-- Nodes that opened since `before` become unseen: the canvas marks them until the player looks.
+local function noteUnlocks(data: PlayerSaveData, trackId: string, before: { [string]: boolean })
+	local unseen = data.progression.unseen
+	for nodeId in pairs(unlockedIn(data, trackId)) do
+		if not before[nodeId] and not table.find(unseen, nodeId) then
+			table.insert(unseen, nodeId)
+		end
+	end
 end
 
 local function ranksOf(branches: { [string]: number }): string
@@ -120,11 +150,13 @@ function MasteryService.grant(player: Player, trackId: string, branch: string, a
 
 	local levelBefore = MasteryXP.levelOf(MasteryXP.totalOf(branches))
 	local ranksBefore = ranksOf(branches)
+	local unlockedBefore = unlockedIn(data, trackId)
 	local added = math.min(amount, cap - current)
 	branches[branch] = current + added
 
 	local levelAfter = MasteryXP.levelOf(MasteryXP.totalOf(branches))
 	if ranksOf(branches) ~= ranksBefore or levelAfter ~= levelBefore then
+		noteUnlocks(data, trackId, unlockedBefore)
 		for _, listener in ipairs(progressListeners) do
 			task.spawn(listener, player)
 		end
@@ -143,7 +175,9 @@ function MasteryService.setBranchXp(player: Player, trackId: string, branch: str
 		return
 	end
 	local branches = branchesOf(data, trackId)
+	local unlockedBefore = unlockedIn(data, trackId)
 	branches[branch] = math.clamp(xp, 0, MasteryXP.capOf(branch))
+	noteUnlocks(data, trackId, unlockedBefore)
 	for _, listener in ipairs(progressListeners) do
 		task.spawn(listener, player)
 	end
@@ -275,6 +309,26 @@ local function onHit(sourceEntityId: string, targetEntityId: string, result: any
 	end
 end
 
+-- The player has looked at these nodes: they stop being marked new.
+function MasteryService.markSeen(player: Player, nodeIds: any)
+	local data = PlayerDataService.get(player)
+	if not data or type(nodeIds) ~= "table" then
+		return
+	end
+	local unseen = data.progression.unseen
+	local changed = false
+	for _, nodeId in ipairs(nodeIds) do
+		local index = if type(nodeId) == "string" then table.find(unseen, nodeId) else nil
+		if index then
+			table.remove(unseen, index)
+			changed = true
+		end
+	end
+	if changed then
+		ProgressionSync.schedule(player, nil)
+	end
+end
+
 function MasteryService.start()
 	CombatService.onHit(onHit)
 	BaseSkill.onUsed(onUsed)
@@ -288,6 +342,18 @@ function MasteryService.start()
 	end)
 	ProgressionSync.addSection("shapes", function(data)
 		return table.clone(data.progression.shapes)
+	end)
+	ProgressionSync.addSection("unseen", function(data)
+		return table.clone(data.progression.unseen)
+	end)
+
+	-- Only removes entries, so a spammed request can do no more than one honest one.
+	dispatcher:onRequest("ProgressionSeen", function(payload, _meta, context): { ok: boolean }
+		local player = context.player
+		if player and type(payload) == "table" then
+			MasteryService.markSeen(player, payload.nodeIds)
+		end
+		return { ok = true }
 	end)
 end
 

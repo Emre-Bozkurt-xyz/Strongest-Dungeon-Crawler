@@ -40,6 +40,7 @@ export type IntentName =
 	| "ProgressionSnapshot"
 	| "ProgressionAttune"
 	| "ProgressionSelectPassive"
+	| "ProgressionSeen"
 
 export type EventName =
 	"DebugEchoEvent"

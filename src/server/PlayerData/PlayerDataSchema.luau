@@ -19,8 +19,8 @@ export type MasteryProgress = {
 }
 
 -- The progression model in docs/planning/progression-direction.md. MasteryService writes
--- `masteries`, FormService writes `shapes` and `infusion`, AttunementService writes `attunement`,
--- PassiveService writes `passives`.
+-- `masteries` and `unseen`, FormService writes `shapes` and `infusion`, AttunementService writes
+-- `attunement`, PassiveService writes `passives`.
 export type ProgressionData = {
 	-- Keyed by mastery track id ("Blade", "Fire", ...).
 	masteries: { [string]: MasteryProgress },
@@ -32,6 +32,8 @@ export type ProgressionData = {
 	infusion: string,
 	-- Chosen selectable passive node ids, in the order chosen (PassiveService).
 	passives: { string },
+	-- Node ids unlocked but not yet looked at in the mastery canvas, which marks them until then.
+	unseen: { string },
 }
 
 export type SavedItem = {
@@ -139,6 +141,7 @@ function PlayerDataSchema.template(): PlayerSaveData
 			shapes = {},
 			infusion = "",
 			passives = {},
+			unseen = {},
 		},
 		character = { xp = 0 },
 		inventory = {

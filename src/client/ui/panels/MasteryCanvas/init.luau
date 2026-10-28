@@ -1,11 +1,11 @@
 --!strict
 -- The mastery mind-space (docs/planning/mastery-mind-space.md): a starfield on near-black holding
--- the mastery menu, which zooms into one mastery's tree. The tree is laid out left to right on an
--- open field the player drags around.
+-- the mastery menu, which zooms into one mastery's tree. The tree is a constellation growing left
+-- to right, on a field the player drags around.
 --
--- An airy void rather than a scrolling panel: the tree sits in space with a faint grid to show it
--- moving, and the view is bounded so it can drift past the tree's edge but never lose it. Fog is the
--- tree model's (MasteryTree): only one or two nodes past what the player has reached are drawn.
+-- The view is bounded so it can drift past the tree's edge but never lose it, and the sky drifts a
+-- little with it so the field reads as moving. Fog is the tree model's (MasteryTree): the next node
+-- along a line is drawn in full, the one after only as a faint star.
 --
 -- At an Attunement Shrine (MasteryCanvasController's shrine mode) choosing a box in the menu opens
 -- the shrine's confirmation (ShrineDialog) instead of the tree.
@@ -31,7 +31,6 @@ local Ease = require(ReplicatedStorage.Shared.ui.Ease)
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
 local useSpring = require(script.Parent.Parent.hooks.useSpring)
 local Button = require(script.Parent.Parent.components.Button)
-local Glyph = require(script.Parent.Parent.components.Glyph)
 local UISound = require(script.Parent.Parent.UISound)
 local MasteryCanvasController = require(script.Parent.Parent.controllers.MasteryCanvasController)
 local ProgressionClient = require(script.Parent.Parent.Parent.Progression.ProgressionClient)
@@ -43,20 +42,25 @@ local Starfield = require(script.Starfield)
 
 local e = React.createElement
 
--- Pixels between nodes, across columns and down rows.
-local GAP = Vector2.new(96, 36)
+-- The constellation's spacing: pixels between ranks, and how far each rank of branches "a" (above)
+-- and "b" (below) sits from the trunk. Branches bow outward and back in toward the join.
+local COLUMN = 195
+local BRANCH_RISE = { 0, 146, 195, 210, 182 }
+-- How far a node may stray from its place, so the tree reads as stars rather than a grid.
+local JITTER = 28
 -- How far past the tree's edge the view's centre may travel.
-local MARGIN = 320
--- Spacing of the faint grid that shows the field moving.
-local GRID_STEP = 120
+local MARGIN = 260
 -- Where across the screen the node in use is framed on opening, as a fraction of its width.
-local FOCUS_X = 0.3
+local FOCUS_X = 0.32
+-- How much the sky drifts with a drag, as a share of the drag.
+local SKY_DRIFT = 0.04
 
 local OPEN_TIME = 0.55
 local CLOSE_TIME = 0.18
 -- The mind-space's black, and how much of the world shows through it.
 local VOID = Color3.fromRGB(4, 5, 8)
 local VOID_TRANSPARENCY = 0.06
+local INK = Color3.fromRGB(238, 241, 246)
 
 local function lerp(a: number, b: number, t: number): number
 	return a + (b - a) * t
@@ -73,19 +77,49 @@ local function columnStage(t: number, column: number): number
 	return stage(t, start, start + 0.24)
 end
 
+-- 0..1, fixed per string: a node's stray from its place is the same every time it is drawn.
+local function hash(text: string): number
+	local h = 2166136261
+	for index = 1, #text do
+		h = bit32.bxor(h, string.byte(text, index))
+		h = (h * 16777619) % 4294967296
+	end
+	return (h % 1000) / 1000
+end
+
 local function nodePosition(node: MasteryTree.Node): Vector2
-	return Vector2.new(node.column * (Node.SIZE.X + GAP.X), node.row * (Node.SIZE.Y + GAP.Y))
+	local function jitter(axis: string): number
+		return (hash(node.id .. axis) - 0.5) * JITTER
+	end
+	local rank = node.rank
+	if node.branch == "trunk" then
+		if rank == 0 then
+			return Vector2.zero
+		end
+		return Vector2.new(rank * COLUMN * 0.92 + jitter("x"), jitter("y") * 0.6)
+	elseif node.branch == "a" or node.branch == "b" then
+		local rise = BRANCH_RISE[rank + 1] or BRANCH_RISE[#BRANCH_RISE]
+		return Vector2.new(rank * COLUMN + jitter("x"), (if node.branch == "a" then -rise else rise) + jitter("y"))
+	elseif node.branch == "join" then
+		return Vector2.new(5 * COLUMN + 13, 0)
+	end
+	return Vector2.new(6 * COLUMN + 26, 0)
+end
+
+-- An instance name for a node id: dots would read as path separators to tools that find it.
+local function key(nodeId: string): string
+	return (string.gsub(nodeId, "%.", "_"))
 end
 
 local function treeBounds(tree: MasteryTree.Tree?): (Vector2, Vector2)
 	if not tree or #tree.nodes == 0 then
-		return Vector2.zero, Node.SIZE
+		return Vector2.zero, Vector2.zero
 	end
 	local minimum, maximum = Vector2.new(math.huge, math.huge), Vector2.new(-math.huge, -math.huge)
 	for _, node in ipairs(tree.nodes) do
 		local position = nodePosition(node)
 		minimum = minimum:Min(position)
-		maximum = maximum:Max(position + Node.SIZE)
+		maximum = maximum:Max(position)
 	end
 	return minimum, maximum
 end
@@ -201,10 +235,10 @@ local function MasteryCanvas()
 			end
 		end
 		if focusNode then
-			-- Left of centre: trees grow rightward, and the track list sits at the top right.
+			-- Left of centre: trees grow rightward.
 			local view = viewSize()
 			local anchor = Vector2.new(view.X * FOCUS_X, view.Y / 2)
-			applyPan(anchor - (nodePosition(focusNode) + Node.SIZE / 2))
+			applyPan(anchor - nodePosition(focusNode))
 		end
 	end, { canvas.open, track.id, canvas.view } :: { any })
 
@@ -262,29 +296,24 @@ local function MasteryCanvas()
 		end)
 	end
 
-	-- The field: grid, edges, nodes.
-	local content: { [string]: any } = {}
-	local gridFrom = minimum - Vector2.new(MARGIN, MARGIN)
-	local gridTo = maximum + Vector2.new(MARGIN, MARGIN)
-	local gx = math.floor(gridFrom.X / GRID_STEP) * GRID_STEP
-	while gx <= gridTo.X do
-		local gy = math.floor(gridFrom.Y / GRID_STEP) * GRID_STEP
-		while gy <= gridTo.Y do
-			content[`Grid{gx}_{gy}`] = e("Frame", {
-				Size = UDim2.fromOffset(3, 3),
-				Position = UDim2.fromOffset(gx, gy),
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				BackgroundColor3 = theme.color.stroke,
-				BackgroundTransparency = hud:map(function(a: number)
-					return 1 - 0.14 * a
-				end),
-				BorderSizePixel = 0,
-			})
-			gy += GRID_STEP
+	-- One clock for every pulse, running only while a tree is shown.
+	local clock, setClock = React.useBinding(0)
+	React.useEffect(function()
+		if not canvas.open or not inTree then
+			return
 		end
-		gx += GRID_STEP
-	end
+		local elapsed = 0
+		local connection = RunService.Heartbeat:Connect(function(dt)
+			elapsed += dt
+			setClock(elapsed)
+		end)
+		return function()
+			connection:Disconnect()
+		end
+	end, { canvas.open, inTree } :: { any })
 
+	-- The constellation: lines under, nodes over.
+	local content: { [string]: any } = {}
 	if tree then
 		local byId: { [string]: MasteryTree.Node } = {}
 		for _, node in ipairs(tree.nodes) do
@@ -293,28 +322,44 @@ local function MasteryCanvas()
 		for _, edge in ipairs(tree.edges) do
 			local parent, child = byId[edge.from], byId[edge.to]
 			if parent and child then
-				local from = nodePosition(parent) + Vector2.new(Node.SIZE.X, Node.SIZE.Y / 2)
-				local to = nodePosition(child) + Vector2.new(0, Node.SIZE.Y / 2)
-				content[`Edge{edge.from}_{edge.to}`] = e(Edge, {
-					from = from,
-					to = to,
-					color = if child.selected then theme.color.accent else theme.color.stroke,
-					background = theme.color.backdrop,
-					strength = if child.visibility == "fogged" then 0.15 elseif child.unlocked then 0.65 else 0.35,
-					appear = reveal:map(function(r: number)
-						return columnStage(r, child.column)
+				local state: Edge.State
+				if child.visibility == "fogged" then
+					state = "fogged"
+				elseif child.unlocked and parent.unlocked then
+					-- Lines into the join and end belong to no one branch, so they never glow.
+					local branch = tree.branches[child.branch]
+					state = if branch and branch.mastered then "mastered" else "earned"
+				else
+					state = "pending"
+				end
+				content[`Edge_{key(edge.from)}_{key(edge.to)}`] = e(Edge, {
+					from = nodePosition(parent),
+					to = nodePosition(child),
+					state = state,
+					-- Only a line out of an open node fills: the one beyond it has nothing to fill from.
+					fill = if parent.unlocked then child.progress else 0,
+					appear = depth:map(function(d: number)
+						return columnStage(d, child.column)
 					end),
 				})
 			end
 		end
 		for _, node in ipairs(tree.nodes) do
-			content[`Node{node.id}`] = e(Node.render, {
+			content[`Node_{key(node.id)}`] = e(Node.render, {
 				node = node,
-				glyph = track.glyph,
+				trackId = track.id,
 				position = nodePosition(node),
-				appear = reveal:map(function(r: number)
-					return columnStage(r, node.column)
+				unseen = node.unlocked and progression ~= nil and progression.unseen[node.id] == true,
+				appear = depth:map(function(d: number)
+					return columnStage(d, node.column)
 				end),
+				clock = clock,
+				-- Looking at a new node is reading it.
+				onHover = function()
+					if node.unlocked then
+						ProgressionClient.markSeen(node.id)
+					end
+				end,
 				onActivated = function()
 					-- An infusion toggles: there is one or none, so choosing the one in use clears it.
 					if node.kind == "infusion" then
@@ -349,27 +394,13 @@ local function MasteryCanvas()
 		end
 	end
 
-	local progress = MasteryXP.progressOf(MasteryXP.totalOf(branches))
-	local level = progress.level
-	local xp = math.floor(progress.into)
-	local needed = progress.needed
-
-	-- One line per branch: how far along it is, or that it is Mastered.
-	local branchParts: { string } = {}
-	if tree then
-		for _, branch in ipairs({ "trunk", "a", "b" }) do
-			local entry = tree.branches[branch]
-			if entry then
-				local amount = if entry.mastered then "MASTERED" else `{math.floor(entry.xp)}/{entry.cap}`
-				table.insert(branchParts, `{string.upper(entry.name)} {amount}`)
-			end
-		end
+	local level = MasteryXP.levelOf(MasteryXP.totalOf(branches))
+	local treeName = `{string.upper(track.displayName)}  ·  LV {level}`
+	if attuned then
+		treeName ..= "  ·  ATTUNED"
+	elseif track.family == "attack" then
+		treeName ..= "  ·  DORMANT"
 	end
-
-	local attunementLine = if attuned
-		then `{string.upper(track.displayName)} IS ATTUNED`
-		elseif track.family == "attack" then "DORMANT  ·  ONLY ITS ROOT FORM WORKS UNTIL ATTUNED AT A SHRINE"
-		else "ATTUNING IT AT A SHRINE STRENGTHENS IT"
 
 	return e("Frame", {
 		Size = UDim2.fromScale(1, 1),
@@ -388,12 +419,23 @@ local function MasteryCanvas()
 			ZIndex = 1,
 		}),
 
-		Stars = e(Starfield, {
-			active = canvas.open,
-			presence = reveal:map(function(r: number)
-				return stage(r, 0.2, 0.7)
+		-- Slightly larger than the screen so its drift with a drag never shows an edge.
+		Sky = e("Frame", {
+			Size = UDim2.fromScale(1.1, 1.1),
+			Position = pan:map(function(value: Vector2)
+				local drift = value * SKY_DRIFT
+				return UDim2.new(0.5, math.clamp(drift.X, -60, 60), 0.5, math.clamp(drift.Y, -40, 40))
 			end),
-			zIndex = 1,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundTransparency = 1,
+			ZIndex = 1,
+		}, {
+			Stars = e(Starfield, {
+				active = canvas.open,
+				presence = reveal:map(function(r: number)
+					return stage(r, 0.2, 0.7)
+				end),
+			}),
 		}),
 
 		-- The menu swells and fades as the tree comes in.
@@ -508,97 +550,39 @@ local function MasteryCanvas()
 			ZIndex = 8,
 		}),
 
-		Header = e("Frame", {
-			Size = UDim2.fromOffset(560, 164),
-			Position = UDim2.fromOffset(56, 48),
+		-- The tree carries everything else: here only the way back and which tree this is.
+		TreeTop = e("Frame", {
+			Size = UDim2.fromOffset(480, 60),
+			-- Below Roblox's top bar, which covers the top of a full-screen layer.
+			Position = UDim2.fromOffset(56, 96),
 			BackgroundTransparency = 1,
 			Visible = inTree,
 			ZIndex = 10,
 		}, {
-			Kicker = e("TextLabel", {
-				Size = UDim2.fromOffset(300, 16),
+			Back = e("TextButton", {
+				AutomaticSize = Enum.AutomaticSize.X,
+				Size = UDim2.fromOffset(0, 24),
 				BackgroundTransparency = 1,
-				Text = if atShrine then "ATTUNEMENT SHRINE" else "MASTERY",
+				Text = "‹   MASTERIES",
 				FontFace = theme.face.display,
-				TextSize = theme.type.label,
-				TextColor3 = theme.color.textMuted,
-				TextTransparency = hudFade(0),
+				TextSize = 11,
+				TextColor3 = INK,
+				TextTransparency = hudFade(0.3),
 				TextXAlignment = Enum.TextXAlignment.Left,
+				[React.Event.MouseEnter] = function()
+					UISound.play("hover")
+				end,
+				[React.Event.Activated] = MasteryCanvasController.back,
 			}),
-			Icon = e("Frame", {
-				Size = UDim2.fromOffset(34, 34),
-				Position = UDim2.fromOffset(0, 26),
+			Name = e("TextLabel", {
+				Size = UDim2.fromOffset(480, 16),
+				Position = UDim2.fromOffset(0, 34),
 				BackgroundTransparency = 1,
-			}, {
-				Glyph = e(Glyph, { glyph = track.glyph, color = theme.color.textHeading, thickness = 1.5 }),
-			}),
-			Title = e("TextLabel", {
-				Size = UDim2.fromOffset(400, 36),
-				Position = UDim2.fromOffset(46, 25),
-				BackgroundTransparency = 1,
-				Text = string.upper(track.displayName),
+				Text = treeName,
 				FontFace = theme.face.display,
-				TextSize = 30,
-				TextColor3 = theme.color.textHeading,
-				TextTransparency = hudFade(0),
-				TextXAlignment = Enum.TextXAlignment.Left,
-			}),
-			Level = e("TextLabel", {
-				Size = UDim2.fromOffset(80, 22),
-				Position = UDim2.fromOffset(0, 74),
-				BackgroundTransparency = 1,
-				Text = `LV {level}`,
-				FontFace = theme.face.mono,
-				TextSize = theme.type.title,
-				TextColor3 = theme.color.textPrimary,
-				TextTransparency = hudFade(0),
-				TextXAlignment = Enum.TextXAlignment.Left,
-			}),
-			BarTrack = e("Frame", {
-				Size = UDim2.fromOffset(260, 2),
-				Position = UDim2.fromOffset(86, 84),
-				BackgroundColor3 = theme.color.stroke,
-				BackgroundTransparency = hudFade(0.8),
-				BorderSizePixel = 0,
-			}, {
-				Fill = e("Frame", {
-					Size = UDim2.fromScale(if needed then math.clamp(xp / needed, 0, 1) else 1, 1),
-					BackgroundColor3 = theme.color.accent,
-					BackgroundTransparency = hudFade(0),
-					BorderSizePixel = 0,
-				}),
-			}),
-			Xp = e("TextLabel", {
-				Size = UDim2.fromOffset(260, 16),
-				Position = UDim2.fromOffset(86, 92),
-				BackgroundTransparency = 1,
-				Text = if needed then `{xp} / {needed} XP` else "MAX",
-				FontFace = theme.face.mono,
-				TextSize = theme.type.label,
-				TextColor3 = theme.color.textMuted,
-				TextTransparency = hudFade(0),
-				TextXAlignment = Enum.TextXAlignment.Left,
-			}),
-			Branches = e("TextLabel", {
-				Size = UDim2.fromOffset(460, 16),
-				Position = UDim2.fromOffset(0, 120),
-				BackgroundTransparency = 1,
-				Text = table.concat(branchParts, "   ·   "),
-				FontFace = theme.face.mono,
-				TextSize = theme.type.label,
-				TextColor3 = theme.color.textMuted,
-				TextTransparency = hudFade(0),
-				TextXAlignment = Enum.TextXAlignment.Left,
-			}),
-			Attunement = e("TextLabel", {
-				Size = UDim2.fromOffset(560, 16),
-				Position = UDim2.fromOffset(0, 144),
-				BackgroundTransparency = 1,
-				Text = attunementLine,
-				FontFace = theme.face.display,
-				TextSize = theme.type.label,
-				TextColor3 = if attuned then theme.color.accent else theme.color.textMuted,
-				TextTransparency = hudFade(0),
+				TextSize = 12,
+				TextColor3 = INK,
+				TextTransparency = hudFade(0.28),
 				TextXAlignment = Enum.TextXAlignment.Left,
 			}),
 		}),
@@ -614,11 +598,11 @@ local function MasteryCanvas()
 			ZIndex = 10,
 		}, {
 			Button = e(Button, {
-				text = if inTree then "BACK" else "CLOSE  [M]",
+				text = "CLOSE  [M]",
 				variant = "secondary",
 				size = UDim2.fromScale(1, 1),
 				textSize = theme.type.label,
-				onActivated = if inTree then MasteryCanvasController.back else MasteryCanvasController.close,
+				onActivated = MasteryCanvasController.close,
 			}),
 		}),
 
@@ -627,11 +611,11 @@ local function MasteryCanvas()
 			Position = UDim2.new(0.5, 0, 1, -56),
 			AnchorPoint = Vector2.new(0.5, 1),
 			BackgroundTransparency = 1,
-			Text = "DRAG TO MOVE   /   CHOOSE AN UNLOCKED FORM, INFUSION OR SELECTABLE PASSIVE TO USE IT",
+			Text = "DRAG TO MOVE",
 			FontFace = theme.face.display,
-			TextSize = theme.type.label,
-			TextColor3 = theme.color.textMuted,
-			TextTransparency = hudFade(0.2),
+			TextSize = 10,
+			TextColor3 = INK,
+			TextTransparency = hudFade(0.6),
 			ZIndex = 10,
 		}),
 	})

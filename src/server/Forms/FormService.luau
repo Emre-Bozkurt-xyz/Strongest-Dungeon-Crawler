@@ -58,9 +58,15 @@ local function withinRate(player: Player): boolean
 	return rate.count <= RATE_MAX
 end
 
--- The shared unlock rule (MasteryTree), over the player's saved branch XP and attunement.
-function FormService.isUnlocked(data: PlayerSaveData, shape: Shape): boolean
-	return MasteryTree.isShapeUnlocked(shape.id, MasteryService.masteriesOf(data), AttunementService.attunedOf(data))
+-- The shared rule (MasteryTree.isShapeAvailable), over the player's saved branch XP and attunement
+-- and what they hold: a shape their weapon grants is theirs while they hold it.
+function FormService.isUnlocked(data: PlayerSaveData, shape: Shape, snapshot: ItemTypes.CombatLoadoutSnapshot?): boolean
+	return MasteryTree.isShapeAvailable(
+		shape.id,
+		MasteryService.masteriesOf(data),
+		AttunementService.attunedOf(data),
+		snapshot
+	)
 end
 
 -- The shape to write into this snapshot: the player's selection for what they hold, if it still
@@ -74,7 +80,7 @@ local function selectedShape(entityId: string, snapshot: any): string?
 	local classKey = BasicAttackProfileRegistry.classKeyOf(snapshot)
 	local shapeId = data.progression.shapes[classKey]
 	local shape = if shapeId then BasicAttackProfileRegistry.get(shapeId) else nil
-	if shape and BasicAttackProfileRegistry.fitsClass(shape, classKey) and FormService.isUnlocked(data, shape) then
+	if shape and BasicAttackProfileRegistry.fitsClass(shape, classKey) and FormService.isUnlocked(data, shape, snapshot) then
 		return shapeId
 	end
 	return nil
@@ -138,7 +144,11 @@ function FormService.select(player: Player, classKey: any, shapeId: any): (boole
 	if not BasicAttackProfileRegistry.fitsClass(shape, classKey) then
 		return false, "wrong_class"
 	end
-	if not FormService.isUnlocked(data, shape) then
+	-- A grant counts only for the class held now; selecting for another class needs the mastery.
+	local entityId = Registrar.getPlayerId(player)
+	local held = if entityId then CombatLoadoutService.get(entityId) else nil
+	local snapshot = if held and BasicAttackProfileRegistry.classKeyOf(held) == classKey then held else nil
+	if not FormService.isUnlocked(data, shape, snapshot) then
 		return false, "locked"
 	end
 	data.progression.shapes[classKey] = shape.id

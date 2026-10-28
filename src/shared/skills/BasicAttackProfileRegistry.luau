@@ -184,6 +184,22 @@ function BasicAttackProfileRegistry.fitsClass(profile: BasicAttackProfile, class
 		or (profile.shapeFor ~= nil and table.find(profile.shapeFor, classKey) ~= nil)
 end
 
+-- Whether the held main-hand weapon grants `shapeId` (WeaponConfig.grantsShapes): selectable while
+-- it is held, whatever the player's mastery.
+function BasicAttackProfileRegistry.isGranted(loadout: ItemTypes.CombatLoadoutSnapshot?, shapeId: string): boolean
+	local grants = loadout and loadout.main and loadout.main.grantsShapes
+	return grants ~= nil and table.find(grants, shapeId) ~= nil
+end
+
+-- The shape the loadout uses with nothing selected: steps 2-6 of `resolve`.
+function BasicAttackProfileRegistry.defaultFor(loadout: ItemTypes.CombatLoadoutSnapshot?): BasicAttackProfile
+	local main = loadout and loadout.main
+	if not main then
+		return byId[UNARMED_PROFILE_ID]
+	end
+	return BasicAttackProfileRegistry.resolveForWeapon(main.basicAttackProfile, main.weaponClass, main.itemId)
+end
+
 -- Every shape that can be selected for `classKey`, unlocked or not, in id order.
 function BasicAttackProfileRegistry.shapesFor(classKey: string): { BasicAttackProfile }
 	local out: { BasicAttackProfile } = {}
@@ -214,13 +230,7 @@ function BasicAttackProfileRegistry.resolve(loadout: ItemTypes.CombatLoadoutSnap
 			return shape
 		end
 	end
-
-	local main = loadout and loadout.main
-	if not main then
-		return byId[UNARMED_PROFILE_ID]
-	end
-
-	return BasicAttackProfileRegistry.resolveForWeapon(main.basicAttackProfile, main.weaponClass, main.itemId)
+	return BasicAttackProfileRegistry.defaultFor(loadout)
 end
 
 -- Steps 2-5 of the order above, addressable without a loadout snapshot, so

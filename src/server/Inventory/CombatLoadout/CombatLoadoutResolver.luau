@@ -176,6 +176,7 @@ local function makeWeapon(
 		critChance = critChance,
 		damage = damage,
 		basicAttackProfile = weapon.basicAttackProfile,
+		grantsShapes = if weapon.grantsShapes then cloneArray(weapon.grantsShapes) else nil,
 		-- By reference: authored content that no roll mutates, unlike `damage` above.
 		projectile = weapon.projectile,
 	}

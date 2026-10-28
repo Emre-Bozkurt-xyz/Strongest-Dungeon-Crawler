@@ -242,6 +242,7 @@ local function MasteryCanvas()
 
 	local track = MasteryTracks.get(canvas.track) or MasteryTracks.list()[1]
 	local context = MasteryCanvasController.context()
+	local loadout = MasteryCanvasController.loadout()
 	local branches = ProgressionClient.branches(track.id)
 	local selectedShape = if progression then progression.shapes[context] else nil
 	local attuned = ProgressionClient.isAttuned(track.id)
@@ -254,14 +255,15 @@ local function MasteryCanvas()
 				progression.shapes,
 				progression.infusion,
 				progression.masteries,
-				progression.attunement
+				progression.attunement,
+				loadout
 			)
 			else nil
 		if pairing then
 			pairing.passives = ProgressionClient.chosenPassives()
 		end
 		return MasteryTree.build(track.id, branches, context, selectedShape, attuned, pairing)
-	end, { track.id, progression, context } :: { any })
+	end, { track.id, progression, context, loadout } :: { any })
 	local minimum, maximum = treeBounds(tree)
 
 	local pan, setPan = React.useBinding(Vector2.zero)

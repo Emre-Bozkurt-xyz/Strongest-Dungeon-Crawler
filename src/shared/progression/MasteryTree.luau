@@ -12,6 +12,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
+local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local MasteryTracks = require(script.Parent.MasteryTracks)
 local MasteryTrees = require(script.Parent.MasteryTrees)
 local MasteryXP = require(script.Parent.MasteryXP)
@@ -220,8 +221,8 @@ function MasteryTree.isActive(node: NodeDef, trackId: string, attuned: boolean):
 end
 
 -- Whether a basic attack profile may be selected, given every track's branch XP and the attuned
--- tracks. A profile that implements no node is not part of progression and is never selectable
--- (defaults resolve without being selected).
+-- tracks. A profile that implements no node is not part of progression and is never unlocked by it
+-- (defaults resolve without being selected; a weapon can grant one, see isShapeAvailable).
 function MasteryTree.isShapeUnlocked(
 	shapeId: string,
 	masteries: { [string]: { [string]: number } },
@@ -234,6 +235,18 @@ function MasteryTree.isShapeUnlocked(
 	local attuned = table.find(attunement, tree.track) ~= nil
 	return MasteryTree.isUnlocked(node, masteries[tree.track] or {}, attuned)
 		and MasteryTree.isActive(node, tree.track, attuned)
+end
+
+-- Whether the player may select a shape now: unlocked by mastery, or granted by the weapon they hold
+-- (BasicAttackProfileRegistry.isGranted), which lets a unique weapon bring a shape no tree has.
+function MasteryTree.isShapeAvailable(
+	shapeId: string,
+	masteries: { [string]: { [string]: number } },
+	attunement: { string },
+	loadout: ItemTypes.CombatLoadoutSnapshot?
+): boolean
+	return BasicAttackProfileRegistry.isGranted(loadout, shapeId)
+		or MasteryTree.isShapeUnlocked(shapeId, masteries, attunement)
 end
 
 -- Whether an infusion node may be selected: earned, and in effect (element tracks always are).
@@ -303,6 +316,9 @@ end
 -- The halves of the form currently in effect, for marking the infusion in use and the named
 -- combinations a node would make (BasicAttackForm.resolve gives both).
 export type Pairing = {
+	-- The shape in use, and the one used with nothing selected.
+	shape: string?,
+	defaultShape: string?,
 	-- Node id of the shape in use.
 	shapeNode: string?,
 	-- Node id of the infusion in use.
@@ -312,23 +328,26 @@ export type Pairing = {
 }
 
 -- The form in effect for `context`, by the rules the server applies when it writes the combat
--- loadout (FormService): the selected shape if it fits and is unlocked, else the context's
--- default; the selected infusion if it is unlocked, else none.
+-- loadout (FormService): the selected shape if it fits and is available, else the default; the
+-- selected infusion if it is unlocked, else none. `loadout` is what is held, when `context` is
+-- its class: its weapon may name its own default and grant shapes.
 function MasteryTree.pairingFor(
 	context: string,
 	shapes: { [string]: string },
 	infusion: string?,
 	masteries: { [string]: { [string]: number } },
-	attunement: { string }
+	attunement: { string },
+	loadout: ItemTypes.CombatLoadoutSnapshot?
 ): Pairing
-	local shapeId = defaultShapeFor(context)
+	local defaultShape = if loadout then BasicAttackProfileRegistry.defaultFor(loadout).id else defaultShapeFor(context)
+	local shapeId = defaultShape
 	local selected = shapes[context]
 	local profile = if selected then BasicAttackProfileRegistry.get(selected) else nil
 	if
 		selected
 		and profile
 		and BasicAttackProfileRegistry.fitsClass(profile, context)
-		and MasteryTree.isShapeUnlocked(selected, masteries, attunement)
+		and MasteryTree.isShapeAvailable(selected, masteries, attunement, loadout)
 	then
 		shapeId = selected
 	end
@@ -337,6 +356,8 @@ function MasteryTree.pairingFor(
 		and infusion ~= ""
 		and MasteryTree.isInfusionUnlocked(infusion, masteries, attunement)
 	return {
+		shape = shapeId,
+		defaultShape = defaultShape,
 		shapeNode = if shapeNode then shapeNode.id else nil,
 		infusion = if infusionOk then infusion else nil,
 	}
@@ -391,7 +412,7 @@ function MasteryTree.build(
 		return d
 	end
 
-	local defaultShape = defaultShapeFor(context)
+	local defaultShape = if pairing and pairing.defaultShape then pairing.defaultShape else defaultShapeFor(context)
 	local selectedValid = false
 	if selectedShape then
 		local selectedNode = MasteryTrees.nodeForShape(selectedShape)
@@ -402,7 +423,11 @@ function MasteryTree.build(
 			and unlocked[selectedNode.id] == true
 			and not dormant[selectedNode.id]
 	end
-	local inUse = if selectedValid then selectedShape else defaultShape
+	-- The pairing has already applied every rule, a weapon's grants included.
+	local inUse = if pairing and pairing.shape
+		then pairing.shape
+		elseif selectedValid then selectedShape
+		else defaultShape
 
 	local nodes: { Node } = {}
 	local edges: { { from: string, to: string } } = {}

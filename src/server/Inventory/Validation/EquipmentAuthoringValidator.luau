@@ -301,6 +301,33 @@ local function validateWeaponProjectile(report: ValidationReport, def: ItemTypes
 	end
 end
 
+-- A granted shape is only ever selected for this weapon, so it must exist, fit the weapon's class
+-- (selection checks the class, so a misfit would be granted and never usable), and be able to fire
+-- whatever it fires.
+local function validateGrantedShapes(report: ValidationReport, def: ItemTypes.ItemDef, weapon: ItemTypes.WeaponConfig)
+	local scope = `item '{def.id}' weapon`
+	for index, shapeId in ipairs(weapon.grantsShapes or {}) do
+		local shape = BasicAttackProfileRegistry.get(shapeId)
+		if not shape then
+			push(report, "error", `{scope}: grantsShapes[{index}] names unknown basic attack profile '{shapeId}'`)
+		elseif not BasicAttackProfileRegistry.fitsClass(shape, weapon.class) then
+			push(
+				report,
+				"error",
+				`{scope}: grantsShapes[{index}] '{shapeId}' does not fit class '{weapon.class}'; add the class to`
+					.. ` the profile's weaponClasses or shapeFor`
+			)
+		elseif BasicAttackProfileRegistry.hasProjectileStep(shape) and not weapon.projectile then
+			push(
+				report,
+				"error",
+				`{scope}: grantsShapes[{index}] '{shapeId}' has projectile-delivery steps, but the weapon declares`
+					.. ` no projectile config`
+			)
+		end
+	end
+end
+
 local function validateWeapon(report: ValidationReport, def: ItemTypes.ItemDef, weapon: ItemTypes.WeaponConfig)
 	local scope = `item '{def.id}' weapon`
 
@@ -340,6 +367,7 @@ local function validateWeapon(report: ValidationReport, def: ItemTypes.ItemDef, 
 	end
 
 	validateWeaponProjectile(report, def, weapon)
+	validateGrantedShapes(report, def, weapon)
 end
 
 local function validateOffhand(report: ValidationReport, def: ItemTypes.ItemDef, offhand: ItemTypes.OffhandConfig)

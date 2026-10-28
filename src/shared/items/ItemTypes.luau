@@ -293,6 +293,9 @@ export type WeaponConfig = {
 	base: WeaponBaseConfig,
 	damage: { WeaponDamageRange },
 	basicAttackProfile: string?,
+	-- Shapes the weapon makes selectable while it is held in the main hand, besides the ones mastery
+	-- unlocks: how a unique weapon brings a form of its own (progression-direction.md, "Forms").
+	grantsShapes: { string }?,
 	projectile: WeaponProjectileConfig?,
 	allowedSlots: { EquipSlot }?,
 	canPairWith: { WeaponClass }?,
@@ -420,6 +423,7 @@ export type CombatLoadoutWeapon = {
 	critChance: number?,
 	damage: { WeaponDamageRange },
 	basicAttackProfile: string?,
+	grantsShapes: { string }?,
 	-- Carried off the item's WeaponConfig so projectile steps read it from the loadout snapshot
 	-- without a Registry lookup at swing time.
 	projectile: WeaponProjectileConfig?,

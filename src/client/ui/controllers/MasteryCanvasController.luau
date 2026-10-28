@@ -21,6 +21,7 @@ local TweenService = game:GetService("TweenService")
 local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
 local Attunement = require(ReplicatedStorage.Shared.progression.Attunement)
 local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
+local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local InteractionStateController = require(script.Parent.Parent.Parent.input.InteractionStateController)
 local CombatLoadoutMirror = require(script.Parent.Parent.Parent.Inventory.CombatLoadoutMirror)
 local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
@@ -81,6 +82,11 @@ end
 -- context, so the canvas offers the ones that fit what is held.
 function MasteryCanvasController.context(): string
 	return BasicAttackProfileRegistry.classKeyOf(CombatLoadoutMirror.get())
+end
+
+-- What is held, for the form rules that read the weapon itself (MasteryTree.pairingFor).
+function MasteryCanvasController.loadout(): ItemTypes.CombatLoadoutSnapshot?
+	return CombatLoadoutMirror.get()
 end
 
 function MasteryCanvasController.get(): State

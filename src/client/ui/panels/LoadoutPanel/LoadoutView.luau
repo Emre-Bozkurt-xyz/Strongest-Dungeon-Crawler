@@ -444,7 +444,8 @@ local function FormCard(props: Props & { height: number })
 		rows[name] = e(RecipeRow, { name = name, value = value, muted = muted, y = y, onActivated = onActivated })
 		y += ROW_HEIGHT
 	end
-	row("SHAPE", form.shape.name, false, if shapeTrack and shapeNode
+	local shapeName = if form.shape.grantedBy then `{form.shape.name}  ·  from {form.shape.grantedBy}` else form.shape.name
+	row("SHAPE", shapeName, false, if shapeTrack and shapeNode
 		then function()
 			props.onOpenNode(shapeTrack, shapeNode)
 		end

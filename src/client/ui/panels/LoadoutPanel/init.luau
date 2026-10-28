@@ -13,6 +13,8 @@ local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks
 local MasteryTrees = require(ReplicatedStorage.Shared.progression.MasteryTrees)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
 local PassivePool = require(ReplicatedStorage.Shared.progression.PassivePool)
+local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
+local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 
 local ProgressionClient = require(script.Parent.Parent.Parent.Progression.ProgressionClient)
 local useProgression = require(script.Parent.Parent.hooks.useProgression)
@@ -32,13 +34,23 @@ local SKILLS_PANEL = "LoadoutSkillsPanel"
 
 -- The chosen passives as nodes of their trees, so the card draws them as the trees do; then the open
 -- slots, then the ones a level has yet to open.
-local function passiveCells(progression: ProgressionClient.Snapshot?): { LoadoutView.PassiveCell }
+local function passiveCells(
+	progression: ProgressionClient.Snapshot?,
+	combat: ItemTypes.CombatLoadoutSnapshot?
+): { LoadoutView.PassiveCell }
 	local cells: { LoadoutView.PassiveCell } = {}
 	local open = ProgressionClient.passiveSlots()
 	local chosen = ProgressionClient.chosenPassives()
-	local context = MasteryCanvasController.context()
+	local context = BasicAttackProfileRegistry.classKeyOf(combat)
 	local pairing = if progression
-		then MasteryTree.pairingFor(context, progression.shapes, progression.infusion, progression.masteries, progression.attunement)
+		then MasteryTree.pairingFor(
+			context,
+			progression.shapes,
+			progression.infusion,
+			progression.masteries,
+			progression.attunement,
+			combat
+		)
 		else nil
 	if pairing then
 		pairing.passives = chosen
@@ -99,7 +111,7 @@ local function LoadoutPanel()
 	return e(LoadoutView, {
 		form = Selector.form(inputs),
 		attuned = attuned,
-		passives = passiveCells(progression),
+		passives = passiveCells(progression, inputs.combat),
 		sets = Selector.sets(inputs.limits),
 		editingSet = edit.editingSet,
 		slots = Selector.slots(inputs),

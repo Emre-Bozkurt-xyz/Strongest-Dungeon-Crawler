@@ -75,7 +75,8 @@ export type FormView = {
 	weaponName: string,
 	weaponGlyph: string,
 	look: Look,
-	shape: { name: string, node: string?, track: string? },
+	-- `grantedBy`: the held weapon's name, when the shape is the weapon's to give.
+	shape: { name: string, node: string?, track: string?, grantedBy: string? },
 	infusion: { name: string, node: string, track: string? }?,
 	combination: string?,
 	-- "4 Mana" per step, plus any second resource.
@@ -225,6 +226,9 @@ function Selector.form(inputs: Inputs): FormView
 			name = if shapeDef then shapeDef.displayName else form.profile.displayName,
 			node = form.shapeNode,
 			track = if shapeTree then shapeTree.track else nil,
+			grantedBy = if def and BasicAttackProfileRegistry.isGranted(inputs.combat, form.profile.id)
+				then def.name
+				else nil,
 		},
 		infusion = if infusion
 			then {

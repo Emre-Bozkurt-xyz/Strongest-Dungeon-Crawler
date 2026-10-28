@@ -107,6 +107,39 @@ function AttunementService.set(player: Player, trackId: any, attuned: any): (boo
 	return true, nil
 end
 
+-- Release `release` and attune `trackId` in its place, as one change: both slots full is the only
+-- time this is needed, and a player should never be left with an empty slot halfway through.
+function AttunementService.swap(player: Player, release: any, trackId: any): (boolean, string?)
+	local data = PlayerDataService.get(player)
+	if not data then
+		return false, "not_loaded"
+	end
+	if
+		type(release) ~= "string"
+		or type(trackId) ~= "string"
+		or not MasteryTracks.get(trackId)
+		or release == trackId
+	then
+		return false, "invalid_request"
+	end
+	if not AttunementService.isNearShrine(player) then
+		return false, "not_at_shrine"
+	end
+	local current = AttunementService.attunedOf(data)
+	local index = table.find(current, release)
+	if not index or table.find(current, trackId) then
+		return false, "invalid_request"
+	end
+	-- The cost (Attunement.SWAP_COST) is shown but not charged until items exist.
+	current[index] = trackId
+	data.progression.attunement = current
+	for _, listener in ipairs(changedListeners) do
+		task.spawn(listener, player)
+	end
+	ProgressionSync.schedule(player, nil)
+	return true, nil
+end
+
 local function addPrompt(shrine: Instance)
 	local host: BasePart? = if shrine:IsA("BasePart")
 		then shrine
@@ -151,7 +184,12 @@ function AttunementService.start()
 		if type(payload) ~= "table" then
 			return { ok = false, error = "invalid_request" }
 		end
-		local ok, err = AttunementService.set(player, payload.track, payload.attuned)
+		local ok, err
+		if payload.release ~= nil then
+			ok, err = AttunementService.swap(player, payload.release, payload.track)
+		else
+			ok, err = AttunementService.set(player, payload.track, payload.attuned)
+		end
 		return { ok = ok, error = err }
 	end)
 end

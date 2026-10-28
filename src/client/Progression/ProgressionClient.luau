@@ -377,6 +377,27 @@ function ProgressionClient.setAttuned(trackId: string, attuned: boolean)
 	end)
 end
 
+-- Ask the server to release `release` and attune `trackId` in its place, as one change.
+function ProgressionClient.swapAttuned(release: string, trackId: string)
+	task.spawn(function()
+		local ok, response = pcall(function()
+			return dispatcher:request("ProgressionAttune", { track = trackId, release = release })
+		end)
+		if ok and type(response) == "table" and response.ok then
+			UISound.play("confirm")
+			return
+		end
+		UISound.play("error")
+		local reason = if ok and type(response) == "table" then response.error else nil
+		local text = reason and ATTUNE_FAILURES[reason]
+		if text then
+			NotificationClient.push({ tag = "CANNOT ATTUNE", tone = "warning", text = text, key = `attune:{reason}` })
+		else
+			warn("ProgressionClient: attunement swap failed:", reason or response)
+		end
+	end)
+end
+
 -- Connected before the snapshot request, so an update that lands while it is out is not missed.
 dispatcher:on("ProgressionUpdate", adopt)
 

@@ -1,18 +1,18 @@
 --!strict
--- The mastery canvas: one mastery's tree, laid out left to right on an open field the player drags
--- around (docs/planning/progression-direction.md, "Mastery pages").
+-- The mastery mind-space (docs/planning/mastery-mind-space.md): a starfield on near-black holding
+-- the mastery menu, which zooms into one mastery's tree. The tree is laid out left to right on an
+-- open field the player drags around.
 --
 -- An airy void rather than a scrolling panel: the tree sits in space with a faint grid to show it
 -- moving, and the view is bounded so it can drift past the tree's edge but never lose it. Fog is the
 -- tree model's (MasteryTree): only one or two nodes past what the player has reached are drawn.
 --
--- At an Attunement Shrine (MasteryCanvasController's shrine mode) a panel under the track list
--- attunes or releases the shown track; elsewhere the header says what is attuned and where to
--- change it.
+-- At an Attunement Shrine (MasteryCanvasController's shrine mode) choosing a box in the menu opens
+-- the shrine's confirmation (ShrineDialog) instead of the tree.
 --
--- Entrance, as one 0..1 progress: the world dims, a line of light draws across the screen and
--- fades, the header comes up, and the tree assembles column by column from its root. Closing runs it
--- backward, faster.
+-- Entrance, as one 0..1 progress: the world goes dark, a line of light draws across the screen and
+-- fades, and the menu comes up. Closing runs it backward, faster. Between menu and tree a second
+-- 0..1 (depth) zooms: the menu swells and fades as the tree comes in from smaller.
 --
 -- `script` here IS the MasteryCanvas module (init.luau collapses into its folder), so Parent is
 -- `panels` and Parent.Parent is `ui`.
@@ -26,12 +26,10 @@ local React = require(ReplicatedStorage.Packages.React)
 local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
 local MasteryXP = require(ReplicatedStorage.Shared.progression.MasteryXP)
-local Attunement = require(ReplicatedStorage.Shared.progression.Attunement)
 local Ease = require(ReplicatedStorage.Shared.ui.Ease)
 
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
 local useSpring = require(script.Parent.Parent.hooks.useSpring)
-local Brackets = require(script.Parent.Parent.components.Brackets)
 local Button = require(script.Parent.Parent.components.Button)
 local Glyph = require(script.Parent.Parent.components.Glyph)
 local UISound = require(script.Parent.Parent.UISound)
@@ -39,6 +37,9 @@ local MasteryCanvasController = require(script.Parent.Parent.controllers.Mastery
 local ProgressionClient = require(script.Parent.Parent.Parent.Progression.ProgressionClient)
 local Node = require(script.Node)
 local Edge = require(script.Edge)
+local Menu = require(script.Menu)
+local ShrineDialog = require(script.ShrineDialog)
+local Starfield = require(script.Starfield)
 
 local e = React.createElement
 
@@ -53,6 +54,9 @@ local FOCUS_X = 0.3
 
 local OPEN_TIME = 0.55
 local CLOSE_TIME = 0.18
+-- The mind-space's black, and how much of the world shows through it.
+local VOID = Color3.fromRGB(4, 5, 8)
+local VOID_TRANSPARENCY = 0.06
 
 local function lerp(a: number, b: number, t: number): number
 	return a + (b - a) * t
@@ -132,93 +136,21 @@ local function useReveal(open: boolean)
 	return reveal
 end
 
-local function TrackRow(props: {
-	track: MasteryTracks.Track,
-	level: number,
-	current: boolean,
-	attuned: boolean,
-	layoutOrder: number,
-})
-	local theme = ThemeContext.useTheme()
-	local hovered, setHovered = React.useState(false)
-	local hover = useSpring(if hovered then 1 else 0, theme.motion.snap)
-	local ink = if props.current then theme.color.accent else theme.color.textPrimary
-
-	return e("TextButton", {
-		Size = UDim2.fromOffset(236, 36),
-		BackgroundColor3 = theme.color.surface,
-		BackgroundTransparency = hover:map(function(h: number)
-			return lerp(if props.current then 0.45 else 0.7, 0.35, h)
-		end),
-		BorderSizePixel = 0,
-		AutoButtonColor = false,
-		Text = "",
-		LayoutOrder = props.layoutOrder,
-		[React.Event.MouseEnter] = function()
-			setHovered(true)
-			UISound.play("hover")
-		end,
-		[React.Event.MouseLeave] = function()
-			setHovered(false)
-		end,
-		[React.Event.Activated] = function()
-			if not props.current then
-				UISound.play("confirm")
-				MasteryCanvasController.setTrack(props.track.id)
-			end
-		end,
-	}, {
-		Frame = if props.current
-			then e(Brackets, { size = "small", color = theme.color.accent, edgeTransparency = 0.6 })
-			else nil,
-		Icon = e("Frame", {
-			Size = UDim2.fromOffset(20, 20),
-			Position = UDim2.new(0, 12, 0.5, 0),
-			AnchorPoint = Vector2.new(0, 0.5),
-			BackgroundTransparency = 1,
-		}, {
-			Glyph = e(Glyph, { glyph = props.track.glyph, color = ink, thickness = 1.25 }),
-		}),
-		Name = e("TextLabel", {
-			Size = UDim2.new(1, -110, 1, 0),
-			Position = UDim2.fromOffset(42, 0),
-			BackgroundTransparency = 1,
-			Text = string.upper(props.track.displayName),
-			FontFace = theme.face.display,
-			TextSize = theme.type.label,
-			TextColor3 = ink,
-			TextXAlignment = Enum.TextXAlignment.Left,
-		}),
-		-- A lit diamond for an attuned track.
-		Attuned = if props.attuned
-			then e("Frame", {
-				Size = UDim2.fromOffset(7, 7),
-				Position = UDim2.new(1, -78, 0.5, 0),
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Rotation = 45,
-				BackgroundColor3 = theme.color.accent,
-				BorderSizePixel = 0,
-			})
-			else nil,
-		Level = e("TextLabel", {
-			Size = UDim2.new(0, 60, 1, 0),
-			Position = UDim2.new(1, -12, 0, 0),
-			AnchorPoint = Vector2.new(1, 0),
-			BackgroundTransparency = 1,
-			Text = `LV {props.level}`,
-			FontFace = theme.face.mono,
-			TextSize = theme.type.small,
-			TextColor3 = if props.current then theme.color.accent else theme.color.textMuted,
-			TextXAlignment = Enum.TextXAlignment.Right,
-		}),
-	})
-end
-
 local function MasteryCanvas()
 	local theme = ThemeContext.useTheme()
 	local canvas = useSubscription(MasteryCanvasController.get, MasteryCanvasController.onChanged)
 	local progression = useSubscription(ProgressionClient.get, ProgressionClient.onChanged)
 	local reveal = useReveal(canvas.open)
+	local inTree = canvas.view == "tree"
+	local depth = useSpring(if inTree then 1 else 0, theme.motion.settle)
+	local dialog, setDialog = React.useState(nil :: string?)
+	local atShrine = canvas.shrine ~= nil
+	-- The shrine's dialog belongs to the shrine and the menu: leaving either drops it.
+	React.useEffect(function()
+		if not canvas.open or not atShrine or inTree then
+			setDialog(nil)
+		end
+	end, { canvas.open, atShrine, inTree } :: { any })
 
 	local track = MasteryTracks.get(canvas.track) or MasteryTracks.list()[1]
 	local context = MasteryCanvasController.context()
@@ -274,11 +206,11 @@ local function MasteryCanvas()
 			local anchor = Vector2.new(view.X * FOCUS_X, view.Y / 2)
 			applyPan(anchor - (nodePosition(focusNode) + Node.SIZE / 2))
 		end
-	end, { canvas.open, track.id } :: { any })
+	end, { canvas.open, track.id, canvas.view } :: { any })
 
 	-- Dragging follows the pointer anywhere on screen once it has started on the field.
 	React.useEffect(function()
-		if not canvas.open then
+		if not canvas.open or not inTree then
 			return
 		end
 		local moved = UserInputService.InputChanged:Connect(function(input)
@@ -314,11 +246,16 @@ local function MasteryCanvas()
 			ended:Disconnect()
 			dragRef.current = nil
 		end
-	end, { canvas.open })
+	end, { canvas.open, inTree } :: { any })
 
-	local hud = reveal:map(function(r: number)
-		return stage(r, 0.3, 0.6)
+	local hud = React.joinBindings({ reveal = reveal, depth = depth }):map(function(values: { reveal: number, depth: number })
+		return stage(values.reveal, 0.3, 0.6) * Ease.clamp01(values.depth)
 	end)
+	local menuPresence = React.joinBindings({ reveal = reveal, depth = depth }):map(
+		function(values: { reveal: number, depth: number })
+			return stage(values.reveal, 0.3, 0.6) * (1 - Ease.clamp01(values.depth))
+		end
+	)
 	local function hudFade(base: number)
 		return hud:map(function(a: number)
 			return 1 - (1 - base) * a
@@ -429,59 +366,10 @@ local function MasteryCanvas()
 		end
 	end
 
-	-- Attunement, for the header (away from a shrine) or the shrine panel.
-	local attunedIds = ProgressionClient.attunement()
-	local slots = ProgressionClient.attunementSlots()
-	local characterLevel = ProgressionClient.characterProgress().level
-	local attunedNames: { string } = {}
-	for _, trackId in ipairs(attunedIds) do
-		local entry = MasteryTracks.get(trackId)
-		if entry then
-			table.insert(attunedNames, string.upper(entry.displayName))
-		end
-	end
-	local attunementLine
-	if slots == 0 then
-		attunementLine = `ATTUNEMENT OPENS AT LV {Attunement.SLOT_LEVELS[1]}`
-	elseif #attunedNames == 0 then
-		attunementLine = "NOTHING ATTUNED   ·   ATTUNE AT AN ATTUNEMENT SHRINE"
-	else
-		attunementLine = `ATTUNED: {table.concat(attunedNames, " · ")}   ·   CHANGE AT AN ATTUNEMENT SHRINE`
-	end
-
-	local atShrine = canvas.shrine ~= nil
-	local freeSlot = #attunedIds < slots
-	local shrineAction: string
-	local shrineEnabled = true
-	if attuned then
-		shrineAction = `RELEASE {string.upper(track.displayName)}`
-	elseif freeSlot then
-		shrineAction = `ATTUNE {string.upper(track.displayName)}`
-	else
-		shrineEnabled = false
-		local nextLevel = Attunement.nextSlotLevel(characterLevel)
-		shrineAction = if slots == 0 and nextLevel then `OPENS AT LV {nextLevel}` else "NO FREE SLOT"
-	end
-	local shrineNote = if track.family == "element"
-		then "ELEMENTS ALWAYS WORK; ATTUNING STRENGTHENS THEM"
-		else "ONLY AN ATTUNED WEAPON TRACK GIVES ITS FORMS"
-
-	local trackRows: { [string]: any } = {
-		Layout = e("UIListLayout", {
-			FillDirection = Enum.FillDirection.Vertical,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			Padding = UDim.new(0, 6),
-		}),
-	}
-	for index, entry in ipairs(MasteryTracks.list()) do
-		trackRows[entry.id] = e(TrackRow, {
-			track = entry,
-			level = ProgressionClient.level(entry.id),
-			current = entry.id == track.id,
-			attuned = table.find(attunedIds, entry.id) ~= nil,
-			layoutOrder = index,
-		})
-	end
+	local attunementLine = if attuned
+		then `{string.upper(track.displayName)} IS ATTUNED`
+		elseif track.family == "attack" then "DORMANT  ·  ONLY ITS ROOT FORM WORKS UNTIL ATTUNED AT A SHRINE"
+		else "ATTUNING IT AT A SHRINE STRENGTHENS IT"
 
 	return e("Frame", {
 		Size = UDim2.fromScale(1, 1),
@@ -492,34 +380,118 @@ local function MasteryCanvas()
 	}, {
 		Backdrop = e("Frame", {
 			Size = UDim2.fromScale(1, 1),
-			BackgroundColor3 = theme.color.backdrop,
+			BackgroundColor3 = VOID,
 			BackgroundTransparency = reveal:map(function(r: number)
-				return lerp(1, 0.25, stage(r, 0, 0.35))
+				return lerp(1, VOID_TRANSPARENCY, stage(r, 0, 0.35))
 			end),
 			BorderSizePixel = 0,
 			ZIndex = 1,
 		}),
 
-		-- The field takes every press that lands on it (and not on a node), which is how the world
-		-- behind stays out of reach and how a drag starts.
-		Field = e("TextButton", {
+		Stars = e(Starfield, {
+			active = canvas.open,
+			presence = reveal:map(function(r: number)
+				return stage(r, 0.2, 0.7)
+			end),
+			zIndex = 1,
+		}),
+
+		-- The menu swells and fades as the tree comes in.
+		MenuGroup = e("CanvasGroup", {
+			Size = UDim2.fromScale(1, 1),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundTransparency = 1,
+			GroupTransparency = menuPresence:map(function(p: number)
+				return 1 - p
+			end),
+			Visible = menuPresence:map(function(p: number)
+				return p > 0.01
+			end),
+			ZIndex = 3,
+		}, {
+			Scale = e("UIScale", {
+				Scale = depth:map(function(d: number)
+					return 1 + 0.35 * Ease.clamp01(d)
+				end),
+			}),
+			Menu = e(Menu, {
+				shrine = atShrine,
+				context = context,
+				onChoose = function(trackId: string)
+					if inTree then
+						return
+					end
+					if atShrine then
+						UISound.play("hover")
+						setDialog(trackId)
+					else
+						UISound.play("confirm")
+						MasteryCanvasController.setTrack(trackId)
+					end
+				end,
+			}),
+		}),
+
+		Dialog = if dialog
+			then e(ShrineDialog, {
+				trackId = dialog,
+				onClose = function()
+					setDialog(nil)
+				end,
+				onAttuned = function() end,
+			})
+			else nil,
+
+		-- The tree comes in from smaller as the menu falls away.
+		TreeGroup = e("CanvasGroup", {
+			Size = UDim2.fromScale(1, 1),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundTransparency = 1,
+			GroupTransparency = depth:map(function(d: number)
+				return 1 - Ease.clamp01(d)
+			end),
+			Visible = depth:map(function(d: number)
+				return d > 0.01
+			end),
+			ZIndex = 2,
+		}, {
+			Scale = e("UIScale", {
+				Scale = depth:map(function(d: number)
+					return lerp(0.8, 1, Ease.clamp01(d))
+				end),
+			}),
+			-- The field takes every press that lands on it (and not on a node), which is how the world
+			-- behind stays out of reach and how a drag starts.
+			Field = e("TextButton", {
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				AutoButtonColor = false,
+				Text = "",
+				ClipsDescendants = true,
+				[React.Event.MouseButton1Down] = function()
+					dragRef.current = { origin = panRef.current :: Vector2, start = nil }
+				end,
+			}, {
+				Content = e("Frame", {
+					Size = UDim2.fromOffset(0, 0),
+					Position = pan:map(function(value: Vector2)
+						return UDim2.fromOffset(value.X, value.Y)
+					end),
+					BackgroundTransparency = 1,
+				}, content),
+			}),
+		}),
+
+		-- Takes presses on the empty sky in the menu, so the world behind stays out of reach.
+		Shield = e("TextButton", {
 			Size = UDim2.fromScale(1, 1),
 			BackgroundTransparency = 1,
 			AutoButtonColor = false,
 			Text = "",
-			ClipsDescendants = true,
+			Visible = not inTree,
 			ZIndex = 2,
-			[React.Event.MouseButton1Down] = function()
-				dragRef.current = { origin = panRef.current :: Vector2, start = nil }
-			end,
-		}, {
-			Content = e("Frame", {
-				Size = UDim2.fromOffset(0, 0),
-				Position = pan:map(function(value: Vector2)
-					return UDim2.fromOffset(value.X, value.Y)
-				end),
-				BackgroundTransparency = 1,
-			}, content),
 		}),
 
 		ScanLine = e("Frame", {
@@ -540,6 +512,7 @@ local function MasteryCanvas()
 			Size = UDim2.fromOffset(560, 164),
 			Position = UDim2.fromOffset(56, 48),
 			BackgroundTransparency = 1,
+			Visible = inTree,
 			ZIndex = 10,
 		}, {
 			Kicker = e("TextLabel", {
@@ -621,7 +594,7 @@ local function MasteryCanvas()
 				Size = UDim2.fromOffset(560, 16),
 				Position = UDim2.fromOffset(0, 144),
 				BackgroundTransparency = 1,
-				Text = if attuned then `{string.upper(track.displayName)} IS ATTUNED` else attunementLine,
+				Text = attunementLine,
 				FontFace = theme.face.display,
 				TextSize = theme.type.label,
 				TextColor3 = if attuned then theme.color.accent else theme.color.textMuted,
@@ -630,78 +603,22 @@ local function MasteryCanvas()
 			}),
 		}),
 
-		Tracks = e("CanvasGroup", {
-			Size = UDim2.fromOffset(236, #MasteryTracks.list() * 42),
-			Position = UDim2.new(1, -56, 0, 48),
-			AnchorPoint = Vector2.new(1, 0),
-			BackgroundTransparency = 1,
-			GroupTransparency = hudFade(0),
-			ZIndex = 10,
-		}, trackRows),
-
-		Shrine = if atShrine
-			then e("CanvasGroup", {
-				Size = UDim2.fromOffset(236, 96),
-				Position = UDim2.new(1, -56, 0, 48 + #MasteryTracks.list() * 42 + 12),
-				AnchorPoint = Vector2.new(1, 0),
-				BackgroundTransparency = 1,
-				GroupTransparency = hudFade(0),
-				ZIndex = 10,
-			}, {
-				Slots = e("TextLabel", {
-					Size = UDim2.new(1, 0, 0, 16),
-					BackgroundTransparency = 1,
-					Text = `SLOTS  {#attunedIds} / {slots}`,
-					FontFace = theme.face.mono,
-					TextSize = theme.type.label,
-					TextColor3 = theme.color.textMuted,
-					TextXAlignment = Enum.TextXAlignment.Left,
-				}),
-				Action = e("Frame", {
-					Size = UDim2.new(1, 0, 0, 36),
-					Position = UDim2.fromOffset(0, 22),
-					BackgroundTransparency = 1,
-				}, {
-					Button = e(Button, {
-						text = shrineAction,
-						enabled = shrineEnabled,
-						variant = if attuned then "secondary" else "primary",
-						size = UDim2.fromScale(1, 1),
-						textSize = theme.type.label,
-						onActivated = function()
-							ProgressionClient.setAttuned(track.id, not attuned)
-						end,
-					}),
-				}),
-				Note = e("TextLabel", {
-					Size = UDim2.new(1, 0, 0, 28),
-					Position = UDim2.fromOffset(0, 66),
-					BackgroundTransparency = 1,
-					Text = shrineNote,
-					FontFace = theme.face.display,
-					TextSize = theme.type.label,
-					TextColor3 = theme.color.textMuted,
-					TextWrapped = true,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					TextYAlignment = Enum.TextYAlignment.Top,
-				}),
-			})
-			else nil,
-
 		Close = e("CanvasGroup", {
 			Size = UDim2.fromOffset(120, 34),
 			Position = UDim2.new(1, -56, 1, -48),
 			AnchorPoint = Vector2.new(1, 1),
 			BackgroundTransparency = 1,
-			GroupTransparency = hudFade(0),
+			GroupTransparency = reveal:map(function(r: number)
+				return 1 - stage(r, 0.3, 0.6)
+			end),
 			ZIndex = 10,
 		}, {
 			Button = e(Button, {
-				text = "CLOSE  [M]",
+				text = if inTree then "BACK" else "CLOSE  [M]",
 				variant = "secondary",
 				size = UDim2.fromScale(1, 1),
 				textSize = theme.type.label,
-				onActivated = MasteryCanvasController.close,
+				onActivated = if inTree then MasteryCanvasController.back else MasteryCanvasController.close,
 			}),
 		}),
 
@@ -710,9 +627,7 @@ local function MasteryCanvas()
 			Position = UDim2.new(0.5, 0, 1, -56),
 			AnchorPoint = Vector2.new(0.5, 1),
 			BackgroundTransparency = 1,
-			Text = if atShrine
-				then "DRAG TO MOVE   /   CHOOSE A MASTERY ON THE RIGHT TO ATTUNE OR RELEASE IT"
-				else "DRAG TO MOVE   /   CHOOSE AN UNLOCKED FORM, INFUSION OR SELECTABLE PASSIVE TO USE IT",
+			Text = "DRAG TO MOVE   /   CHOOSE AN UNLOCKED FORM, INFUSION OR SELECTABLE PASSIVE TO USE IT",
 			FontFace = theme.face.display,
 			TextSize = theme.type.label,
 			TextColor3 = theme.color.textMuted,

@@ -18,6 +18,10 @@ local Attunement = {}
 -- comes soon after but not with it (progression-launch-content.md, "Milestones").
 Attunement.SLOT_LEVELS = { 3, 6 }
 
+-- What swapping one attunement for another costs, as the shrine shows it. A placeholder until items
+-- exist: the cost is an attunement token found in mid-game areas (mastery-mind-space.md).
+Attunement.SWAP_COST = "1 × ATTUNEMENT TOKEN  ·  FREE FOR NOW"
+
 -- Instances with this tag are shrines; the server gives each a prompt.
 Attunement.SHRINE_TAG = "AttunementShrine"
 -- How close to a shrine a player must stand to change attunement, in studs.

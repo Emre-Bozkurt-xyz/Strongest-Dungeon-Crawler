@@ -1,13 +1,14 @@
 --!strict
--- MasteryCanvasController: whether the mastery canvas is open and which track it shows.
+-- MasteryCanvasController: whether the mastery mind-space is open, and whether it shows the menu
+-- of masteries or one mastery's tree (docs/planning/mastery-mind-space.md).
 --
 -- The canvas is a full-screen overlay rather than a menu view: the menu's views are panels staged
 -- beside the character, and the canvas is the System's inner view, the world blurred out behind it.
 -- Opening it takes input the way the menu does (a named overlay on InteractionStateController) and
 -- closes the menu; the menu opening closes the canvas, so the two never stack.
 --
--- At an Attunement Shrine (its prompt, from AttunementService) the canvas opens in shrine mode,
--- where the shown track can be attuned or released. Shrine mode ends when the player walks out of
+-- At an Attunement Shrine (its prompt, from AttunementService) the menu opens in shrine mode, where
+-- choosing a mastery attunes it. Shrine mode ends when the player walks out of
 -- range; the server checks the distance again on every change.
 
 local CollectionService = game:GetService("CollectionService")
@@ -31,8 +32,12 @@ local BLUR_TIME = 0.28
 -- Must match the server's prompt name (AttunementService).
 local SHRINE_PROMPT = "AttunementPrompt"
 
+export type View = "menu" | "tree"
+
 export type State = {
 	open: boolean,
+	view: View,
+	-- The tree shown, or last shown.
 	track: string,
 	-- The shrine the canvas was opened at, while the player is still in its range.
 	shrine: Instance?,
@@ -40,7 +45,7 @@ export type State = {
 
 local MasteryCanvasController = {}
 
-local state: State = { open = false, track = MasteryTracks.list()[1].id, shrine = nil }
+local state: State = { open = false, view = "menu", track = MasteryTracks.list()[1].id, shrine = nil }
 local listeners: { [{}]: () -> () } = {}
 local blur: BlurEffect? = nil
 
@@ -72,12 +77,6 @@ function MasteryCanvasController.context(): string
 	return BasicAttackProfileRegistry.classKeyOf(CombatLoadoutMirror.get())
 end
 
--- The track for what the player is holding, so opening the canvas shows the weapon in hand.
-local function heldTrack(): string?
-	local track = MasteryTracks.forContext(MasteryCanvasController.context())
-	return track and track.id
-end
-
 function MasteryCanvasController.get(): State
 	return state
 end
@@ -106,7 +105,7 @@ local function watchShrine(shrine: Instance)
 	task.spawn(function()
 		while state.shrine == shrine do
 			if not inRange(shrine) then
-				state = { open = state.open, track = state.track, shrine = nil }
+				state = { open = state.open, view = state.view, track = state.track, shrine = nil }
 				publish()
 				return
 			end
@@ -115,15 +114,16 @@ local function watchShrine(shrine: Instance)
 	end)
 end
 
--- `shrine`: open in shrine mode, at that shrine.
+-- Opens on the menu, or straight into `trackId`'s tree. `shrine`: open in shrine mode, at that shrine.
 function MasteryCanvasController.open(trackId: string?, shrine: Instance?)
-	local track = trackId or heldTrack() or state.track
 	local atShrine = shrine or (if state.open then state.shrine else nil)
-	if state.open and state.track == track and state.shrine == atShrine then
+	local view: View = if trackId and MasteryTracks.get(trackId) then "tree" else "menu"
+	local track = if view == "tree" then trackId :: string else state.track
+	if state.open and state.view == view and state.track == track and state.shrine == atShrine then
 		return
 	end
 	local wasOpen = state.open
-	state = { open = true, track = if MasteryTracks.get(track) then track else state.track, shrine = atShrine }
+	state = { open = true, view = view, track = track, shrine = atShrine }
 	if shrine then
 		watchShrine(shrine)
 	end
@@ -142,7 +142,7 @@ function MasteryCanvasController.close()
 	if not state.open then
 		return
 	end
-	state = { open = false, track = state.track, shrine = nil }
+	state = { open = false, view = "menu", track = state.track, shrine = nil }
 	InteractionStateController.setOverlayOpen(OVERLAY_NAME, false)
 	setBlur(false)
 	UISound.play("close")
@@ -157,11 +157,21 @@ function MasteryCanvasController.toggle()
 	end
 end
 
+-- Zooms from the menu into a mastery's tree.
 function MasteryCanvasController.setTrack(trackId: string)
-	if not state.open or state.track == trackId or not MasteryTracks.get(trackId) then
+	if not state.open or not MasteryTracks.get(trackId) or (state.view == "tree" and state.track == trackId) then
 		return
 	end
-	state = { open = true, track = trackId, shrine = state.shrine }
+	state = { open = true, view = "tree", track = trackId, shrine = state.shrine }
+	publish()
+end
+
+-- Back out of a tree to the menu.
+function MasteryCanvasController.back()
+	if not state.open or state.view == "menu" then
+		return
+	end
+	state = { open = true, view = "menu", track = state.track, shrine = state.shrine }
 	publish()
 end
 

@@ -2,6 +2,10 @@
 -- The skills to fill the Loadout's bar with, beside it in the Loadout's side slot: every skill the
 -- player has, grouped by the mastery it comes from, with the slot key on any already in the bar.
 --
+-- Groups are ordered most relevant first (Selector.library) and can be closed to their header, so a
+-- long list stays short without guessing which skills matter: the relevant groups start open, the
+-- rest closed, and whatever the player opens or closes stays that way for the session.
+--
 -- Open whenever the Loadout is, until the player hides it from the Loadout's title row (a context
 -- panel in the menu state, so the stage makes room for it). A skill goes into the bar by dragging it
 -- onto a slot, or by clicking it and a slot in either order (LoadoutEditController). The footer
@@ -17,6 +21,7 @@ local React = require(ReplicatedStorage.Packages.React)
 local PanelShell = require(script.Parent.Parent.components.PanelShell)
 local Header = require(script.Parent.Parent.components.Header)
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
+local UISound = require(script.Parent.Parent.UISound)
 local SkillMetadataClient = require(script.Parent.Parent.Parent.SkillsFramework.SkillMetadataClient)
 local LoadoutEditController = require(script.Parent.Parent.controllers.LoadoutEditController)
 local Selector = require(script.Parent.Parent.selectors.loadout)
@@ -45,11 +50,18 @@ local function trim(value: number): string
 	return if rounded == math.floor(rounded) then tostring(math.floor(rounded)) else tostring(rounded)
 end
 
-local function listHeight(groups: { Selector.SkillGroup }): number
+local function groupHeight(group: Selector.SkillGroup, open: boolean): number
+	if not open then
+		return GROUP_LABEL
+	end
+	local rows = #group.skills
+	return GROUP_LABEL + 8 + rows * ROW_HEIGHT + math.max(rows - 1, 0) * ROW_GAP
+end
+
+local function listHeight(groups: { Selector.SkillGroup }, isOpen: (Selector.SkillGroup) -> boolean): number
 	local height = 0
 	for index, group in ipairs(groups) do
-		local rows = #group.skills
-		height += GROUP_LABEL + 8 + rows * ROW_HEIGHT + math.max(rows - 1, 0) * ROW_GAP
+		height += groupHeight(group, isOpen(group))
 		if index > 1 then
 			height += GROUP_GAP
 		end
@@ -57,15 +69,86 @@ local function listHeight(groups: { Selector.SkillGroup }): number
 	return height
 end
 
+-- A group's label row, which opens and closes it. Closed, it says how many skills it holds.
+local function GroupHeader(props: { group: Selector.SkillGroup, open: boolean, onActivated: () -> () })
+	local theme = ThemeContext.useTheme()
+	local hovered, setHovered = React.useState(false)
+	local group = props.group
+	local ink = if hovered then theme.color.textPrimary else theme.color.textMuted
+	return e("TextButton", {
+		Size = UDim2.new(1, 0, 0, GROUP_LABEL),
+		BackgroundTransparency = 1,
+		AutoButtonColor = false,
+		Text = "",
+		[React.Event.MouseEnter] = function()
+			setHovered(true)
+			UISound.play("hover")
+		end,
+		[React.Event.MouseLeave] = function()
+			setHovered(false)
+		end,
+		[React.Event.Activated] = props.onActivated,
+	}, {
+		-- Turned down when open. The font has no triangles, so one arrow is rotated.
+		Chevron = e("TextLabel", {
+			Size = UDim2.fromOffset(18, 18),
+			Position = UDim2.new(0, 9, 0.5, 0),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundTransparency = 1,
+			Text = "›",
+			FontFace = theme.face.mono,
+			TextSize = 20,
+			TextColor3 = ink,
+			Rotation = if props.open then 90 else 0,
+		}),
+		Label = e("TextLabel", {
+			Size = UDim2.new(1, -24, 1, 0),
+			Position = UDim2.fromOffset(24, 0),
+			BackgroundTransparency = 1,
+			Text = if props.open then group.label else `{group.label}  ·  {#group.skills}`,
+			FontFace = theme.face.bodyBold,
+			TextSize = 18,
+			TextColor3 = ink,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}),
+		Level = if group.level
+			then e("TextLabel", {
+				Size = UDim2.fromScale(1, 1),
+				BackgroundTransparency = 1,
+				Text = `LV {group.level}`,
+				FontFace = theme.face.mono,
+				TextSize = 17,
+				TextColor3 = theme.color.textMuted,
+				TextXAlignment = Enum.TextXAlignment.Right,
+			})
+			else nil,
+	})
+end
+
 local function Group(props: {
 	group: Selector.SkillGroup,
+	open: boolean,
 	keyOf: { [string]: string },
 	held: string?,
 	width: number,
 	layoutOrder: number,
 })
-	local theme = ThemeContext.useTheme()
 	local group = props.group
+	local header = e(GroupHeader, {
+		group = group,
+		open = props.open,
+		onActivated = function()
+			LoadoutEditController.setGroupOpen(group.id, not props.open)
+		end,
+	})
+	if not props.open then
+		return e("Frame", {
+			Size = UDim2.fromOffset(props.width, GROUP_LABEL),
+			BackgroundTransparency = 1,
+			LayoutOrder = props.layoutOrder,
+		}, { Header = header })
+	end
+
 	local rows: { [string]: any } = {
 		Layout = e("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, ROW_GAP) }),
 	}
@@ -90,32 +173,12 @@ local function Group(props: {
 			end,
 		})
 	end
-	local count = #group.skills
 	return e("Frame", {
-		Size = UDim2.fromOffset(props.width, GROUP_LABEL + 8 + count * ROW_HEIGHT + math.max(count - 1, 0) * ROW_GAP),
+		Size = UDim2.fromOffset(props.width, groupHeight(group, true)),
 		BackgroundTransparency = 1,
 		LayoutOrder = props.layoutOrder,
 	}, {
-		Label = e("TextLabel", {
-			Size = UDim2.new(1, 0, 0, GROUP_LABEL),
-			BackgroundTransparency = 1,
-			Text = group.label,
-			FontFace = theme.face.bodyBold,
-			TextSize = 18,
-			TextColor3 = theme.color.textMuted,
-			TextXAlignment = Enum.TextXAlignment.Left,
-		}),
-		Level = if group.level
-			then e("TextLabel", {
-				Size = UDim2.new(1, 0, 0, GROUP_LABEL),
-				BackgroundTransparency = 1,
-				Text = `LV {group.level}`,
-				FontFace = theme.face.mono,
-				TextSize = 17,
-				TextColor3 = theme.color.textMuted,
-				TextXAlignment = Enum.TextXAlignment.Right,
-			})
-			else nil,
+		Header = header,
 		Rows = e("Frame", {
 			Size = UDim2.new(1, 0, 1, -(GROUP_LABEL + 8)),
 			Position = UDim2.fromOffset(0, GROUP_LABEL + 8),
@@ -237,7 +300,11 @@ local function LoadoutSkillsPanel()
 		end
 	end
 
-	local content = listHeight(groups)
+	local function isOpen(group: Selector.SkillGroup): boolean
+		local chosen = edit.groupOpen[group.id]
+		return if chosen ~= nil then chosen else group.relevant
+	end
+	local content = listHeight(groups, isOpen)
 	local list = math.min(content, LIST_MAX)
 	local scrolls = content > LIST_MAX
 	local rowWidth = if scrolls then INNER - SCROLLBAR - 8 else INNER
@@ -248,6 +315,7 @@ local function LoadoutSkillsPanel()
 	for order, group in ipairs(groups) do
 		groupChildren[group.id] = e(Group, {
 			group = group,
+			open = isOpen(group),
 			keyOf = keyOf,
 			held = edit.held,
 			width = rowWidth,

@@ -34,6 +34,9 @@ export type State = {
 	dragging: Drag?,
 	-- The open slot under a drag.
 	dropSlot: number?,
+	-- Skill groups the player opened or closed, by group id, for the session. A group with no entry
+	-- is open when it is relevant (Selector.SkillGroup).
+	groupOpen: { [string]: boolean },
 }
 
 local LoadoutEditController = {}
@@ -46,6 +49,7 @@ local state: State = {
 	hovered = nil,
 	dragging = nil,
 	dropSlot = nil,
+	groupOpen = {},
 }
 local listeners: { [{}]: () -> () } = {}
 
@@ -156,6 +160,13 @@ function LoadoutEditController.activateSkill(skill: string)
 	end
 	UISound.play("confirm")
 	update({ held = if state.held == skill then false else skill, shown = skill })
+end
+
+function LoadoutEditController.setGroupOpen(groupId: string, open: boolean)
+	UISound.play("confirm")
+	local groupOpen = table.clone(state.groupOpen)
+	groupOpen[groupId] = open
+	update({ groupOpen = groupOpen })
 end
 
 function LoadoutEditController.setHovered(skill: string?)

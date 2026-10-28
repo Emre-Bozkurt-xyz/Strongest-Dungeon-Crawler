@@ -370,7 +370,14 @@ Built 2026-10-28 (`client/ui/panels/LoadoutPanel`, `LoadoutSkillsPanel`), with t
   under 17, labels in bold Titillium rather than Michroma, no faint ink on anything that says
   something. The Loadout keeps the other panels' angle; a pose turned square to the camera, which
   reads better but faces away from the character, is kept in `UIMenuConfig.stage.squareLoadoutPanel`.
-- Not yet: Equipment's weapon slot linking here, tag filters, the readability pass on the other panels.
+- The skill groups run most relevant first: the held weapon's mastery, the attuned ones, General,
+  then the rest; within a group, skills the weapon can use lead. Groups close to their header: the
+  relevant ones start open, the rest closed, and the player's choice holds for the session. Skills
+  are not ranked "best to worst" inside a group, since nothing measures that honestly; a tier on
+  each skill would allow it once skills are authored with one.
+- Not yet: Equipment's weapon slot linking here; search and tag filters, once there are enough
+  skills to need them (around 15), with menu keys kept from firing while typing; the readability
+  pass on the other panels.
 
 ### Mastery canvas
 

@@ -11,6 +11,7 @@ local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 local LoadoutTypes = require(ReplicatedStorage.Shared.skills.LoadoutTypes)
 local LoadoutUnlocks = require(ReplicatedStorage.Shared.skills.LoadoutUnlocks)
 local BasicAttackForm = require(ReplicatedStorage.Shared.skills.BasicAttackForm)
+local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
 local SkillRequirementResolver = require(ReplicatedStorage.Shared.skills.SkillRequirementResolver)
 local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks)
 local MasteryTrees = require(ReplicatedStorage.Shared.progression.MasteryTrees)
@@ -50,6 +51,9 @@ export type SkillGroup = {
 	label: string,
 	-- The mastery's level, for a group from one.
 	level: number?,
+	-- From the held weapon's mastery or an attuned one, or the general skills: what the player is most
+	-- likely looking for, so it leads and starts open.
+	relevant: boolean,
 	skills: { SkillView },
 }
 
@@ -92,6 +96,8 @@ export type Inputs = {
 	limits: LoadoutUnlocks.Limits,
 	combat: ItemTypes.CombatLoadoutSnapshot?,
 	levelOf: (trackId: string) -> number,
+	-- The attuned masteries' track ids.
+	attuned: { string },
 }
 
 local function trimNumber(value: number): string
@@ -267,7 +273,10 @@ function Selector.sets(limits: LoadoutUnlocks.Limits): { SetView }
 	return out
 end
 
--- Every skill the player has: the general ones, then the masteries' groups in track order.
+-- Every skill the player has, grouped by the mastery it comes from, most relevant first: the held
+-- weapon's mastery (a wand means magic is what is wanted), then the attuned masteries, then the
+-- general skills, then the rest in track order. Within a group, skills the held weapon can use lead.
+-- Skills carry no tier to rank them by strength, so after that they go by name.
 function Selector.library(inputs: Inputs): { SkillGroup }
 	local form = BasicAttackForm.resolve(inputs.combat)
 	local byGroup: { [string]: { SkillView } } = {}
@@ -285,24 +294,42 @@ function Selector.library(inputs: Inputs): { SkillGroup }
 			if (a.name == Selector.BASIC_ATTACK) ~= (b.name == Selector.BASIC_ATTACK) then
 				return a.name == Selector.BASIC_ATTACK
 			end
+			if (a.misfit == nil) ~= (b.misfit == nil) then
+				return a.misfit == nil
+			end
 			return a.displayName < b.displayName
 		end)
 		return list
 	end
-	-- The general skills lead: the basic attack and movement are in nearly every bar.
-	if byGroup[GENERAL] then
-		table.insert(groups, { id = GENERAL, label = GENERAL, skills = sorted(byGroup[GENERAL]) })
+	local function addTrack(track: MasteryTracks.Track, relevant: boolean)
+		local list = byGroup[track.id]
+		if not list then
+			return
+		end
+		byGroup[track.id] = nil
+		table.insert(groups, {
+			id = track.id,
+			label = string.upper(track.displayName),
+			level = inputs.levelOf(track.id),
+			relevant = relevant,
+			skills = sorted(list),
+		})
+	end
+
+	local held = MasteryTracks.forContext(BasicAttackProfileRegistry.classKeyOf(inputs.combat))
+	if held then
+		addTrack(held, true)
 	end
 	for _, track in ipairs(MasteryTracks.list()) do
-		local list = byGroup[track.id]
-		if list then
-			table.insert(groups, {
-				id = track.id,
-				label = string.upper(track.displayName),
-				level = inputs.levelOf(track.id),
-				skills = sorted(list),
-			})
+		if table.find(inputs.attuned, track.id) then
+			addTrack(track, true)
 		end
+	end
+	if byGroup[GENERAL] then
+		table.insert(groups, { id = GENERAL, label = GENERAL, relevant = true, skills = sorted(byGroup[GENERAL]) })
+	end
+	for _, track in ipairs(MasteryTracks.list()) do
+		addTrack(track, false)
 	end
 	return groups
 end

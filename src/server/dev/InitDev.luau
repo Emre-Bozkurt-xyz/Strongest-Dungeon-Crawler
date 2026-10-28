@@ -244,7 +244,6 @@ function Dev.onSessionStart(player: Player, _character: Model, grantStarterKit: 
 	skillsManager.addSkill(playerId, "TripleStrike")
 	skillsManager.addSkill(playerId, "Dash")
 	skillsManager.addSkill(playerId, "DodgeRoll")
-	skillsManager.addSkill(playerId, "ManaBall")
 	skillsManager.addSkill(playerId, "CascadingManaBalls")
 
 	if grantStarterKit then

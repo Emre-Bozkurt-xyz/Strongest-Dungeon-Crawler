@@ -231,17 +231,4 @@ function EffectText.describe(effect: Effect, scale: number): string
 	return sentence(kind, when)
 end
 
--- The first figure in `effect`'s text at `scale`, for a short "+18% when Mastered" beside the full
--- line; nil when nothing in it grows.
-function EffectText.figureAt(effect: Effect, scale: number): string?
-	local base = string.split(EffectText.describe(effect, 1), " ")
-	local scaled = string.split(EffectText.describe(effect, scale == 1 and 2 or scale), " ")
-	for index, word in ipairs(scaled) do
-		if base[index] ~= word then
-			return if scale == 1 then base[index] else (string.gsub(word, "[,;]$", ""))
-		end
-	end
-	return nil
-end
-
 return EffectText

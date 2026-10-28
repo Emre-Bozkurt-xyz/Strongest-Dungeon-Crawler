@@ -66,6 +66,14 @@ local GLYPHS: { [string]: Glyph } = {
 		line({ 0.61, 0.34 }, { 0.61, 0.5 }),
 		line({ 0.24, 0.58 }, { 0.5, 0.6 }),
 	},
+	-- Not an item: something a level has yet to open.
+	lock = {
+		shape({ 0.25, 0.46 }, { 0.75, 0.46 }, { 0.75, 0.86 }, { 0.25, 0.86 }),
+		arc(0.5, 0.34, 0.16, 180, 360),
+		line({ 0.34, 0.34 }, { 0.34, 0.46 }),
+		line({ 0.66, 0.34 }, { 0.66, 0.46 }),
+		line({ 0.5, 0.6 }, { 0.5, 0.72 }),
+	},
 	-- Not items: skills that have no art yet, for the loadout.
 	orb = {
 		arc(0.5, 0.5, 0.15),

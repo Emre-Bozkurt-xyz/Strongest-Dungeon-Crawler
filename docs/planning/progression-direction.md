@@ -344,7 +344,7 @@ A staged world panel like the other views, with a wider camera seat than Invento
   Shrine."*
 - Detail for the selected skill or form opens in a **side slot**, the mechanism ItemInspect uses.
 
-Built 2026-10-28 (`client/ui/panels/LoadoutPanel`, `SkillInspectPanel`), with these decisions:
+Built 2026-10-28 (`client/ui/panels/LoadoutPanel`, `LoadoutSkillsPanel`), with these decisions:
 
 - Form and infusion are only shown here and changed in the mastery trees; the recipe chips open the
   tree with that node pinned.
@@ -354,11 +354,23 @@ Built 2026-10-28 (`client/ui/panels/LoadoutPanel`, `SkillInspectPanel`), with th
   (`shared/skills/LoadoutUnlocks`, placeholder levels). Locked slots and sets keep what the save holds.
 - The basic attack is a skill like any other and can sit in any slot. Moving a skill onto a filled
   slot swaps the two.
-- The library is grouped by mastery rather than filtered by tag, while there are few skills.
-- Chosen selectable passives show as a row of the tree's own nodes, each opening its tree.
-- The menu's views are one strip of tabs at the top of the screen (J, I, K, L, or click), so the
-  Loadout is a fourth tab of the menu rather than another screen to remember.
-- Not yet: Equipment's weapon slot linking here, tag filters, dragging.
+- The skill bar leads the panel; the basic attack's form and the chosen passives sit below it as
+  reading. The skills are a side panel beside it, open by default and hidden from the Loadout's title
+  row, grouped by mastery rather than filtered by tag while there are few skills. Its footer describes
+  the hovered or last chosen skill, so there is no separate inspect panel.
+- A skill goes into the bar by dragging it from the skills panel onto a slot, or by clicking a slot and
+  a skill in either order (the path a gamepad or touch screen uses). The two panels share a plane, so
+  a drag is one camera ray onto it (`LoadoutDragController`). Dragging a slot onto another swaps them;
+  onto the skills panel empties it.
+- Chosen selectable passives show as the tree's own nodes, each opening its tree; until a passive
+  slot opens, one line says when.
+- The menu's views are one strip of tabs above the open panel (J, I, K, L, or click), so the Loadout
+  is a fourth tab of the menu rather than another screen to remember.
+- Readability floor, tested here first: laid out at about one screen pixel per logical pixel, nothing
+  under 17, labels in bold Titillium rather than Michroma, no faint ink on anything that says
+  something. The Loadout keeps the other panels' angle; a pose turned square to the camera, which
+  reads better but faces away from the character, is kept in `UIMenuConfig.stage.squareLoadoutPanel`.
+- Not yet: Equipment's weapon slot linking here, tag filters, the readability pass on the other panels.
 
 ### Mastery canvas
 

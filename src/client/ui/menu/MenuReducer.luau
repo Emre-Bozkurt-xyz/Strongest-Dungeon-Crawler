@@ -34,10 +34,7 @@ local function resolveNextInspectState(inspect: Types.InspectState?, view: MenuV
 	if inspect.source == "equipment" and view ~= "equipment" then
 		return nil
 	end
-	if inspect.source == "loadout" and view ~= "loadout" then
-		return nil
-	end
-	if view == "system" then
+	if view == "system" or view == "loadout" then
 		return nil
 	end
 	return inspect
@@ -47,8 +44,12 @@ local function deriveLayout(state: MenuState): MenuState
 	local view = state.modal.view
 	local primary = PRIMARY_BY_VIEW[view]
 	local side: { string } = {}
-	if state.inspect ~= nil and view ~= "system" then
-		table.insert(side, if state.inspect.source == "loadout" then "SkillInspectPanel" else "ItemInspectPanel")
+	if view == "loadout" then
+		if state.contextPanels.LoadoutSkillsPanel ~= false then
+			table.insert(side, "LoadoutSkillsPanel")
+		end
+	elseif state.inspect ~= nil and view ~= "system" then
+		table.insert(side, "ItemInspectPanel")
 	end
 
 	local modal = {
@@ -171,12 +172,13 @@ function MenuReducer.reduce(state: MenuState, action: MenuAction): MenuState
 	if action.type == "SET_CONTEXT_PANEL" and action.panelId ~= nil then
 		local map = cloneMap(state.contextPanels)
 		map[action.panelId] = action.visible == true
-		return {
+		-- Derived, since a context panel can be a side panel the stage has to make room for.
+		return deriveLayout({
 			modal = state.modal,
 			contextPanels = map,
 			transientQueue = table.clone(state.transientQueue),
 			inspect = state.inspect,
-		}
+		})
 	end
 
 	if action.type == "ENQUEUE_TRANSIENT" then

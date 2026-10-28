@@ -23,6 +23,7 @@ local Server = ServerScriptService.Server
 local PlayerDataService = require(Server.PlayerData.PlayerDataService)
 local PlayerDataSchema = require(Server.PlayerData.PlayerDataSchema)
 local SkillsManager = require(Server.SkillsFramework.SkillsManager)
+local SkillsConfig = require(Server.SkillsFramework.SkillsConfig)
 local Registrar = require(Server.Services.Registrar)
 
 local dispatcher = Networking.server() :: any
@@ -106,6 +107,15 @@ function LoadoutService.start()
 		-- A save is outside data: repair it before anything reads it, falling back to the starting
 		-- kit only when nothing usable is there.
 		data.loadout = LoadoutRules.sanitize(data.loadout) or PlayerDataSchema.defaultLoadout()
+		-- A skill can leave the game (Mana Ball became a form); a slot still naming it would show a
+		-- skill that cannot be cast, so it empties.
+		for _, set in ipairs(data.loadout.sets) do
+			for slot, skill in ipairs(set.slots) do
+				if skill ~= LoadoutTypes.EMPTY and SkillsConfig.skills[skill] == nil then
+					set.slots[slot] = LoadoutTypes.EMPTY
+				end
+			end
+		end
 		-- The client may have asked before the save loaded and been told nothing yet.
 		dispatcher:emit("LoadoutUpdate", { loadout = data.loadout }, { targets = { player } })
 	end)

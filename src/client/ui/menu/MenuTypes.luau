@@ -2,8 +2,11 @@
 -- Menu state shape, shared by the store, its reducer, the orchestrator and PanelRegistry predicates.
 
 export type MenuView = "system" | "inventory" | "equipment" | "loadout"
--- "loadout" inspects a skill or the basic attack's form rather than an item.
-export type InspectSource = "inventory" | "equipment" | "loadout"
+export type InspectSource = "inventory" | "equipment"
+
+-- A side panel the player shows or hides rather than one an inspect opens, keyed in `contextPanels`.
+-- Unset counts as shown: the Loadout's skills are open until the player hides them.
+export type ContextPanel = "LoadoutSkillsPanel"
 
 export type MenuModalState = {
 	open: boolean,

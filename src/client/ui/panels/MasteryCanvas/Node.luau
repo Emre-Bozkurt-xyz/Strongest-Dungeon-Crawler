@@ -218,13 +218,13 @@ local function NodeView(props: Props)
 		end
 		local below = if kind == "form" or kind == "infusion" then BRACKET_REACH + 8 else (frame and frame.reach or 6) + 8
 		children.Name = e("TextLabel", {
-			Size = UDim2.fromOffset(240, 16),
+			Size = UDim2.fromOffset(260, 22),
 			Position = UDim2.new(0.5, 0, 0.5, r + below),
 			AnchorPoint = Vector2.new(0.5, 0),
 			BackgroundTransparency = 1,
 			Text = string.upper(node.displayName),
 			FontFace = theme.face.display,
-			TextSize = 13,
+			TextSize = 18,
 			TextColor3 = if lit then (if on then INK else MID) else GREY,
 			ZIndex = 3,
 		})

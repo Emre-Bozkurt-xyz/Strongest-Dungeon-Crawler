@@ -20,7 +20,6 @@ export type Look = {
 
 -- Glyphs for skills without art of their own (ItemGlyphs).
 local SKILL_GLYPH: { [string]: string } = {
-	ManaBall = "orb",
 	CascadingManaBalls = "orbs",
 	Dash = "dash",
 	DodgeRoll = "roll",

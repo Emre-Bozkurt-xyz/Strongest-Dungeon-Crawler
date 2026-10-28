@@ -178,6 +178,37 @@ function MasteryTree.progressToward(node: NodeDef, branches: { [string]: number 
 	return 0
 end
 
+export type XpToward = {
+	-- The branch whose XP opens the node.
+	branch: string,
+	have: number,
+	need: number,
+}
+
+-- The numbers behind `progressToward`: the XP the branch that opens `node` has, and what opening it
+-- takes. Nil for the nodes that open on something other than XP (the root, the end).
+function MasteryTree.xpToward(node: NodeDef, branches: { [string]: number }): XpToward?
+	local rank = node.rank or 0
+	if node.branch == "trunk" then
+		if rank == 0 then
+			return nil
+		end
+		return { branch = "trunk", have = branches.trunk or 0, need = MasteryXP.TRUNK_RANKS[rank] or 0 }
+	elseif node.branch == "a" or node.branch == "b" then
+		if rank == 1 then
+			-- Entered from the trunk.
+			return { branch = "trunk", have = branches.trunk or 0, need = MasteryXP.BRANCH_ENTRY }
+		end
+		return { branch = node.branch, have = branches[node.branch] or 0, need = MasteryXP.BRANCH_RANKS[rank] or 0 }
+	elseif node.branch == "join" then
+		-- The slower branch decides.
+		local need = MasteryXP.BRANCH_RANKS[MasteryXP.JOIN_RANK] or 0
+		local a, b = branches.a or 0, branches.b or 0
+		return if a <= b then { branch = "a", have = a, need = need } else { branch = "b", have = b, need = need }
+	end
+	return nil
+end
+
 -- Whether an earned node is in effect. Attack-type tracks need attunement, except their root form,
 -- which always works so anyone can use a weapon; element tracks always work.
 function MasteryTree.isActive(node: NodeDef, trackId: string, attuned: boolean): boolean

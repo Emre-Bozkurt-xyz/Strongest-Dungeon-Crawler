@@ -106,6 +106,15 @@ function MenuOrchestrator.clearInspect()
 	dispatch({ type = "CLEAR_INSPECT" })
 end
 
+function MenuOrchestrator.setContextPanel(panelId: Types.ContextPanel, visible: boolean)
+	dispatch({ type = "SET_CONTEXT_PANEL", panelId = panelId, visible = visible })
+end
+
+-- Unset counts as shown (MenuTypes.ContextPanel).
+function MenuOrchestrator.isContextPanelShown(panelId: Types.ContextPanel): boolean
+	return getState().contextPanels[panelId] ~= false
+end
+
 function MenuOrchestrator.enqueueTransient(payload: any)
 	dispatch({ type = "ENQUEUE_TRANSIENT", transient = payload })
 end

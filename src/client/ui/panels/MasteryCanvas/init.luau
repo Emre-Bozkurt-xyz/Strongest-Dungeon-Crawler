@@ -271,6 +271,7 @@ local function MasteryCanvas()
 	local dragRef = React.useRef(nil :: { origin: Vector2, start: Vector2?, moved: boolean }?)
 	-- The node under the pointer, and the node pinned by a click (with when it was pinned).
 	local hoveredId, setHoveredId = React.useState(nil :: string?)
+	local hoveredEdge, setHoveredEdge = React.useState(nil :: string?)
 	local pinned, setPinned = React.useState(nil :: { id: string, at: number }?)
 	local bursts, setBursts = React.useState({} :: { { id: number, position: Vector2 } })
 	local burstCount = React.useRef(0)
@@ -300,6 +301,7 @@ local function MasteryCanvas()
 	React.useEffect(function()
 		setPinned(nil)
 		setHoveredId(nil)
+		setHoveredEdge(nil)
 	end, { canvas.open, track.id, canvas.view } :: { any })
 
 	local function applyPan(value: Vector2)
@@ -307,10 +309,12 @@ local function MasteryCanvas()
 		local clamped = clampPan(value, bounds[1], bounds[2])
 		panRef.current = clamped
 		setPan(clamped)
+		MasteryCanvasController.rememberPan(track.id, clamped)
 	end
 
-	-- Opening, or switching track, frames the node in use, or the node a link asked for (pinned, so
-	-- its details are already showing).
+	-- Opening, or switching track, frames the node a link asked for (pinned, so its details are
+	-- already showing); else returns to where the player last left this tree; else frames the node in
+	-- use.
 	React.useEffect(function()
 		if not canvas.open or not tree then
 			return
@@ -321,13 +325,18 @@ local function MasteryCanvas()
 				focusNode = node
 			end
 		end
+		local linked = false
 		for _, node in ipairs(tree.nodes) do
 			if node.id == canvas.focus and node.visibility ~= "fogged" then
 				focusNode = node
+				linked = true
 				setPinned({ id = node.id, at = os.clock() })
 			end
 		end
-		if focusNode then
+		local remembered = MasteryCanvasController.panOf(track.id)
+		if remembered and not linked then
+			applyPan(remembered)
+		elseif focusNode then
 			-- Left of centre: trees grow rightward.
 			local view = viewSize()
 			local anchor = Vector2.new(view.X * FOCUS_X, view.Y / 2)
@@ -430,7 +439,28 @@ local function MasteryCanvas()
 				else
 					state = "pending"
 				end
-				content[`Edge_{key(edge.from)}_{key(edge.to)}`] = e(Edge, {
+				-- The numbers behind the fill, for pointing at the line. A fogged line tells nothing.
+				local label: string? = nil
+				local xp = if state ~= "fogged" then MasteryTree.xpToward(child :: any, branches) else nil
+				local xpBranch = xp and tree.branches[xp.branch]
+				if xp and xpBranch then
+					label = if state == "pending"
+						then `{xpBranch.name}  ·  {math.floor(xp.have)} / {xp.need} XP`
+						else `{xpBranch.name}  ·  opened at {xp.need} XP`
+				end
+				local edgeKey = `Edge_{key(edge.from)}_{key(edge.to)}`
+				content[edgeKey] = e(Edge, {
+					label = label,
+					hovered = hoveredEdge == edgeKey,
+					onHover = function(hovering: boolean)
+						if hovering then
+							setHoveredEdge(edgeKey)
+						else
+							setHoveredEdge(function(current)
+								return if current == edgeKey then nil else current
+							end)
+						end
+					end,
 					from = nodePosition(parent),
 					to = nodePosition(child),
 					state = state,
@@ -701,45 +731,25 @@ local function MasteryCanvas()
 			ZIndex = 8,
 		}),
 
-		-- The tree carries everything else: here only the way back and which tree this is.
-		TreeTop = e("Frame", {
-			Size = UDim2.fromOffset(480, 60),
-			-- Below Roblox's top bar, which covers the top of a full-screen layer.
+		-- Which tree this is. Below Roblox's top bar, which covers the top of a full-screen layer.
+		TreeName = e("TextLabel", {
+			Size = UDim2.fromOffset(760, 32),
 			Position = UDim2.fromOffset(56, 96),
 			BackgroundTransparency = 1,
+			Text = treeName,
+			FontFace = theme.face.display,
+			TextSize = 24,
+			TextColor3 = INK,
+			TextTransparency = hudFade(0.15),
+			TextXAlignment = Enum.TextXAlignment.Left,
 			Visible = inTree,
 			ZIndex = 10,
-		}, {
-			Back = e("TextButton", {
-				AutomaticSize = Enum.AutomaticSize.X,
-				Size = UDim2.fromOffset(0, 24),
-				BackgroundTransparency = 1,
-				Text = "‹   MASTERIES",
-				FontFace = theme.face.display,
-				TextSize = 13,
-				TextColor3 = INK,
-				TextTransparency = hudFade(0.3),
-				TextXAlignment = Enum.TextXAlignment.Left,
-				[React.Event.MouseEnter] = function()
-					UISound.play("hover")
-				end,
-				[React.Event.Activated] = MasteryCanvasController.back,
-			}),
-			Name = e("TextLabel", {
-				Size = UDim2.fromOffset(480, 20),
-				Position = UDim2.fromOffset(0, 36),
-				BackgroundTransparency = 1,
-				Text = treeName,
-				FontFace = theme.face.display,
-				TextSize = 15,
-				TextColor3 = INK,
-				TextTransparency = hudFade(0.28),
-				TextXAlignment = Enum.TextXAlignment.Left,
-			}),
 		}),
 
-		Close = e("CanvasGroup", {
-			Size = UDim2.fromOffset(120, 34),
+		-- The way back and the way out sit together in the bottom right, clear of Roblox's own buttons
+		-- in the top left.
+		Buttons = e("CanvasGroup", {
+			Size = UDim2.fromOffset(400, 46),
 			Position = UDim2.new(1, -56, 1, -48),
 			AnchorPoint = Vector2.new(1, 1),
 			BackgroundTransparency = 1,
@@ -748,25 +758,42 @@ local function MasteryCanvas()
 			end),
 			ZIndex = 10,
 		}, {
-			Button = e(Button, {
+			Layout = e("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				HorizontalAlignment = Enum.HorizontalAlignment.Right,
+				SortOrder = Enum.SortOrder.LayoutOrder,
+				Padding = UDim.new(0, 12),
+			}),
+			Back = if inTree
+				then e(Button, {
+					text = "‹  MASTERIES",
+					variant = "secondary",
+					size = UDim2.fromOffset(200, 46),
+					textSize = 17,
+					layoutOrder = 1,
+					onActivated = MasteryCanvasController.back,
+				})
+				else nil,
+			Close = e(Button, {
 				text = "CLOSE  [M]",
 				variant = "secondary",
-				size = UDim2.fromScale(1, 1),
-				textSize = theme.type.label,
+				size = UDim2.fromOffset(170, 46),
+				textSize = 17,
+				layoutOrder = 2,
 				onActivated = MasteryCanvasController.close,
 			}),
 		}),
 
 		Hint = e("TextLabel", {
-			Size = UDim2.fromOffset(640, 18),
-			Position = UDim2.new(0.5, 0, 1, -56),
+			Size = UDim2.fromOffset(640, 24),
+			Position = UDim2.new(0.5, 0, 1, -58),
 			AnchorPoint = Vector2.new(0.5, 1),
 			BackgroundTransparency = 1,
-			Text = "DRAG TO MOVE",
-			FontFace = theme.face.display,
-			TextSize = 10,
+			Text = "DRAG TO MOVE  ·  POINT AT A LINE FOR ITS XP",
+			FontFace = theme.face.bodyBold,
+			TextSize = 18,
 			TextColor3 = INK,
-			TextTransparency = hudFade(0.6),
+			TextTransparency = hudFade(0.4),
 			ZIndex = 10,
 		}),
 	})

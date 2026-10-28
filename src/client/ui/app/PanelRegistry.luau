@@ -80,7 +80,7 @@ end
 local EquipmentPanel = require(script.Parent.Parent.panels.EquipmentPanel)
 local InventoryPanel = require(script.Parent.Parent.panels.InventoryPanel)
 local LoadoutPanel = require(script.Parent.Parent.panels.LoadoutPanel)
-local SkillInspectPanel = require(script.Parent.Parent.panels.SkillInspectPanel)
+local LoadoutSkillsPanel = require(script.Parent.Parent.panels.LoadoutSkillsPanel)
 local ViewStripPanel = require(script.Parent.Parent.panels.ViewStripPanel)
 
 local function isMenuOpen(state: MenuState): boolean
@@ -156,16 +156,16 @@ local entries: { PanelEntry } = {
 	{
 		id = "LoadoutPanel",
 		component = LoadoutPanel,
-		-- The widest menu panel: the form card, the slot bar and four columns of skills side by side.
-		-- 860 logical pixels across; the surface is taller than the panel needs, which draws itself
-		-- only as tall as its content.
+		-- 780 logical pixels across, about one screen pixel each at the Loadout's staging, so its type
+		-- sizes are what the player sees. The surface is taller than the panel needs, which draws
+		-- itself only as tall as its content.
 		surface = {
 			width = 7.2,
-			height = 6.9,
+			height = 6.3,
 			thickness = 0.076,
 			pixelsPerStud = 200,
 			scale = MENU_PANEL_SCALE,
-			logicalWidth = 860,
+			logicalWidth = 780,
 			fitContent = true,
 		},
 		placement = menuRigPlacement(),
@@ -187,32 +187,34 @@ local entries: { PanelEntry } = {
 			logicalWidth = 340,
 		},
 		placement = menuRigPlacement(),
-		-- Hidden over the system view, which has no item context to inspect against.
+		-- Hidden over the system and loadout views, which have no item to inspect.
 		isVisible = function(state)
 			return state.inspect ~= nil
-				and state.inspect.source ~= "loadout"
 				and isMenuOpen(state)
 				and state.modal.view ~= "system"
+				and state.modal.view ~= "loadout"
 		end,
 	},
 	{
-		id = "SkillInspectPanel",
-		component = SkillInspectPanel,
-		-- The item inspect panel's surface, in the same side slot: the two never show together.
+		id = "LoadoutSkillsPanel",
+		component = LoadoutSkillsPanel,
+		-- At the Loadout's density (780 logical pixels over 7.2 studs), 400 across. Its list scrolls
+		-- past a fixed height, so the surface is sized for that.
 		surface = {
-			width = 1.875,
-			height = 3.34,
+			width = 3.692,
+			height = 6.0,
 			thickness = 0.076,
-			pixelsPerStud = 300,
+			pixelsPerStud = 200,
 			scale = MENU_PANEL_SCALE,
-			logicalWidth = 340,
+			logicalWidth = 400,
+			fitContent = true,
 		},
 		placement = menuRigPlacement(),
+		-- Shown with the Loadout until the player hides it (MenuTypes.ContextPanel).
 		isVisible = function(state)
-			return state.inspect ~= nil
-				and state.inspect.source == "loadout"
-				and isMenuOpen(state)
+			return isMenuOpen(state)
 				and state.modal.view == "loadout"
+				and state.contextPanels.LoadoutSkillsPanel ~= false
 		end,
 	},
 	{

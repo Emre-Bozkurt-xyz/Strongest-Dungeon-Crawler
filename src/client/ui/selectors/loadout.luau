@@ -267,7 +267,7 @@ function Selector.sets(limits: LoadoutUnlocks.Limits): { SetView }
 	return out
 end
 
--- Every skill the player has: the masteries' groups in track order, then the rest.
+-- Every skill the player has: the general ones, then the masteries' groups in track order.
 function Selector.library(inputs: Inputs): { SkillGroup }
 	local form = BasicAttackForm.resolve(inputs.combat)
 	local byGroup: { [string]: { SkillView } } = {}
@@ -289,6 +289,10 @@ function Selector.library(inputs: Inputs): { SkillGroup }
 		end)
 		return list
 	end
+	-- The general skills lead: the basic attack and movement are in nearly every bar.
+	if byGroup[GENERAL] then
+		table.insert(groups, { id = GENERAL, label = GENERAL, skills = sorted(byGroup[GENERAL]) })
+	end
 	for _, track in ipairs(MasteryTracks.list()) do
 		local list = byGroup[track.id]
 		if list then
@@ -299,9 +303,6 @@ function Selector.library(inputs: Inputs): { SkillGroup }
 				skills = sorted(list),
 			})
 		end
-	end
-	if byGroup[GENERAL] then
-		table.insert(groups, { id = GENERAL, label = GENERAL, skills = sorted(byGroup[GENERAL]) })
 	end
 	return groups
 end

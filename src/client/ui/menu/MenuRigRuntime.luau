@@ -43,7 +43,7 @@ local MENU_PANEL_IDS = {
 	"EquipmentPanel",
 	"LoadoutPanel",
 	"ItemInspectPanel",
-	"SkillInspectPanel",
+	"LoadoutSkillsPanel",
 	"ViewStripPanel",
 }
 
@@ -264,18 +264,21 @@ function MenuRigRuntime:_solve(): Solve?
 		* CFrame.Angles(math.rad(panelPose.tilt or 0), 0, 0)
 	local panels: { [string]: CFrame } = { [self._primaryPanelId] = primary }
 
-	-- Side panels continue the primary's plane outward. The panel faces its reader, so the reader's
-	-- right is the part's -X.
+	-- Side panels continue the primary's plane outward, top edges level with its top: a panel sized
+	-- by its content draws from its top down, so centring panels of different heights would start
+	-- their content at different heights. The panel faces its reader, so the reader's right is the
+	-- part's -X.
 	local spacing = StageConfig.spacing
-	local primaryHalf = (self._panelSizes[self._primaryPanelId] or Vector2.zero).X / 2
+	local primarySize = self._panelSizes[self._primaryPanelId] or Vector2.zero
+	local primaryHalf = primarySize.X / 2
 	local left, right = self:_sideBuckets()
 	for _, bucket in ipairs({ { ids = right, direction = -1 }, { ids = left, direction = 1 } }) do
 		local cursor = primaryHalf
 		for _, panelId in ipairs(bucket.ids) do
-			local width = (self._panelSizes[panelId] or Vector2.zero).X
-			cursor += spacing + width / 2
-			panels[panelId] = primary * CFrame.new(cursor * bucket.direction, 0, 0)
-			cursor += width / 2
+			local size = self._panelSizes[panelId] or Vector2.zero
+			cursor += spacing + size.X / 2
+			panels[panelId] = primary * CFrame.new(cursor * bucket.direction, (primarySize.Y - size.Y) / 2, 0)
+			cursor += size.X / 2
 		end
 	end
 

@@ -62,6 +62,11 @@ local UIMenuConfig = {
 		-- top edge, and `lift` studs out of its plane toward the reader, so the strip lies over the
 		-- panels rather than in them and never fights one for depth while it glides between views.
 		viewStrip = { gap = 0.12, lift = 0.08 },
+		-- Kept to compare against: the Loadout turned nearly square to the camera. It reads at about
+		-- one screen pixel per logical pixel edge to edge, but faces out at the camera instead of
+		-- across at the character. To try it, put it in place of a view's `panel` pose (all of them,
+		-- for the look throughout).
+		squareLoadoutPanel = { ahead = 4.9, right = -0.15, up = 1.05, faceCamera = 0.85, turn = 0, tilt = -0.5 } :: PanelPose,
 		views = {
 			-- Panel squarely in front of the character at chest height, facing it. The camera stands off
 			-- the right shoulder and turns back in to look across the character at the panel.
@@ -79,10 +84,10 @@ local UIMenuConfig = {
 				panel = { ahead = 4.6, right = 0.15, up = 1.2, faceCamera = 0.2, turn = -2, tilt = -0.5 },
 				camera = { right = 3.2, up = 2.4, back = 2.05, yaw = -24.5, pitch = -9.5, fov = 55 },
 			} :: ViewStage,
-			-- The widest and tallest panel, with a skill's details beside it and the view strip above:
-			-- set furthest back, and low, to fit all three.
+			-- The Loadout and its skills panel are the widest composition: at the others' angle, set back
+			-- and left of them to fit the skills panel on screen, but clear of the head.
 			loadout = {
-				panel = { ahead = 5.2, right = 0.15, up = 1.05, faceCamera = 0.2, turn = -2, tilt = -0.5 },
+				panel = { ahead = 5.2, right = -0.85, up = 1.2, faceCamera = 0.2, turn = -2, tilt = -0.5 },
 				camera = { right = 3.2, up = 2.4, back = 2.05, yaw = -24.5, pitch = -9.5, fov = 55 },
 			} :: ViewStage,
 		},
@@ -90,7 +95,7 @@ local UIMenuConfig = {
 	sideSlots = {
 		ItemInspectPanel = { side = "right", order = 100 } :: SideSlot,
 		-- The same place: the two never show together.
-		SkillInspectPanel = { side = "right", order = 100 } :: SideSlot,
+		LoadoutSkillsPanel = { side = "right", order = 100 } :: SideSlot,
 	},
 }
 

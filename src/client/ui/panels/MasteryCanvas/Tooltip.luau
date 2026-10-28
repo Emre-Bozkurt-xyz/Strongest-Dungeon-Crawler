@@ -3,8 +3,11 @@
 -- it, clicking pins it, and clicking the pinned node again takes its action.
 --
 -- Clean and complete: the node's name and kind, a lore line for the nodes that have one, every
--- effect with its live numbers (now, at Mastered, and the attuned bonus where it applies), what a
--- locked node takes, the named combination it would make, and the action line.
+-- effect at the strength it has now (not what Mastering or attuning would make it: the tooltip
+-- says what the node does, not what it could), what a locked node takes, the named combination it
+-- would make, and the action line.
+--
+-- Screen pixels, at the System's readability floor: nothing under 17, small caps in bold Titillium.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -19,10 +22,10 @@ local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
 
 local e = React.createElement
 
-local WIDTH = 400
+local WIDTH = 480
 local PADDING = 22
 local INK = Color3.fromRGB(238, 241, 246)
-local DIM = Color3.fromRGB(122, 128, 140)
+local DIM = Color3.fromRGB(158, 166, 178)
 
 local KIND_NAME: { [string]: string } = {
 	passive = "PASSIVE",
@@ -51,15 +54,13 @@ export type Props = {
 	reach: number,
 }
 
-type Line = { text: string, kind: "lore" | "effect" | "grow" | "note" | "warn" }
+type Line = { text: string, kind: "lore" | "effect" | "note" | "warn" }
 
 local LINE_STYLE: { [string]: { size: number, color: Color3, transparency: number } } = {
-	lore = { size = 17, color = INK, transparency = 0.3 },
-	effect = { size = 18, color = INK, transparency = 0 },
-	-- What an effect grows to: small and dim, under the effect it belongs to.
-	grow = { size = 15, color = DIM, transparency = 0 },
-	note = { size = 15, color = INK, transparency = 0.3 },
-	warn = { size = 15, color = DIM, transparency = 0 },
+	lore = { size = 21, color = INK, transparency = 0.2 },
+	effect = { size = 22, color = INK, transparency = 0 },
+	note = { size = 20, color = INK, transparency = 0.15 },
+	warn = { size = 20, color = DIM, transparency = 0 },
 }
 
 local function linesFor(props: Props): { Line }
@@ -74,22 +75,8 @@ local function linesFor(props: Props): { Line }
 	local effects = NodeEffects.of(node.id)
 	if def and effects then
 		local scale = NodeEffects.scaleOf(def, props.trackId, props.branches, props.attuned)
-		local growth = NodeEffects.growthOf(def, props.branches)
-		local element = track ~= nil and track.family == "element"
-		local maxScale = (1 + NodeEffects.GROWTH) * (if element and props.attuned then NodeEffects.ATTUNED_ELEMENT else 1)
 		for _, effect in ipairs(effects) do
 			table.insert(lines, { text = EffectText.describe(effect, scale), kind = "effect" })
-			local notes: { string } = {}
-			local atMax = EffectText.figureAt(effect, maxScale)
-			if atMax and growth < 1 then
-				table.insert(notes, `{atMax} when this branch is Mastered`)
-			end
-			if element and not props.attuned and atMax and track then
-				table.insert(notes, `×{NodeEffects.ATTUNED_ELEMENT} with {track.displayName} attuned`)
-			end
-			if #notes > 0 then
-				table.insert(lines, { text = table.concat(notes, "  ·  "), kind = "grow" })
-			end
 		end
 	end
 
@@ -153,21 +140,21 @@ local function Tooltip(props: Props)
 			PaddingBottom = UDim.new(0, PADDING - 2),
 		}),
 		Kind = e("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 12),
+			Size = UDim2.new(1, 0, 0, 20),
 			BackgroundTransparency = 1,
 			Text = KIND_NAME[node.kind] or string.upper(node.kind),
-			FontFace = theme.face.display,
-			TextSize = 11,
+			FontFace = theme.face.bodyBold,
+			TextSize = 18,
 			TextColor3 = DIM,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			LayoutOrder = 1,
 		}),
 		Name = e("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 24),
+			Size = UDim2.new(1, 0, 0, 32),
 			BackgroundTransparency = 1,
 			Text = string.upper(node.displayName),
 			FontFace = theme.face.display,
-			TextSize = 19,
+			TextSize = 25,
 			TextColor3 = INK,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			LayoutOrder = 2,
@@ -195,35 +182,35 @@ local function Tooltip(props: Props)
 			then (if props.pinned then "CLICK AGAIN" else "CLICK TO SELECT")
 			else ""
 		children.Action = e("Frame", {
-			Size = UDim2.new(1, 0, 0, 34),
+			Size = UDim2.new(1, 0, 0, 42),
 			BackgroundTransparency = 1,
 			LayoutOrder = 100,
 		}, {
 			Rule = e("Frame", {
 				Size = UDim2.new(1, 0, 0, 1),
 				BackgroundColor3 = INK,
-				BackgroundTransparency = 0.86,
+				BackgroundTransparency = 0.8,
 				BorderSizePixel = 0,
 			}),
 			Label = e("TextLabel", {
-				Size = UDim2.new(0.65, 0, 0, 24),
-				Position = UDim2.fromOffset(0, 10),
+				Size = UDim2.new(0.6, 0, 0, 28),
+				Position = UDim2.fromOffset(0, 12),
 				BackgroundTransparency = 1,
 				Text = if props.action then props.action.label else (props.state or ""),
 				FontFace = theme.face.display,
-				TextSize = 13,
+				TextSize = 20,
 				TextColor3 = INK,
-				TextTransparency = if props.action and props.action.enabled then 0 else 0.45,
+				TextTransparency = if props.action and props.action.enabled then 0 else 0.4,
 				TextXAlignment = Enum.TextXAlignment.Left,
 			}),
 			Hint = e("TextLabel", {
-				Size = UDim2.new(0.35, 0, 0, 24),
-				Position = UDim2.new(1, 0, 0, 10),
+				Size = UDim2.new(0.4, 0, 0, 28),
+				Position = UDim2.new(1, 0, 0, 12),
 				AnchorPoint = Vector2.new(1, 0),
 				BackgroundTransparency = 1,
 				Text = hint,
-				FontFace = theme.face.display,
-				TextSize = 10,
+				FontFace = theme.face.bodyBold,
+				TextSize = 18,
 				TextColor3 = DIM,
 				TextXAlignment = Enum.TextXAlignment.Right,
 			}),

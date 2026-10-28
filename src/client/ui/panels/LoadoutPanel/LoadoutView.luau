@@ -1,13 +1,15 @@
 --!strict
--- The Loadout (docs/planning/progression-direction.md, "Loadout"): how the character fights. Top to
--- bottom: the basic attack's form, the chosen passives, the skill slots, then every skill the player
--- has.
+-- The Loadout (docs/planning/progression-direction.md, "Loadout"): how the character fights. The skill
+-- bar leads, since setting it up is what the panel is for; below it, read-only, what the basic attack
+-- does and which passives are chosen. The skills to fill the bar with are a panel of their own beside
+-- this one (LoadoutSkillsPanel).
 --
--- The form is shown here and changed in the mastery trees: its Shape and Infusion open the tree with
--- that node pinned. The chosen passives are drawn as the trees draw them, the same nodes in a row,
--- and open their tree the same way.
+-- The form and the passives are changed in the mastery trees, so here they are links into them: Shape
+-- and Infusion open their tree with that node pinned, and a chosen passive is drawn as its tree draws
+-- it and opens the same way.
 --
--- Laid out in logical pixels (PanelRegistry gives this surface `logicalWidth`).
+-- Laid out in logical pixels at about one screen pixel each at staging (PanelRegistry gives this
+-- surface `logicalWidth`). Nothing that says something is under 17 or drawn in the faint ink.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -27,23 +29,24 @@ local Tiles = require(script.Parent.Tiles)
 local e = React.createElement
 
 -- Logical pixels.
-local WIDTH = 860
-local PADDING = 22
+local WIDTH = 780
+local PADDING = 26
 local INNER = WIDTH - 2 * PADDING
-local GAP = 16
-local TITLE_HEIGHT = 34
-local LABEL_HEIGHT = 18
-local LABEL_GAP = 8
-local FORM_HEIGHT = 150
-local PASSIVE_HEIGHT = 112
-local PASSIVE_CELL = 190
-local SLOT_SIZE = 88
-local SLOT_GAP = 18
-local SLOT_BLOCK = SLOT_SIZE + 30
-local ROW_HEIGHT = 56
-local ROW_GAP = 6
-local COLUMN_GAP = 12
-local GROUP_LABEL = 22
+local GAP = 22
+local TITLE_HEIGHT = 44
+local LABEL_HEIGHT = 30
+local LABEL_GAP = 10
+local SLOT_SIZE = 116
+local SLOT_GAP = 22
+local HINT_HEIGHT = 30
+local BAR_HEIGHT = SLOT_SIZE + 8 + Tiles.NAME_HEIGHT + 6 + HINT_HEIGHT
+local PASSIVES_WIDTH = 236
+local COLUMN_GAP = 18
+local CARD_PAD = 16
+local WEAPON_WIDTH = 104
+local FORM_NAME_HEIGHT = 34
+local ROW_HEIGHT = 30
+local PASSIVE_ROW = 58
 
 export type PassiveCell = {
 	-- The chosen node, built as its tree would draw it; nil for an empty or locked slot.
@@ -59,15 +62,17 @@ export type Props = {
 	sets: { Selector.SetView },
 	editingSet: number,
 	slots: { Selector.SlotView },
-	selectedSlot: number?,
-	library: { Selector.SkillGroup },
-	inspected: { kind: string, skill: string? }?,
+	picked: number?,
+	dropSlot: number?,
+	-- The display name of a skill waiting for a slot.
+	heldName: string?,
+	skillsShown: boolean,
+	onToggleSkills: () -> (),
 	onSetSelected: (set: number) -> (),
 	onSlotActivated: (index: number) -> (),
-	onSkillActivated: (skill: string) -> (),
-	onFormActivated: () -> (),
-	-- Open a mastery tree at a node.
-	onOpenNode: (trackId: string, nodeId: string) -> (),
+	onClearPicked: () -> (),
+	-- Open a mastery tree at a node, or with none the masteries' own menu.
+	onOpenNode: (trackId: string?, nodeId: string?) -> (),
 }
 
 local function label(theme: any, text: string, props: { [string]: any }?)
@@ -75,8 +80,8 @@ local function label(theme: any, text: string, props: { [string]: any }?)
 		Size = UDim2.new(0.5, 0, 0, LABEL_HEIGHT),
 		BackgroundTransparency = 1,
 		Text = text,
-		FontFace = theme.face.display,
-		TextSize = 12,
+		FontFace = theme.face.bodyBold,
+		TextSize = 18,
 		TextColor3 = theme.color.textMuted,
 		TextXAlignment = Enum.TextXAlignment.Left,
 	}
@@ -86,8 +91,8 @@ local function label(theme: any, text: string, props: { [string]: any }?)
 	return e("TextLabel", base)
 end
 
--- A headed block: a small label row (and whatever sits on its right), then the content.
-local function Section(props: { title: string, aside: any?, height: number, layoutOrder: number, children: any })
+-- A headed block: its label (and whatever sits on its right), then the content.
+local function Section(props: { title: string, aside: any?, height: number, layoutOrder: number?, children: any })
 	local theme = ThemeContext.useTheme()
 	return e("Frame", {
 		Size = UDim2.new(1, 0, 0, LABEL_HEIGHT + LABEL_GAP + props.height),
@@ -104,379 +109,129 @@ local function Section(props: { title: string, aside: any?, height: number, layo
 	})
 end
 
-local function aside(theme: any, text: string)
-	return label(theme, text, {
-		Position = UDim2.fromScale(1, 0),
-		AnchorPoint = Vector2.new(1, 0),
-		FontFace = theme.face.mono,
-		TextSize = 12,
-		TextColor3 = theme.color.textDisabled,
-		TextXAlignment = Enum.TextXAlignment.Right,
-	})
+local function useHover(): (boolean, { [any]: any })
+	local hovered, setHovered = React.useState(false)
+	return hovered,
+		{
+			[React.Event.MouseEnter] = function()
+				setHovered(true)
+				UISound.play("hover")
+			end,
+			[React.Event.MouseLeave] = function()
+				setHovered(false)
+			end,
+		}
 end
 
--- One half of the form's recipe, a link into its mastery tree.
-local function Chip(props: { kind: string, text: string, empty: boolean, onActivated: (() -> ())?, layoutOrder: number })
+-- A bordered text button, sized to its text.
+local function OutlineButton(props: {
+	text: string,
+	trailing: string?,
+	height: number,
+	layoutOrder: number?,
+	position: UDim2?,
+	anchorPoint: Vector2?,
+	onActivated: () -> (),
+})
 	local theme = ThemeContext.useTheme()
-	local hovered, setHovered = React.useState(false)
-	local link = props.onActivated ~= nil
+	local hovered, hoverEvents = useHover()
 	return e("TextButton", {
 		AutomaticSize = Enum.AutomaticSize.X,
-		Size = UDim2.fromOffset(0, 30),
+		Size = UDim2.fromOffset(0, props.height),
+		Position = props.position,
+		AnchorPoint = props.anchorPoint,
 		BackgroundColor3 = theme.color.backdrop,
-		BackgroundTransparency = if hovered and link then 0.3 else 0.6,
+		BackgroundTransparency = if hovered then 0.25 else 0.5,
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
 		Text = "",
 		LayoutOrder = props.layoutOrder,
-		[React.Event.MouseEnter] = function()
-			setHovered(true)
-			if link then
-				UISound.play("hover")
-			end
-		end,
-		[React.Event.MouseLeave] = function()
-			setHovered(false)
-		end,
+		[React.Event.MouseEnter] = hoverEvents[React.Event.MouseEnter],
+		[React.Event.MouseLeave] = hoverEvents[React.Event.MouseLeave],
 		[React.Event.Activated] = props.onActivated,
 	}, {
 		Stroke = e("UIStroke", {
-			Color = if hovered and link then theme.color.strokeStrong else theme.color.stroke,
+			Color = if hovered then theme.color.accent else theme.color.strokeStrong,
 			Thickness = 1,
-			Transparency = if hovered and link then 0 elseif props.empty then 0.8 else 0.6,
+			Transparency = if hovered then 0 else 0.45,
 			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 		}),
-		Padding = e("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }),
+		Padding = e("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }),
 		Layout = e("UIListLayout", {
 			FillDirection = Enum.FillDirection.Horizontal,
 			VerticalAlignment = Enum.VerticalAlignment.Center,
 			SortOrder = Enum.SortOrder.LayoutOrder,
-			Padding = UDim.new(0, 8),
+			Padding = UDim.new(0, 10),
 		}),
-		Kind = e("TextLabel", {
+		Text = e("TextLabel", {
 			AutomaticSize = Enum.AutomaticSize.X,
-			Size = UDim2.fromOffset(0, 30),
-			BackgroundTransparency = 1,
-			Text = props.kind,
-			FontFace = theme.face.display,
-			TextSize = 10,
-			TextColor3 = theme.color.textMuted,
-			LayoutOrder = 1,
-		}),
-		Value = e("TextLabel", {
-			AutomaticSize = Enum.AutomaticSize.X,
-			Size = UDim2.fromOffset(0, 30),
+			Size = UDim2.fromOffset(0, props.height),
 			BackgroundTransparency = 1,
 			Text = props.text,
 			FontFace = theme.face.bodyBold,
-			TextSize = 15,
-			TextColor3 = if props.empty then theme.color.textDisabled else theme.color.textPrimary,
-			LayoutOrder = 2,
+			TextSize = 18,
+			TextColor3 = theme.color.textPrimary,
+			LayoutOrder = 1,
 		}),
-		Go = if link
+		Trailing = if props.trailing
 			then e("TextLabel", {
-				Size = UDim2.fromOffset(12, 30),
+				AutomaticSize = Enum.AutomaticSize.X,
+				Size = UDim2.fromOffset(0, props.height),
 				BackgroundTransparency = 1,
-				Text = "↗",
+				Text = props.trailing,
 				FontFace = theme.face.mono,
-				TextSize = 13,
+				TextSize = 18,
 				TextColor3 = theme.color.accent,
-				LayoutOrder = 3,
+				LayoutOrder = 2,
 			})
 			else nil,
 	})
 end
 
-local function FormCard(props: Props)
+local function TitleRow(props: Props)
 	local theme = ThemeContext.useTheme()
-	local hovered, setHovered = React.useState(false)
-	local form = props.form
-	local inspected = props.inspected ~= nil and props.inspected.kind == "form"
-	local lit = hovered or inspected
-
-	local shapeTrack = form.shape.track
-	local shapeNode = form.shape.node
-	local infusion = form.infusion
-
-	local stats: { { string } } = {
-		{ "COST", `{form.cost} / step` },
-		{ "DAMAGE", form.damage },
-	}
-	if form.scaling then
-		table.insert(stats, { "SUITS", form.scaling })
-	end
-	local statRows: { [string]: any } = {}
-	for index, stat in ipairs(stats) do
-		statRows[`Stat{index}`] = e("Frame", {
-			Size = UDim2.new(1, 0, 0, 24),
-			Position = UDim2.fromOffset(0, (index - 1) * 26),
-			BackgroundTransparency = 1,
-		}, {
-			Key = label(theme, stat[1], { Size = UDim2.new(0, 70, 1, 0), TextSize = 10 }),
-			Value = e("TextLabel", {
-				Size = UDim2.new(1, -74, 1, 0),
-				Position = UDim2.fromOffset(74, 0),
-				BackgroundTransparency = 1,
-				Text = stat[2],
-				FontFace = theme.face.body,
-				TextSize = 17,
-				TextColor3 = theme.color.textPrimary,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				TextTruncate = Enum.TextTruncate.AtEnd,
-			}),
-		})
-	end
-	-- The combo's shape: a bar per step, as long as its share of the damage.
-	local strongest = 0
-	for _, multiplier in ipairs(form.steps) do
-		strongest = math.max(strongest, multiplier)
-	end
-	local bars: { [string]: any } = {
-		Layout = e("UIListLayout", {
-			FillDirection = Enum.FillDirection.Horizontal,
-			VerticalAlignment = Enum.VerticalAlignment.Center,
-			Padding = UDim.new(0, 5),
-			SortOrder = Enum.SortOrder.LayoutOrder,
-		}),
-	}
-	for index, multiplier in ipairs(form.steps) do
-		bars[`Step{index}`] = e("Frame", {
-			Size = UDim2.fromOffset(math.floor(12 + 26 * multiplier / math.max(strongest, 0.01)), 6),
-			BackgroundColor3 = if multiplier >= strongest then theme.color.accentTo else theme.color.textPrimary,
-			BorderSizePixel = 0,
-			LayoutOrder = index,
-		})
-	end
-	statRows.Combo = e("Frame", {
-		Size = UDim2.new(1, 0, 0, 24),
-		Position = UDim2.fromOffset(0, #stats * 26),
+	local attunedText = if #props.attuned > 0
+		then `ATTUNED  ·  <font color="#{theme.color.textPrimary:ToHex()}">{string.upper(table.concat(props.attuned, "  ·  "))}</font>`
+		else "NOTHING ATTUNED"
+	return e("Frame", {
+		Size = UDim2.new(1, 0, 0, TITLE_HEIGHT),
 		BackgroundTransparency = 1,
+		LayoutOrder = 1,
 	}, {
-		Key = label(theme, "COMBO", { Size = UDim2.new(0, 70, 1, 0), TextSize = 10 }),
-		Bars = e("Frame", {
-			Size = UDim2.new(1, -74, 1, 0),
-			Position = UDim2.fromOffset(74, 0),
-			BackgroundTransparency = 1,
-		}, bars),
-	})
-
-	return e("TextButton", {
-		Size = UDim2.new(1, 0, 0, FORM_HEIGHT),
-		BackgroundColor3 = theme.color.surfaceRaised,
-		BackgroundTransparency = if lit then 0.35 else 0.55,
-		BorderSizePixel = 0,
-		AutoButtonColor = false,
-		Text = "",
-		[React.Event.MouseEnter] = function()
-			setHovered(true)
-		end,
-		[React.Event.MouseLeave] = function()
-			setHovered(false)
-		end,
-		[React.Event.Activated] = props.onFormActivated,
-	}, {
-		Stroke = e("UIStroke", {
-			Color = if inspected then theme.color.strokeStrong else theme.color.stroke,
-			Thickness = 1,
-			Transparency = if inspected then 0 elseif hovered then 0.45 else 0.75,
-			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-		}),
-		Corners = e(Brackets, { size = "small", color = if lit then theme.color.strokeStrong else theme.color.stroke, edgeTransparency = 1 }),
-
-		Weapon = e("Frame", {
-			Size = UDim2.fromOffset(104, FORM_HEIGHT - 22),
-			Position = UDim2.fromOffset(11, 11),
-			BackgroundColor3 = theme.color.backdrop,
-			BackgroundTransparency = 0.4,
-			BorderSizePixel = 0,
-		}, {
-			Stroke = e("UIStroke", { Color = theme.color.stroke, Thickness = 1, Transparency = 0.6 }),
-			Glow = e("Frame", {
-				Size = UDim2.fromScale(1, 0.55),
-				Position = UDim2.fromScale(0, 1),
-				AnchorPoint = Vector2.new(0, 1),
-				BackgroundColor3 = theme.color.accent,
-				BorderSizePixel = 0,
-			}, {
-				Fade = e("UIGradient", {
-					Rotation = -90,
-					Transparency = NumberSequence.new({
-						NumberSequenceKeypoint.new(0, 0.55),
-						NumberSequenceKeypoint.new(1, 1),
-					}),
-				}),
-			}),
-			Glyph = e(Glyph, {
-				glyph = form.weaponGlyph,
-				color = theme.color.textPrimary,
-				size = UDim2.fromOffset(56, 56),
-				position = UDim2.fromScale(0.5, 0.42),
-				anchorPoint = Vector2.new(0.5, 0.5),
-			}),
-			Name = e("TextLabel", {
-				Size = UDim2.new(1, -8, 0, 32),
-				Position = UDim2.new(0.5, 0, 1, -4),
-				AnchorPoint = Vector2.new(0.5, 1),
-				BackgroundTransparency = 1,
-				Text = form.weaponName,
-				FontFace = theme.face.bodyBold,
-				TextSize = 13,
-				TextWrapped = true,
-				TextColor3 = theme.color.textPrimary,
-			}),
-		}),
-
-		Main = e("Frame", {
-			Size = UDim2.new(1, -(136 + 330), 1, -22),
-			Position = UDim2.fromOffset(136, 11),
-			BackgroundTransparency = 1,
-		}, {
-			Kind = label(theme, if form.combination then "FORM  ·  NAMED COMBINATION" else "FORM", {
-				Size = UDim2.new(1, 0, 0, 14),
-				TextSize = 9,
-			}),
-			Name = e("TextLabel", {
-				Size = UDim2.new(1, 0, 0, 30),
-				Position = UDim2.fromOffset(0, 18),
-				BackgroundTransparency = 1,
-				Text = string.upper(form.displayName),
-				FontFace = theme.face.display,
-				TextSize = 21,
-				TextColor3 = theme.color.textPrimary,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				TextTruncate = Enum.TextTruncate.AtEnd,
-			}),
-			Recipe = e("Frame", {
-				Size = UDim2.new(1, 0, 0, 30),
-				Position = UDim2.fromOffset(0, 58),
-				BackgroundTransparency = 1,
-			}, {
-				Layout = e("UIListLayout", {
-					FillDirection = Enum.FillDirection.Horizontal,
-					SortOrder = Enum.SortOrder.LayoutOrder,
-					Padding = UDim.new(0, 8),
-				}),
-				Shape = e(Chip, {
-					kind = "SHAPE",
-					text = form.shape.name,
-					empty = false,
-					layoutOrder = 1,
-					onActivated = if shapeTrack and shapeNode
-						then function()
-							props.onOpenNode(shapeTrack, shapeNode)
-						end
-						else nil,
-				}),
-				Infusion = e(Chip, {
-					kind = "INFUSION",
-					text = if infusion then infusion.name else "None",
-					empty = infusion == nil,
-					layoutOrder = 2,
-					onActivated = if infusion and infusion.track
-						then function()
-							props.onOpenNode(infusion.track :: string, infusion.node)
-						end
-						else nil,
-				}),
-			}),
-			Note = e("TextLabel", {
-				Size = UDim2.new(1, 0, 0, 18),
-				Position = UDim2.new(0, 0, 1, 0),
-				AnchorPoint = Vector2.new(0, 1),
-				BackgroundTransparency = 1,
-				Text = "Forms and infusions are chosen in the mastery trees  [M]",
-				FontFace = theme.face.body,
-				TextSize = 15,
-				TextColor3 = theme.color.textDisabled,
-				TextXAlignment = Enum.TextXAlignment.Left,
-			}),
-		}),
-
-		Stats = e("Frame", {
-			Size = UDim2.new(0, 312, 1, -26),
-			Position = UDim2.new(1, -12, 0, 13),
+		Header = e(Header, { title = "LOADOUT", height = 1 }),
+		Right = e("Frame", {
+			Size = UDim2.new(0.62, 0, 1, -8),
+			Position = UDim2.fromScale(1, 0),
 			AnchorPoint = Vector2.new(1, 0),
 			BackgroundTransparency = 1,
 		}, {
-			Rule = e("Frame", {
-				Size = UDim2.new(0, 1, 1, 0),
-				Position = UDim2.fromOffset(-14, 0),
-				BackgroundColor3 = theme.color.stroke,
-				BackgroundTransparency = 0.85,
-				BorderSizePixel = 0,
+			Layout = e("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				HorizontalAlignment = Enum.HorizontalAlignment.Right,
+				VerticalAlignment = Enum.VerticalAlignment.Center,
+				SortOrder = Enum.SortOrder.LayoutOrder,
+				Padding = UDim.new(0, 18),
 			}),
-			Rows = e("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, statRows),
+			Attuned = e("TextLabel", {
+				AutomaticSize = Enum.AutomaticSize.X,
+				Size = UDim2.fromOffset(0, 32),
+				BackgroundTransparency = 1,
+				RichText = true,
+				Text = attunedText,
+				FontFace = theme.face.bodyBold,
+				TextSize = 18,
+				TextColor3 = theme.color.textMuted,
+				LayoutOrder = 1,
+			}),
+			Skills = e(OutlineButton, {
+				text = "SKILLS",
+				trailing = if props.skillsShown then "‹" else "›",
+				height = 34,
+				layoutOrder = 2,
+				onActivated = props.onToggleSkills,
+			}),
 		}),
 	})
-end
-
--- The chosen passives, drawn as their trees draw them.
-local function Passives(props: Props)
-	local theme = ThemeContext.useTheme()
-	local still = React.useBinding(1)
-	local clock = React.useBinding(0)
-	local cells: { [string]: any } = {}
-	for index, cell in ipairs(props.passives) do
-		local centre = Vector2.new(PASSIVE_CELL / 2, 40)
-		local content: any
-		local node = cell.node
-		local trackId = cell.trackId
-		if node and trackId then
-			content = e(Node.render, {
-				node = node,
-				trackId = trackId,
-				position = centre,
-				unseen = false,
-				appear = still,
-				clock = clock,
-				onHover = function() end,
-				onLeave = function() end,
-				onActivated = function()
-					props.onOpenNode(trackId, node.id)
-				end,
-			})
-		else
-			-- An empty slot is the node's outline with nothing in it; a locked one is fainter still.
-			content = e("Frame", {
-				Size = UDim2.fromScale(1, 1),
-				BackgroundTransparency = 1,
-			}, {
-				Ring = e("Frame", {
-					Size = UDim2.fromOffset(Node.RADIUS.select * 2, Node.RADIUS.select * 2),
-					Position = UDim2.fromOffset(centre.X, centre.Y),
-					AnchorPoint = Vector2.new(0.5, 0.5),
-					BackgroundTransparency = 1,
-				}, {
-					Round = e("UICorner", { CornerRadius = UDim.new(1, 0) }),
-					Stroke = e("UIStroke", {
-						Color = theme.color.stroke,
-						Thickness = 1,
-						Transparency = if cell.unlocksAt then 0.85 else 0.6,
-					}),
-				}),
-				Text = e("TextLabel", {
-					Size = UDim2.fromOffset(PASSIVE_CELL, 16),
-					Position = UDim2.fromOffset(0, centre.Y + Node.reachOf("select") + 8),
-					BackgroundTransparency = 1,
-					Text = if cell.unlocksAt then `OPENS AT LV {cell.unlocksAt}` else "OPEN SLOT",
-					FontFace = theme.face.display,
-					TextSize = 11,
-					TextColor3 = theme.color.textDisabled,
-				}),
-			})
-		end
-		cells[`Cell{index}`] = e("Frame", {
-			Size = UDim2.fromOffset(PASSIVE_CELL, PASSIVE_HEIGHT),
-			BackgroundTransparency = 1,
-			LayoutOrder = index,
-		}, { Content = content })
-	end
-	cells.Layout = e("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Padding = UDim.new(0, 8),
-	})
-	return e("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, cells)
 end
 
 local function SetTabs(props: Props)
@@ -485,8 +240,9 @@ local function SetTabs(props: Props)
 		Layout = e("UIListLayout", {
 			FillDirection = Enum.FillDirection.Horizontal,
 			HorizontalAlignment = Enum.HorizontalAlignment.Right,
+			VerticalAlignment = Enum.VerticalAlignment.Center,
 			SortOrder = Enum.SortOrder.LayoutOrder,
-			Padding = UDim.new(0, 6),
+			Padding = UDim.new(0, 8),
 		}),
 	}
 	for _, set in ipairs(props.sets) do
@@ -494,34 +250,54 @@ local function SetTabs(props: Props)
 		local on = set.index == props.editingSet
 		tabs[`Set{set.index}`] = e("TextButton", {
 			AutomaticSize = Enum.AutomaticSize.X,
-			Size = UDim2.fromOffset(0, LABEL_HEIGHT + 4),
+			Size = UDim2.fromOffset(0, LABEL_HEIGHT + 2),
 			BackgroundColor3 = theme.color.backdrop,
-			BackgroundTransparency = if on then 0.3 else 0.7,
+			BackgroundTransparency = if on then 0.3 else 0.65,
 			BorderSizePixel = 0,
 			AutoButtonColor = false,
-			Text = if locked then `SET {set.index}  ·  LV {set.unlocksAt}` else `SET {set.index}`,
-			FontFace = theme.face.display,
-			TextSize = 10,
-			TextColor3 = if locked then theme.color.textDisabled elseif on then theme.color.textPrimary else theme.color.textMuted,
+			Text = "",
 			LayoutOrder = set.index,
-			[React.Event.Activated] = if locked
+			[React.Event.Activated] = if locked or on
 				then nil
 				else function()
 					props.onSetSelected(set.index)
 				end,
 		}, {
-			Padding = e("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }),
+			Padding = e("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }),
 			Stroke = e("UIStroke", {
-				Color = if on then theme.color.strokeStrong else theme.color.stroke,
+				Color = theme.color.strokeStrong,
 				Thickness = 1,
-				Transparency = if on then 0.2 elseif locked then 0.85 else 0.6,
+				Transparency = if on then 0.1 elseif locked then 0.65 else 0.45,
 				ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+			}),
+			Layout = e("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				VerticalAlignment = Enum.VerticalAlignment.Center,
+				SortOrder = Enum.SortOrder.LayoutOrder,
+				Padding = UDim.new(0, 8),
+			}),
+			Lock = if locked
+				then e(Glyph, {
+					glyph = "lock",
+					color = theme.color.textMuted,
+					size = UDim2.fromOffset(17, 17),
+				})
+				else nil,
+			Text = e("TextLabel", {
+				AutomaticSize = Enum.AutomaticSize.X,
+				Size = UDim2.fromOffset(0, LABEL_HEIGHT + 2),
+				BackgroundTransparency = 1,
+				Text = if locked then `SET {set.index}  ·  LV {set.unlocksAt}` else `SET {set.index}`,
+				FontFace = theme.face.bodyBold,
+				TextSize = 18,
+				TextColor3 = if on then theme.color.textPrimary else theme.color.textMuted,
+				LayoutOrder = 2,
 			}),
 		})
 	end
 	return e("Frame", {
-		Size = UDim2.new(0.6, 0, 0, LABEL_HEIGHT + 4),
-		Position = UDim2.new(1, 0, 0, -3),
+		Size = UDim2.new(0.6, 0, 0, LABEL_HEIGHT + 2),
+		Position = UDim2.new(1, 0, 0, -1),
 		AnchorPoint = Vector2.new(1, 0),
 		BackgroundTransparency = 1,
 	}, tabs)
@@ -540,178 +316,452 @@ local function SlotBar(props: Props)
 		slots[`Slot{slot.index}`] = e(Tiles.Slot, {
 			slot = slot,
 			size = SLOT_SIZE,
-			selected = props.selectedSlot == slot.index,
+			picked = props.picked == slot.index,
+			target = props.dropSlot == slot.index,
 			layoutOrder = slot.index,
 			onActivated = function()
 				props.onSlotActivated(slot.index)
 			end,
 		})
 	end
-	local barWidth = #props.slots * SLOT_SIZE + (#props.slots - 1) * SLOT_GAP
-	local selected = props.selectedSlot and props.slots[props.selectedSlot]
-	local hint = if selected
-		then `Slot {selected.keyLabel} is picked. Choose a skill below to put it there, or click the slot again to let go.`
-		else "Pick a slot, then a skill to put in it."
+
+	local white = theme.color.textPrimary:ToHex()
+	local function strong(text: string): string
+		return `<font color="#{white}"><b>{text}</b></font>`
+	end
+	local picked = props.picked and props.slots[props.picked]
+	local hint = if picked
+		then `Slot {strong(picked.keyLabel)} picked. Click a skill to put it here.`
+		elseif props.heldName then `Holding {strong(props.heldName)}. Click a slot to put it there.`
+		elseif props.skillsShown then "Drag a skill onto a slot, or click a slot and then a skill."
+		else `Open {strong("SKILLS")} to choose what goes in each slot.`
 	return e("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, {
-		Bar = e("Frame", { Size = UDim2.fromOffset(barWidth, SLOT_SIZE), BackgroundTransparency = 1 }, slots),
-		Hint = e("TextLabel", {
-			Size = UDim2.new(1, -(barWidth + 30), 0, SLOT_SIZE),
-			Position = UDim2.fromOffset(barWidth + 30, 0),
+		Bar = e("Frame", {
+			Size = UDim2.new(1, 0, 0, SLOT_SIZE),
 			BackgroundTransparency = 1,
+		}, slots),
+		Hint = e("TextLabel", {
+			Size = UDim2.new(1, -150, 0, HINT_HEIGHT),
+			Position = UDim2.fromScale(0, 1),
+			AnchorPoint = Vector2.new(0, 1),
+			BackgroundTransparency = 1,
+			RichText = true,
 			Text = hint,
 			FontFace = theme.face.body,
-			TextSize = 15,
-			TextWrapped = true,
-			TextColor3 = if selected then theme.color.textPrimary else theme.color.textMuted,
+			TextSize = 20,
+			TextColor3 = theme.color.textMuted,
 			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+		}),
+		Clear = if picked and picked.skill
+			then e(OutlineButton, {
+				text = "TAKE OUT",
+				height = HINT_HEIGHT + 2,
+				position = UDim2.new(1, 0, 1, 1),
+				anchorPoint = Vector2.new(1, 1),
+				onActivated = props.onClearPicked,
+			})
+			else nil,
+	})
+end
+
+-- One line of the form's recipe: a key, then its value, a link into the tree when it has one.
+local function RecipeRow(props: { name: string, value: string, muted: boolean?, y: number, onActivated: (() -> ())? })
+	local theme = ThemeContext.useTheme()
+	local hovered, hoverEvents = useHover()
+	local link = props.onActivated ~= nil
+	return e("Frame", {
+		Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
+		Position = UDim2.fromOffset(0, props.y),
+		BackgroundTransparency = 1,
+	}, {
+		Key = e("TextLabel", {
+			Size = UDim2.new(0, 106, 1, 0),
+			BackgroundTransparency = 1,
+			Text = props.name,
+			FontFace = theme.face.bodyBold,
+			TextSize = 18,
+			TextColor3 = theme.color.textMuted,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}),
+		Value = e(if link then "TextButton" else "TextLabel", {
+			AutomaticSize = Enum.AutomaticSize.X,
+			Size = UDim2.fromOffset(0, ROW_HEIGHT),
+			Position = UDim2.fromOffset(110, 0),
+			BackgroundTransparency = 1,
+			Text = if link then `{props.value}  ↗` else props.value,
+			FontFace = if props.muted then theme.face.body else theme.face.bodyBold,
+			TextSize = 21,
+			TextColor3 = if link and hovered
+				then theme.color.accent
+				elseif props.muted then theme.color.textMuted
+				else theme.color.textPrimary,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			AutoButtonColor = if link then false else nil,
+			[React.Event.MouseEnter] = if link then hoverEvents[React.Event.MouseEnter] else nil,
+			[React.Event.MouseLeave] = if link then hoverEvents[React.Event.MouseLeave] else nil,
+			[React.Event.Activated] = props.onActivated,
+		} :: any),
+	})
+end
+
+local function formRows(form: Selector.FormView): number
+	return 3 + (if form.infusion then 1 else 0)
+end
+
+local function formHeight(form: Selector.FormView): number
+	return CARD_PAD + FORM_NAME_HEIGHT + 6 + formRows(form) * ROW_HEIGHT + 10 + ROW_HEIGHT + CARD_PAD
+end
+
+local function cardFrame(theme: any, height: number, children: any)
+	return e("Frame", {
+		Size = UDim2.new(1, 0, 0, height),
+		BackgroundColor3 = theme.color.surfaceRaised,
+		BackgroundTransparency = 0.55,
+		BorderSizePixel = 0,
+	}, {
+		Stroke = e("UIStroke", {
+			Color = theme.color.strokeStrong,
+			Thickness = 1,
+			Transparency = 0.7,
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		}),
+		Corners = e(Brackets, { size = "small", color = theme.color.strokeStrong, edgeTransparency = 1 }),
+		Body = e("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, children),
+	})
+end
+
+local function FormCard(props: Props & { height: number })
+	local theme = ThemeContext.useTheme()
+	local form = props.form
+	local shapeTrack = form.shape.track
+	local shapeNode = form.shape.node
+	local infusion = form.infusion
+
+	local rows: { [string]: any } = {}
+	local y = 0
+	local function row(name: string, value: string, muted: boolean?, onActivated: (() -> ())?)
+		rows[name] = e(RecipeRow, { name = name, value = value, muted = muted, y = y, onActivated = onActivated })
+		y += ROW_HEIGHT
+	end
+	row("SHAPE", form.shape.name, false, if shapeTrack and shapeNode
+		then function()
+			props.onOpenNode(shapeTrack, shapeNode)
+		end
+		else nil)
+	row("INFUSION", if infusion then infusion.name else "None", infusion == nil, if infusion and infusion.track
+		then function()
+			props.onOpenNode(infusion.track, infusion.node)
+		end
+		else nil)
+	row("COST", form.cost)
+	if infusion then
+		row("DAMAGE", form.damage)
+	end
+
+	-- The combo's shape: a bar per step, as long as its share of the damage.
+	local strongest = 0
+	for _, multiplier in ipairs(form.steps) do
+		strongest = math.max(strongest, multiplier)
+	end
+	local bars: { [string]: any } = {
+		Layout = e("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+			Padding = UDim.new(0, 6),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	}
+	for index, multiplier in ipairs(form.steps) do
+		bars[`Step{index}`] = e("Frame", {
+			Size = UDim2.fromOffset(math.floor(14 + 26 * multiplier / math.max(strongest, 0.01)), 8),
+			BackgroundColor3 = if multiplier >= strongest then theme.color.accentTo else theme.color.textPrimary,
+			BorderSizePixel = 0,
+			LayoutOrder = index,
+		})
+	end
+
+	local bodyX = CARD_PAD + WEAPON_WIDTH + 18
+	return cardFrame(theme, props.height, {
+		Weapon = e("Frame", {
+			Size = UDim2.new(0, WEAPON_WIDTH, 1, -2 * CARD_PAD),
+			Position = UDim2.fromOffset(CARD_PAD, CARD_PAD),
+			BackgroundColor3 = theme.color.backdrop,
+			BackgroundTransparency = 0.4,
+			BorderSizePixel = 0,
+		}, {
+			Stroke = e("UIStroke", { Color = theme.color.strokeStrong, Thickness = 1, Transparency = 0.5 }),
+			Glow = e("Frame", {
+				Size = UDim2.fromScale(1, 0.55),
+				Position = UDim2.fromScale(0, 1),
+				AnchorPoint = Vector2.new(0, 1),
+				BackgroundColor3 = theme.color.accent,
+				BorderSizePixel = 0,
+			}, {
+				Fade = e("UIGradient", {
+					Rotation = -90,
+					Transparency = NumberSequence.new({
+						NumberSequenceKeypoint.new(0, 0.55),
+						NumberSequenceKeypoint.new(1, 1),
+					}),
+				}),
+			}),
+			Glyph = e(Glyph, {
+				glyph = form.weaponGlyph,
+				color = theme.color.textPrimary,
+				size = UDim2.fromOffset(58, 58),
+				position = UDim2.fromScale(0.5, 0.4),
+				anchorPoint = Vector2.new(0.5, 0.5),
+			}),
+			Name = e("TextLabel", {
+				Size = UDim2.new(1, -8, 0, 40),
+				Position = UDim2.new(0.5, 0, 1, -6),
+				AnchorPoint = Vector2.new(0.5, 1),
+				BackgroundTransparency = 1,
+				Text = form.weaponName,
+				FontFace = theme.face.bodyBold,
+				TextSize = 17,
+				TextWrapped = true,
+				TextYAlignment = Enum.TextYAlignment.Bottom,
+				TextColor3 = theme.color.textPrimary,
+			}),
+		}),
+		Main = e("Frame", {
+			Size = UDim2.new(1, -(bodyX + CARD_PAD), 1, -2 * CARD_PAD),
+			Position = UDim2.fromOffset(bodyX, CARD_PAD),
+			BackgroundTransparency = 1,
+		}, {
+			Name = e("TextLabel", {
+				Size = UDim2.new(1, 0, 0, FORM_NAME_HEIGHT),
+				BackgroundTransparency = 1,
+				Text = string.upper(form.displayName),
+				FontFace = theme.face.display,
+				TextSize = 24,
+				TextColor3 = theme.color.textPrimary,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+			}),
+			Rows = e("Frame", {
+				Size = UDim2.new(1, 0, 0, y),
+				Position = UDim2.fromOffset(0, FORM_NAME_HEIGHT + 6),
+				BackgroundTransparency = 1,
+			}, rows),
+			Footer = e("Frame", {
+				Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
+				Position = UDim2.fromScale(0, 1),
+				AnchorPoint = Vector2.new(0, 1),
+				BackgroundTransparency = 1,
+			}, {
+				Combo = e("Frame", { Size = UDim2.fromScale(0.4, 1), BackgroundTransparency = 1 }, bars),
+				Change = e("TextButton", {
+					AutomaticSize = Enum.AutomaticSize.X,
+					Size = UDim2.fromOffset(0, ROW_HEIGHT),
+					Position = UDim2.fromScale(1, 0),
+					AnchorPoint = Vector2.new(1, 0),
+					BackgroundTransparency = 1,
+					RichText = true,
+					Text = `Change in Masteries  <font face="RobotoMono">[M]</font>`,
+					FontFace = theme.face.bodyBold,
+					TextSize = 19,
+					TextColor3 = theme.color.accent,
+					AutoButtonColor = false,
+					[React.Event.Activated] = function()
+						props.onOpenNode(shapeTrack, shapeNode)
+					end,
+				}),
+			}),
 		}),
 	})
 end
 
-local function libraryHeight(groups: { Selector.SkillGroup }): number
-	local rows = 0
-	for _, group in ipairs(groups) do
-		rows = math.max(rows, #group.skills)
-	end
-	return GROUP_LABEL + math.max(rows, 1) * (ROW_HEIGHT + ROW_GAP)
-end
-
-local function Library(props: Props)
+-- The chosen passives, drawn as their trees draw them; until a slot opens, one line saying when.
+local function PassivesCard(props: Props & { height: number })
 	local theme = ThemeContext.useTheme()
-	local columns = math.max(4, #props.library)
-	local width = math.floor((INNER - (columns - 1) * COLUMN_GAP) / columns)
-	local keyOf: { [string]: string } = {}
-	for _, slot in ipairs(props.slots) do
-		if slot.skill then
-			keyOf[slot.skill.name] = slot.keyLabel
+	local still = React.useBinding(1)
+	local clock = React.useBinding(0)
+
+	local open: { PassiveCell } = {}
+	local nextLevel: number? = nil
+	for _, cell in ipairs(props.passives) do
+		if cell.unlocksAt then
+			nextLevel = nextLevel or cell.unlocksAt
+		else
+			table.insert(open, cell)
 		end
 	end
-	local groups: { [string]: any } = {
-		Layout = e("UIListLayout", {
-			FillDirection = Enum.FillDirection.Horizontal,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			Padding = UDim.new(0, COLUMN_GAP),
-		}),
-	}
-	for order, group in ipairs(props.library) do
-		local rows: { [string]: any } = {
-			Layout = e("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, ROW_GAP) }),
-		}
-		for index, skill in ipairs(group.skills) do
-			rows[skill.name] = e(Tiles.SkillRow, {
-				skill = skill,
-				keyLabel = keyOf[skill.name],
-				inspected = props.inspected ~= nil and props.inspected.skill == skill.name,
-				assigning = props.selectedSlot ~= nil,
-				width = width,
-				height = ROW_HEIGHT,
-				layoutOrder = index,
+
+	local children: { [string]: any } = {}
+	if #open == 0 then
+		children.Locked = e("Frame", {
+			Size = UDim2.new(1, -2 * CARD_PAD, 1, -2 * CARD_PAD),
+			Position = UDim2.fromOffset(CARD_PAD, CARD_PAD),
+			BackgroundTransparency = 1,
+		}, {
+			Icon = e(Glyph, {
+				glyph = "lock",
+				color = theme.color.textMuted,
+				size = UDim2.fromOffset(24, 24),
+				-- Centred on the title's line, which is what it marks.
+				position = UDim2.fromOffset(0, 15),
+				anchorPoint = Vector2.new(0, 0.5),
+			}),
+			Title = e("TextLabel", {
+				Size = UDim2.new(1, -38, 0, 26),
+				Position = UDim2.fromOffset(38, 2),
+				BackgroundTransparency = 1,
+				Text = if nextLevel then `Opens at LV {nextLevel}` else "None yet",
+				FontFace = theme.face.bodyBold,
+				TextSize = 20,
+				TextColor3 = theme.color.textPrimary,
+				TextXAlignment = Enum.TextXAlignment.Left,
+			}),
+			Body = e("TextLabel", {
+				Size = UDim2.new(1, -38, 0, 60),
+				Position = UDim2.fromOffset(38, 36),
+				BackgroundTransparency = 1,
+				Text = "Passives are chosen in the mastery trees.",
+				FontFace = theme.face.body,
+				TextSize = 18,
+				TextWrapped = true,
+				TextColor3 = theme.color.textMuted,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Top,
+			}),
+		})
+		return cardFrame(theme, props.height, children)
+	end
+
+	for index, cell in ipairs(open) do
+		local node = cell.node
+		local trackId = cell.trackId
+		local centre = Vector2.new(26, PASSIVE_ROW / 2)
+		local mark: any
+		if node and trackId then
+			mark = e(Node.render, {
+				node = node,
+				trackId = trackId,
+				position = centre,
+				unseen = false,
+				appear = still,
+				clock = clock,
+				onHover = function() end,
+				onLeave = function() end,
 				onActivated = function()
-					props.onSkillActivated(skill.name)
+					props.onOpenNode(trackId, node.id)
 				end,
 			})
-		end
-		groups[group.id] = e("Frame", {
-			Size = UDim2.new(0, width, 1, 0),
-			BackgroundTransparency = 1,
-			LayoutOrder = order,
-		}, {
-			Label = label(theme, group.label, { Size = UDim2.new(1, 0, 0, GROUP_LABEL - 6) }),
-			Level = if group.level
-				then label(theme, `LV {group.level}`, {
-					Size = UDim2.new(1, 0, 0, GROUP_LABEL - 6),
-					FontFace = theme.face.mono,
-					TextColor3 = theme.color.textDisabled,
-					TextXAlignment = Enum.TextXAlignment.Right,
-				})
-				else nil,
-			Rows = e("Frame", {
-				Size = UDim2.new(1, 0, 1, -GROUP_LABEL),
-				Position = UDim2.fromOffset(0, GROUP_LABEL),
+		else
+			mark = e("Frame", {
+				Size = UDim2.fromOffset(36, 36),
+				Position = UDim2.fromOffset(centre.X, centre.Y),
+				AnchorPoint = Vector2.new(0.5, 0.5),
 				BackgroundTransparency = 1,
-			}, rows),
+			}, {
+				Round = e("UICorner", { CornerRadius = UDim.new(1, 0) }),
+				Stroke = e("UIStroke", { Color = theme.color.textMuted, Thickness = 2, Transparency = 0.2 }),
+			})
+		end
+		children[`Row{index}`] = e("Frame", {
+			Size = UDim2.new(1, -2 * CARD_PAD + 8, 0, PASSIVE_ROW),
+			Position = UDim2.fromOffset(CARD_PAD - 4, CARD_PAD - 8 + (index - 1) * PASSIVE_ROW),
+			BackgroundTransparency = 1,
+		}, {
+			Mark = mark,
+			Name = e("TextLabel", {
+				Size = UDim2.new(1, -62, 0, 24),
+				Position = UDim2.new(0, 60, 0.5, 0),
+				AnchorPoint = Vector2.new(0, 1),
+				BackgroundTransparency = 1,
+				Text = if node then node.displayName else "Open slot",
+				FontFace = theme.face.bodyBold,
+				TextSize = 20,
+				TextColor3 = theme.color.textPrimary,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+			}),
+			Detail = e("TextLabel", {
+				Size = UDim2.new(1, -62, 0, 22),
+				Position = UDim2.new(0, 60, 0.5, 0),
+				BackgroundTransparency = 1,
+				Text = if node then "In effect" else "Pick one in a tree",
+				FontFace = theme.face.body,
+				TextSize = 18,
+				TextColor3 = theme.color.textMuted,
+				TextXAlignment = Enum.TextXAlignment.Left,
+			}),
 		})
 	end
-	return e("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, groups)
+	if nextLevel then
+		children.Next = e("TextLabel", {
+			Size = UDim2.new(1, -2 * CARD_PAD, 0, 22),
+			Position = UDim2.new(0, CARD_PAD, 1, -CARD_PAD),
+			AnchorPoint = Vector2.new(0, 1),
+			BackgroundTransparency = 1,
+			Text = `Next opens at LV {nextLevel}`,
+			FontFace = theme.face.body,
+			TextSize = 18,
+			TextColor3 = theme.color.textMuted,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		})
+	end
+	return cardFrame(theme, props.height, children)
 end
 
-local function LoadoutView(props: Props)
-	local theme = ThemeContext.useTheme()
-
-	local known = 0
-	for _, group in ipairs(props.library) do
-		known += #group.skills
-	end
-	local chosen = 0
-	for _, cell in ipairs(props.passives) do
-		if cell.node then
-			chosen += 1
-		end
-	end
-	local open = 0
-	for _, cell in ipairs(props.passives) do
-		if not cell.unlocksAt then
+local function passivesHeight(passives: { PassiveCell }): number
+	local open, locked = 0, false
+	for _, cell in ipairs(passives) do
+		if cell.unlocksAt then
+			locked = true
+		else
 			open += 1
 		end
 	end
-
-	local sections = {
-		{ TITLE_HEIGHT },
-		{ LABEL_HEIGHT + LABEL_GAP + FORM_HEIGHT },
-		{ LABEL_HEIGHT + LABEL_GAP + PASSIVE_HEIGHT },
-		{ LABEL_HEIGHT + LABEL_GAP + SLOT_BLOCK },
-		{ LABEL_HEIGHT + LABEL_GAP + libraryHeight(props.library) },
-	}
-	local height = 2 * PADDING + (#sections - 1) * GAP
-	for _, section in ipairs(sections) do
-		height += section[1]
+	if open == 0 then
+		return 0
 	end
+	return CARD_PAD - 8 + open * PASSIVE_ROW + (if locked then 26 else 0) + CARD_PAD
+end
 
-	local attunedText = if #props.attuned > 0
-		then `ATTUNED  ·  {string.upper(table.concat(props.attuned, "  ·  "))}`
-		else "NOTHING ATTUNED"
-	local basicSlot = props.form.slot and props.slots[props.form.slot]
+local function withHeight(props: Props, height: number): any
+	local out = table.clone(props) :: any
+	out.height = height
+	return out
+end
+
+local function LoadoutView(props: Props)
+	local cardHeight = math.max(formHeight(props.form), passivesHeight(props.passives))
+	local height = 2 * PADDING + TITLE_HEIGHT + GAP + (LABEL_HEIGHT + LABEL_GAP + BAR_HEIGHT) + GAP + (LABEL_HEIGHT + LABEL_GAP + cardHeight)
+	local formWidth = INNER - PASSIVES_WIDTH - COLUMN_GAP
 
 	return e(PanelShell, { padding = PADDING, gap = GAP, height = height }, {
-		Title = e("Frame", {
-			Size = UDim2.new(1, 0, 0, TITLE_HEIGHT),
+		Title = e(TitleRow, props),
+		Bar = e(Section, {
+			title = "SKILL BAR",
+			aside = e(SetTabs, props),
+			height = BAR_HEIGHT,
+			layoutOrder = 2,
+		}, { Bar = e(SlotBar, props) }),
+		Lower = e("Frame", {
+			Size = UDim2.new(1, 0, 0, LABEL_HEIGHT + LABEL_GAP + cardHeight),
 			BackgroundTransparency = 1,
-			LayoutOrder = 1,
+			LayoutOrder = 3,
 		}, {
-			Header = e(Header, { title = "LOADOUT", height = 1 }),
-			Attuned = label(theme, attunedText, {
-				Size = UDim2.new(0.5, 0, 1, 0),
+			Form = e("Frame", { Size = UDim2.new(0, formWidth, 1, 0), BackgroundTransparency = 1 }, {
+				Section = e(Section, { title = "BASIC ATTACK", height = cardHeight }, {
+					Card = e(FormCard, withHeight(props, cardHeight)),
+				}),
+			}),
+			Passives = e("Frame", {
+				Size = UDim2.new(0, PASSIVES_WIDTH, 1, 0),
 				Position = UDim2.fromScale(1, 0),
 				AnchorPoint = Vector2.new(1, 0),
-				TextSize = 11,
-				TextColor3 = if #props.attuned > 0 then theme.color.textPrimary else theme.color.textDisabled,
-				TextXAlignment = Enum.TextXAlignment.Right,
+				BackgroundTransparency = 1,
+			}, {
+				Section = e(Section, { title = "PASSIVES", height = cardHeight }, {
+					Card = e(PassivesCard, withHeight(props, cardHeight)),
+				}),
 			}),
 		}),
-		Form = e(Section, {
-			title = "WEAPON  ·  BASIC ATTACK",
-			aside = aside(theme, if basicSlot then `IN SLOT {basicSlot.keyLabel}` else "NOT IN A SLOT"),
-			height = FORM_HEIGHT,
-			layoutOrder = 2,
-		}, { Card = e(FormCard, props) }),
-		Passives = e(Section, {
-			title = "CHOSEN PASSIVES",
-			aside = aside(theme, `{chosen} / {open}`),
-			height = PASSIVE_HEIGHT,
-			layoutOrder = 3,
-		}, { Row = e(Passives, props) }),
-		Slots = e(Section, {
-			title = "SKILL SLOTS",
-			aside = e(SetTabs, props),
-			height = SLOT_BLOCK,
-			layoutOrder = 4,
-		}, { Bar = e(SlotBar, props) }),
-		Skills = e(Section, {
-			title = "SKILLS",
-			aside = aside(theme, `{known} KNOWN`),
-			height = libraryHeight(props.library),
-			layoutOrder = 5,
-		}, { List = e(Library, props) }),
 	})
 end
 

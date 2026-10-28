@@ -50,6 +50,9 @@ local MasteryCanvasController = {}
 
 local state: State = { open = false, view = "menu", track = MasteryTracks.list()[1].id, shrine = nil, focus = nil }
 local listeners: { [{}]: () -> () } = {}
+-- Where each tree was last panned to, so returning to it (or reopening the canvas) finds it as left.
+-- Kept for the session; not state anything renders from, so it is not published.
+local pans: { [string]: Vector2 } = {}
 local blur: BlurEffect? = nil
 
 local function publish()
@@ -117,12 +120,24 @@ local function watchShrine(shrine: Instance)
 	end)
 end
 
--- Opens on the menu, or straight into `trackId`'s tree. `shrine`: open in shrine mode, at that shrine.
--- `focus`: a node of that tree to frame and pin.
+function MasteryCanvasController.rememberPan(trackId: string, pan: Vector2)
+	pans[trackId] = pan
+end
+
+function MasteryCanvasController.panOf(trackId: string): Vector2?
+	return pans[trackId]
+end
+
+-- Opens straight into `trackId`'s tree, or with none where the player left off (the menu, or the
+-- tree they closed in). `shrine`: open in shrine mode, at that shrine, which always starts on the
+-- menu since choosing a mastery there is the point. `focus`: a node of that tree to frame and pin.
 function MasteryCanvasController.open(trackId: string?, shrine: Instance?, focus: string?)
 	local atShrine = shrine or (if state.open then state.shrine else nil)
-	local view: View = if trackId and MasteryTracks.get(trackId) then "tree" else "menu"
-	local track = if view == "tree" then trackId :: string else state.track
+	local view: View = if trackId and MasteryTracks.get(trackId)
+		then "tree"
+		elseif atShrine or state.open then "menu"
+		else state.view
+	local track = if trackId and view == "tree" then trackId else state.track
 	local focusNode = if view == "tree" then focus else nil
 	if state.open and state.view == view and state.track == track and state.shrine == atShrine and state.focus == focusNode then
 		return
@@ -147,7 +162,8 @@ function MasteryCanvasController.close()
 	if not state.open then
 		return
 	end
-	state = { open = false, view = "menu", track = state.track, shrine = nil, focus = nil }
+	-- The view and track stay, so the next opening finds the canvas as it was left.
+	state = { open = false, view = state.view, track = state.track, shrine = nil, focus = nil }
 	InteractionStateController.setOverlayOpen(OVERLAY_NAME, false)
 	setBlur(false)
 	UISound.play("close")

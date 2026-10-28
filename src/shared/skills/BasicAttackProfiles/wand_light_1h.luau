@@ -18,7 +18,8 @@ local profile: Types.BasicAttackProfile = {
 	id = "wand_light_1h",
 	displayName = "Mana Ball",
 	weaponClasses = { "wand" },
-	cost = { resource = "Stamina", steps = { 10, 12 } },
+	-- A cast spends mana, as every magic form does; placeholder amounts until casters are tuned.
+	cost = { resource = "Mana", steps = { 5, 6 } },
 	combo = {
 		steps = 2,
 		window = 0.65,

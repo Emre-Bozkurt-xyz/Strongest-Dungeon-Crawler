@@ -119,7 +119,7 @@ end
 
 local function Pip(props: { filled: boolean, layoutOrder: number })
 	return e("Frame", {
-		Size = UDim2.fromOffset(7, 7),
+		Size = UDim2.fromOffset(9, 9),
 		Rotation = 45,
 		BackgroundColor3 = INK,
 		BackgroundTransparency = if props.filled then 0 else 1,
@@ -213,26 +213,26 @@ local function Box(props: BoxProps)
 					Glyph = e(Glyph, { glyph = track.glyph, color = ink, thickness = 1.25 }),
 				}),
 			Name = e("TextLabel", {
-				Size = UDim2.fromOffset(150, 16),
-				Position = UDim2.new(0, 18, 1, -32),
+				Size = UDim2.fromOffset(170, 28),
+				Position = UDim2.new(0, 18, 1, -28),
 				AnchorPoint = Vector2.new(0, 1),
 				BackgroundTransparency = 1,
 				Text = string.upper(track.displayName),
 				FontFace = theme.face.display,
-				TextSize = 14,
+				TextSize = 21,
 				TextColor3 = ink,
 				TextXAlignment = Enum.TextXAlignment.Left,
 			}),
 			Level = e("TextLabel", {
-				Size = UDim2.fromOffset(160, 16),
-				Position = UDim2.new(1, -18, 1, -32),
+				Size = UDim2.fromOffset(180, 26),
+				Position = UDim2.new(1, -18, 1, -29),
 				AnchorPoint = Vector2.new(1, 1),
 				BackgroundTransparency = 1,
 				Text = levelText,
 				FontFace = theme.face.mono,
-				TextSize = 13,
+				TextSize = 18,
 				TextColor3 = INK,
-				TextTransparency = 0.28,
+				TextTransparency = 0.15,
 				TextXAlignment = Enum.TextXAlignment.Right,
 			}),
 			Bar = e("Frame", {
@@ -250,29 +250,29 @@ local function Box(props: BoxProps)
 			}),
 			Using = if usingKind and usingName
 				then e("Frame", {
-					Size = UDim2.new(0.6, 0, 0, 36),
+					Size = UDim2.new(0.6, 0, 0, 46),
 					Position = UDim2.new(1, -16, 0, 14),
 					AnchorPoint = Vector2.new(1, 0),
 					BackgroundTransparency = 1,
 				}, {
 					Kind = e("TextLabel", {
-						Size = UDim2.new(1, 0, 0, 14),
+						Size = UDim2.new(1, 0, 0, 20),
 						BackgroundTransparency = 1,
 						Text = usingKind,
-						FontFace = theme.face.display,
-						TextSize = 11,
+						FontFace = theme.face.bodyBold,
+						TextSize = 17,
 						TextColor3 = INK,
 						TextXAlignment = Enum.TextXAlignment.Right,
 					}),
 					Name = e("TextLabel", {
-						Size = UDim2.new(1, 0, 0, 16),
-						Position = UDim2.fromOffset(0, 18),
+						Size = UDim2.new(1, 0, 0, 24),
+						Position = UDim2.fromOffset(0, 21),
 						BackgroundTransparency = 1,
 						Text = usingName,
-						FontFace = theme.face.mono,
-						TextSize = 13,
+						FontFace = theme.face.bodyBold,
+						TextSize = 21,
 						TextColor3 = INK,
-						TextTransparency = 0.28,
+						TextTransparency = 0.1,
 						TextXAlignment = Enum.TextXAlignment.Right,
 						TextTruncate = Enum.TextTruncate.AtEnd,
 					}),
@@ -313,13 +313,13 @@ local function UnfeltBox(props: { layoutOrder: number })
 			TextColor3 = FAINT,
 		}),
 		Name = e("TextLabel", {
-			Size = UDim2.fromOffset(150, 16),
-			Position = UDim2.new(0, 18, 1, -32),
+			Size = UDim2.fromOffset(170, 28),
+			Position = UDim2.new(0, 18, 1, -28),
 			AnchorPoint = Vector2.new(0, 1),
 			BackgroundTransparency = 1,
 			Text = "UNFELT",
 			FontFace = theme.face.display,
-			TextSize = 14,
+			TextSize = 21,
 			TextColor3 = Color3.fromRGB(93, 99, 111),
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}),
@@ -329,13 +329,13 @@ end
 local function Label(props: { text: string, position: UDim2, color: Color3?, size: number? })
 	local theme = ThemeContext.useTheme()
 	return e("TextLabel", {
-		Size = UDim2.fromOffset(400, 16),
+		Size = UDim2.fromOffset(400, 26),
 		Position = props.position,
 		BackgroundTransparency = 1,
 		Text = props.text,
-		FontFace = theme.face.display,
-		TextSize = props.size or 12,
-		TextColor3 = props.color or Color3.fromRGB(93, 99, 111),
+		FontFace = theme.face.bodyBold,
+		TextSize = props.size or 20,
+		TextColor3 = props.color or DIM,
 		TextXAlignment = Enum.TextXAlignment.Left,
 	})
 end
@@ -415,10 +415,10 @@ local function Menu(props: Props)
 		return position
 	end
 
-	local titlePosition = at(24, 40)
-	local attackLabel = at(16, 12)
+	local titlePosition = at(32, 36)
+	local attackLabel = at(26, 12)
 	local attackRow = at(BOX.Y, 36)
-	local elementLabel = at(16, 12)
+	local elementLabel = at(26, 12)
 	local elementRow = at(BOX.Y, 0)
 
 	return e("Frame", {
@@ -430,17 +430,17 @@ local function Menu(props: Props)
 		-- Shrinks to fit a small screen; never grows past its design size.
 		Fit = e("UIScale", { Scale = fitScale(Vector2.new(WIDTH, top)) }),
 		Title = e("TextLabel", {
-			Size = UDim2.fromOffset(400, 20),
+			Size = UDim2.fromOffset(500, 32),
 			Position = titlePosition,
 			BackgroundTransparency = 1,
 			Text = if props.shrine then "MASTERIES  ·  SHRINE" else "MASTERIES",
 			FontFace = theme.face.display,
-			TextSize = 20,
+			TextSize = 27,
 			TextColor3 = INK,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}),
 		Slots = e("Frame", {
-			Size = UDim2.fromOffset(360, 20),
+			Size = UDim2.fromOffset(520, 32),
 			Position = UDim2.new(1, 0, 0, titlePosition.Y.Offset),
 			AnchorPoint = Vector2.new(1, 0),
 			BackgroundTransparency = 1,
@@ -454,32 +454,32 @@ local function Menu(props: Props)
 			}),
 			AttunedLabel = e("TextLabel", {
 				AutomaticSize = Enum.AutomaticSize.X,
-				Size = UDim2.fromOffset(0, 20),
+				Size = UDim2.fromOffset(0, 32),
 				BackgroundTransparency = 1,
 				Text = if slots == 0 then "ATTUNED  —" else "ATTUNED",
-				FontFace = theme.face.display,
-				TextSize = 12,
+				FontFace = theme.face.bodyBold,
+				TextSize = 20,
 				TextColor3 = INK,
-				TextTransparency = 0.28,
+				TextTransparency = 0.1,
 				LayoutOrder = 1,
 			}),
 			Pips = if slots > 0
 				then e("Frame", {
 					AutomaticSize = Enum.AutomaticSize.X,
-					Size = UDim2.fromOffset(0, 20),
+					Size = UDim2.fromOffset(0, 32),
 					BackgroundTransparency = 1,
 					LayoutOrder = 2,
 				}, pips)
 				else nil,
 			Passives = e("TextLabel", {
 				AutomaticSize = Enum.AutomaticSize.X,
-				Size = UDim2.fromOffset(0, 20),
+				Size = UDim2.fromOffset(0, 32),
 				BackgroundTransparency = 1,
 				Text = `      PASSIVES  {math.min(chosen, passiveSlots)} / {passiveSlots}`,
-				FontFace = theme.face.display,
-				TextSize = 12,
+				FontFace = theme.face.bodyBold,
+				TextSize = 20,
 				TextColor3 = INK,
-				TextTransparency = 0.28,
+				TextTransparency = 0.1,
 				LayoutOrder = 3,
 			}),
 		}),

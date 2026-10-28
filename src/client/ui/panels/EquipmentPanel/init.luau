@@ -14,7 +14,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 
+local BasicAttackForm = require(ReplicatedStorage.Shared.skills.BasicAttackForm)
+
 local useInventory = require(script.Parent.Parent.hooks.useInventory)
+local useCombatLoadout = require(script.Parent.Parent.hooks.useCombatLoadout)
 local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
 local ItemActions = require(script.Parent.Parent.actions.ItemActions)
 local Selector = require(script.Parent.Parent.selectors.equipment)
@@ -24,6 +27,7 @@ local e = React.createElement
 
 local function EquipmentPanel()
 	local inventory = useInventory()
+	local combat = useCombatLoadout()
 	local selectedSlot, setSelectedSlot = React.useState(nil :: Selector.EquipSlot?)
 
 	local view = Selector.buildView(inventory.inventory, inventory.equipment, inventory.items, selectedSlot)
@@ -55,8 +59,12 @@ local function EquipmentPanel()
 	return e(EquipmentView, {
 		view = view,
 		selectedSlot = selectedSlot,
+		formName = BasicAttackForm.resolve(combat).displayName,
 		onSlotActivated = onSlotActivated,
 		onCandidateActivated = onCandidateActivated,
+		onOpenLoadout = function()
+			MenuOrchestrator.setView("loadout")
+		end,
 	})
 end
 

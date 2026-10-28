@@ -72,7 +72,7 @@ local function ItemCard(props: Props)
 				role = "MutedText",
 				alignX = Enum.TextXAlignment.Center,
 				size = UDim2.fromScale(1, 1),
-				textSize = theme.type.body,
+				textSize = 20,
 			}),
 		})
 	end
@@ -254,9 +254,10 @@ local function ItemCard(props: Props)
 			enabled = enabled,
 			onActivated = run,
 			layoutOrder = actionOrder,
-			size = UDim2.new(0, 96, 1, 0),
+			size = UDim2.new(0, 124, 1, 0),
 			variant = if actionOrder == 1 then "primary" else "secondary",
-			textSize = theme.type.small,
+			-- The display face, so 20: it blurs smaller than that on a world panel.
+			textSize = 20,
 		})
 	end
 
@@ -355,7 +356,7 @@ local function ItemCard(props: Props)
 		Actions = if actionOrder > 0 and not props.readOnly
 			then e("Frame", {
 				LayoutOrder = 4,
-				Size = UDim2.new(1, 0, 0, 34),
+				Size = UDim2.new(1, 0, 0, 44),
 				BackgroundTransparency = 1,
 			}, actions)
 			else nil,

@@ -40,6 +40,7 @@ export type PanelHostType = {
 	isVisible: (self: PanelHostType) -> boolean,
 	setFollowTarget: (self: PanelHostType, target: BasePart?) -> (),
 	setScale: (self: PanelHostType, scale: number) -> (),
+	refreshPointer: (self: PanelHostType) -> (),
 	present: (self: PanelHostType, element: any, visible: boolean, delay: number?) -> (),
 	destroy: (self: PanelHostType) -> (),
 }
@@ -410,6 +411,25 @@ function PanelHost.setFollowTarget(self: any, target: BasePart?)
 	if target and appearing then
 		wgm:snapPanel(self._entry.id)
 	end
+end
+
+-- Makes pointer input land where the panel is drawn again. A SurfaceGui seen through a moving camera
+-- keeps hit-testing from the camera as it was at the GUI's last change: after the menu camera glides to
+-- a new view, a still panel can take a click 100 pixels from where it was aimed, so a button on its
+-- lower half receives nothing (seen in Studio on Equipment's form link). Any change to the GUI tree
+-- re-syncs it, so a placeholder is added for a frame.
+function PanelHost.refreshPointer(self: any)
+	if self._destroyed or not self._visible then
+		return
+	end
+	local nudge = Instance.new("Frame")
+	nudge.Name = "PointerRefresh"
+	nudge.Size = UDim2.fromOffset(1, 1)
+	nudge.BackgroundTransparency = 1
+	nudge.Parent = self._canvas
+	RunService.Heartbeat:Once(function()
+		nudge:Destroy()
+	end)
 end
 
 -- Resizes the panel in the world without touching its canvas: pixelsPerStud moves inversely, so every

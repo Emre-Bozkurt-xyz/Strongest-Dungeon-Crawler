@@ -61,6 +61,8 @@ export type SystemView = {
 	availableAP: number,
 	attributes: { AttributeRow },
 	combatStats: { StatRow },
+	-- Resistance and penetration by element.
+	elementStats: { StatRow },
 	recoveryStats: { StatRow },
 }
 
@@ -213,6 +215,7 @@ function Selector.buildView(
 		availableAP = if attributes then attributes.availableAP else 0,
 		attributes = attributeRows,
 		combatStats = buildStatGroup(stats, "Offense"),
+		elementStats = buildStatGroup(stats, "Elements"),
 		recoveryStats = buildStatGroup(stats, "Recovery"),
 	}
 end

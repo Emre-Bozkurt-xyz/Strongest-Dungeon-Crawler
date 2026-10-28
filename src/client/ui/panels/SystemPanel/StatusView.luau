@@ -42,16 +42,18 @@ export type Props = {
 
 local StatusView = {}
 
--- Logical pixels.
-local TITLE_HEIGHT = 34
-local IDENTITY_HEIGHT = 120
+-- Logical pixels, at about one screen pixel each: nothing under 17, and captions in the bold body
+-- face, since the display face blurs below about 20.
+local TITLE_HEIGHT = 40
+local IDENTITY_HEIGHT = 128
 local IDENTITY_WIDTH = 300
-local POOL_GAP = 14
+local CAPTION_WIDTH = 72
+local POOL_GAP = 12
 
 local HEART_ICON = "rbxassetid://100398419080154"
 local DROPLET_ICON = "rbxassetid://109364647302001"
-local ATTRIBUTE_HEIGHT = 92
-local STAT_ROW_HEIGHT = 22
+local ATTRIBUTE_HEIGHT = 96
+local STAT_ROW_HEIGHT = 26
 
 -- Widths fit the labels at the title size; fixed so the underline can be scaled to the tab.
 local TABS: { { id: Tab, label: string, width: number } } = {
@@ -66,8 +68,8 @@ local function Caption(props: { text: string, size: UDim2, position: UDim2?, ali
 		Size = props.size,
 		Position = props.position,
 		BackgroundTransparency = 1,
-		FontFace = theme.face.display,
-		TextSize = theme.type.label,
+		FontFace = theme.face.bodyBold,
+		TextSize = 18,
 		TextColor3 = theme.color.textMuted,
 		TextXAlignment = props.alignX or Enum.TextXAlignment.Left,
 	})
@@ -141,7 +143,7 @@ local function TabButton(props: {
 				LayoutOrder = 2,
 				BackgroundTransparency = 1,
 				FontFace = theme.face.display,
-				TextSize = theme.type.title,
+				TextSize = 22,
 				TextColor3 = if lit then theme.color.textHeading else theme.color.textMuted,
 			}),
 		}),
@@ -198,13 +200,13 @@ local function TitleRow(props: { tab: Tab, onTab: (tab: Tab) -> (), points: numb
 		-- Shown on either tab, in accent, so points waiting to be spent are never missed.
 		Points = if props.points > 0
 			then e("TextLabel", {
-				Text = `<font face="Michroma" size="{theme.type.label}" color="#{theme.color.textMuted:ToHex()}">POINTS  </font>{props.points}`,
+				Text = `<font face="TitilliumWeb" size="18" color="#{theme.color.textMuted:ToHex()}"><b>POINTS  </b></font>{props.points}`,
 				RichText = true,
 				Size = UDim2.fromScale(0.3, 1),
 				Position = UDim2.fromScale(0.7, 0),
 				BackgroundTransparency = 1,
 				FontFace = theme.face.mono,
-				TextSize = theme.type.title,
+				TextSize = 23,
 				TextColor3 = theme.color.accent,
 				TextXAlignment = Enum.TextXAlignment.Right,
 			})
@@ -227,18 +229,18 @@ local function Identity(props: { identity: Selector.IdentityView })
 
 	local function pair(caption: string, value: string, y: number)
 		return e("Frame", {
-			Size = UDim2.new(1, 0, 0, 30),
+			Size = UDim2.new(1, 0, 0, 32),
 			Position = UDim2.fromOffset(0, y),
 			BackgroundTransparency = 1,
 		}, {
-			Caption = e(Caption, { text = caption, size = UDim2.new(0, 60, 1, 0) }),
+			Caption = e(Caption, { text = caption, size = UDim2.new(0, CAPTION_WIDTH, 1, 0) }),
 			Value = e("TextLabel", {
 				Text = value,
-				Size = UDim2.new(1, -60, 1, 0),
-				Position = UDim2.fromOffset(60, 0),
+				Size = UDim2.new(1, -CAPTION_WIDTH, 1, 0),
+				Position = UDim2.fromOffset(CAPTION_WIDTH, 0),
 				BackgroundTransparency = 1,
 				FontFace = theme.face.bodyBold,
-				TextSize = theme.type.title,
+				TextSize = 21,
 				TextColor3 = theme.color.textPrimary,
 				TextXAlignment = Enum.TextXAlignment.Left,
 			}),
@@ -252,14 +254,14 @@ local function Identity(props: { identity: Selector.IdentityView })
 		-- Right-aligned against the divider, so the level and what it qualifies read as one unit.
 		LevelCaption = e(Caption, {
 			text = "LEVEL",
-			size = UDim2.fromOffset(112, 16),
-			position = UDim2.fromOffset(0, 18),
+			size = UDim2.fromOffset(112, 22),
+			position = UDim2.fromOffset(0, 10),
 			alignX = Enum.TextXAlignment.Right,
 		}),
 		LevelValue = e("TextLabel", {
 			Text = tostring(identity.level or 1),
 			Size = UDim2.fromOffset(112, 64),
-			Position = UDim2.fromOffset(0, 38),
+			Position = UDim2.fromOffset(0, 34),
 			BackgroundTransparency = 1,
 			FontFace = theme.face.display,
 			TextSize = 58,
@@ -270,11 +272,11 @@ local function Identity(props: { identity: Selector.IdentityView })
 		LevelXp = if identity.xp
 			then e("TextLabel", {
 				Text = if identity.xpNeeded then `{identity.xp} / {identity.xpNeeded} XP` else "MAX",
-				Size = UDim2.fromOffset(112, 14),
-				Position = UDim2.fromOffset(0, 100),
+				Size = UDim2.fromOffset(112, 22),
+				Position = UDim2.fromOffset(0, 98),
 				BackgroundTransparency = 1,
 				FontFace = theme.face.mono,
-				TextSize = theme.type.label,
+				TextSize = 17,
 				TextColor3 = theme.color.textMuted,
 				TextXAlignment = Enum.TextXAlignment.Right,
 			})
@@ -291,8 +293,8 @@ local function Identity(props: { identity: Selector.IdentityView })
 			Position = UDim2.fromOffset(148, 0),
 			BackgroundTransparency = 1,
 		}, {
-			Class = pair("CLASS", identity.class or "None", 28),
-			Title = pair("TITLE", identity.title or "None", 62),
+			Class = pair("CLASS", identity.class or "None", 26),
+			Title = pair("TITLE", identity.title or "None", 66),
 		}),
 	})
 end
@@ -312,7 +314,7 @@ local function AttributeCell(props: {
 
 	local value = tostring(row.base)
 	if row.bonus ~= 0 then
-		value ..= ` <font color="#{theme.color.success:ToHex()}" size="{theme.type.small}">+{row.bonus}</font>`
+		value ..= ` <font color="#{theme.color.success:ToHex()}" size="20">+{row.bonus}</font>`
 	end
 
 	return e("TextButton", {
@@ -353,7 +355,7 @@ local function AttributeCell(props: {
 		}),
 		Icon = e("ImageLabel", {
 			Image = row.icon,
-			Size = UDim2.fromOffset(18, 18),
+			Size = UDim2.fromOffset(20, 20),
 			Position = UDim2.fromOffset(10, 10),
 			BackgroundTransparency = 1,
 			ImageColor3 = theme.color.textPrimary,
@@ -361,11 +363,11 @@ local function AttributeCell(props: {
 		}),
 		Short = e("TextLabel", {
 			Text = row.short,
-			Size = UDim2.fromOffset(60, 18),
-			Position = UDim2.fromOffset(34, 10),
+			Size = UDim2.fromOffset(60, 20),
+			Position = UDim2.fromOffset(38, 10),
 			BackgroundTransparency = 1,
-			FontFace = theme.face.display,
-			TextSize = theme.type.small,
+			FontFace = theme.face.bodyBold,
+			TextSize = 20,
 			TextColor3 = theme.color.textHeading,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}),
@@ -384,12 +386,12 @@ local function AttributeCell(props: {
 		Plus = if props.enabled
 			then e("TextLabel", {
 				Text = "+",
-				Size = UDim2.fromOffset(16, 16),
+				Size = UDim2.fromOffset(20, 20),
 				AnchorPoint = Vector2.new(1, 0),
 				Position = UDim2.new(1, -8, 0, 10),
 				BackgroundTransparency = 1,
 				FontFace = theme.face.mono,
-				TextSize = theme.type.body,
+				TextSize = 22,
 				TextColor3 = theme.color.textHeading,
 				TextTransparency = glow:map(function(v: number)
 					return 0.25 - 0.25 * v
@@ -453,7 +455,7 @@ local function StatusTab(props: { view: Selector.SystemView, onSpend: (attribute
 		Flex = e("UIFlexItem", { FlexMode = Enum.UIFlexMode.Fill }),
 		-- Identity and vitals share the space above the attributes, centred in it.
 		Top = e("Frame", {
-			Size = UDim2.new(1, 0, 1, -(ATTRIBUTE_HEIGHT + 44)),
+			Size = UDim2.new(1, 0, 1, -(ATTRIBUTE_HEIGHT + 46)),
 			BackgroundTransparency = 1,
 		}, {
 			Identity = e("Frame", {
@@ -474,15 +476,15 @@ local function StatusTab(props: { view: Selector.SystemView, onSpend: (attribute
 		}),
 		Divider = e("Frame", {
 			Size = UDim2.new(1, 0, 0, 1),
-			Position = UDim2.new(0, 0, 1, -(ATTRIBUTE_HEIGHT + 42)),
+			Position = UDim2.new(0, 0, 1, -(ATTRIBUTE_HEIGHT + 44)),
 			BackgroundColor3 = theme.color.stroke,
 			BackgroundTransparency = theme.chrome.edgeTransparency,
 			BorderSizePixel = 0,
 		}),
 		AttributesCaption = e(Caption, {
 			text = "ATTRIBUTES",
-			size = UDim2.new(1, 0, 0, 20),
-			position = UDim2.new(0, 0, 1, -(ATTRIBUTE_HEIGHT + 30)),
+			size = UDim2.new(1, 0, 0, 24),
+			position = UDim2.new(0, 0, 1, -(ATTRIBUTE_HEIGHT + 34)),
 		}),
 		Attributes = e("Frame", {
 			Size = UDim2.new(1, 0, 0, ATTRIBUTE_HEIGHT),
@@ -571,6 +573,7 @@ local function StatsTab(props: { view: Selector.SystemView })
 		}),
 		Right = e(StatColumn, { layoutOrder = 3 }, {
 			Attributes = statSection("Attributes", attributes, 1),
+			Elements = statSection("Elements", view.elementStats, 2),
 		}),
 	})
 end

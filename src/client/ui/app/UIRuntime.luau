@@ -23,6 +23,7 @@ local PanelRegistry = require(script.Parent.PanelRegistry)
 local PanelHost = require(script.Parent.PanelHost)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local React = require(ReplicatedStorage.Packages.React)
 local Themes = require(ReplicatedStorage.Shared.ui.themes)
 
@@ -33,7 +34,39 @@ local hosts: { [string]: PanelHost.PanelHostType } = {}
 local scaleOverrides: { [string]: number } = {}
 local disconnect: (() -> ())? = nil
 local watchers: { () -> () } = {}
+local cameraWatch: RBXScriptConnection? = nil
 local started = false
+
+-- How far the camera must have come since the last refresh, and how still it must be now.
+local CAMERA_MOVED = 0.01
+local CAMERA_STILL = 1e-4
+
+local function cameraMoved(a: CFrame, b: CFrame, threshold: number): boolean
+	return (a.Position - b.Position).Magnitude > threshold or a.LookVector:Dot(b.LookVector) < 1 - threshold
+end
+
+-- Visible panels' pointer input goes stale while the camera moves (PanelHost.refreshPointer), so it
+-- is refreshed each time the camera comes to rest somewhere new, e.g. at the end of a view switch.
+local function watchCamera(): RBXScriptConnection
+	local last: CFrame? = nil
+	local refreshedAt: CFrame? = nil
+	return RunService.Heartbeat:Connect(function()
+		local camera = workspace.CurrentCamera
+		if not camera then
+			return
+		end
+		local now = camera.CFrame
+		local still = last ~= nil and not cameraMoved(now, last, CAMERA_STILL)
+		last = now
+		if not still or (refreshedAt and not cameraMoved(now, refreshedAt, CAMERA_MOVED)) then
+			return
+		end
+		refreshedAt = now
+		for _, host in pairs(hosts) do
+			host:refreshPointer()
+		end
+	end)
+end
 
 local function applyEntry(entry: PanelRegistry.PanelEntry, state: any, openDelay: number?)
 	local visible = entry.isVisible(state)
@@ -115,6 +148,7 @@ function UIRuntime.start()
 	disconnect = MenuOrchestrator.onChanged(function(_prev, next)
 		applyState(next)
 	end)
+	cameraWatch = watchCamera()
 
 	for _, entry in ipairs(PanelRegistry.list()) do
 		local watch = entry.watch
@@ -152,6 +186,10 @@ function UIRuntime.stop()
 	if disconnect then
 		disconnect()
 		disconnect = nil
+	end
+	if cameraWatch then
+		cameraWatch:Disconnect()
+		cameraWatch = nil
 	end
 	for _, unwatch in ipairs(watchers) do
 		unwatch()

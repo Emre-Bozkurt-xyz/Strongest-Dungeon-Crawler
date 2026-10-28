@@ -176,11 +176,12 @@ local entries: { PanelEntry } = {
 	{
 		id = "ItemInspectPanel",
 		component = ItemInspectPanel,
-		-- 340 logical pixels across is about one screen pixel each at 1080p staging; the 562px canvas
-		-- underneath keeps the text sharp.
+		-- 340 logical pixels across, sized in the world so even beside Equipment, where it stands
+		-- furthest off, that is about one screen pixel each at 1080p; the 630px canvas underneath keeps
+		-- the text sharp.
 		surface = {
-			width = 1.875,
-			height = 3.34,
+			width = 2.1,
+			height = 3.74,
 			thickness = 0.076,
 			pixelsPerStud = 300,
 			scale = MENU_PANEL_SCALE,

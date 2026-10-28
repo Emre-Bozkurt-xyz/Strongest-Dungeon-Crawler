@@ -31,6 +31,7 @@ local Slot = require(script.Parent.Parent.Parent.components.Slot)
 local Grid = require(script.Parent.Parent.Parent.components.Grid)
 
 local ThemeContext = require(script.Parent.Parent.Parent.hooks.ThemeContext)
+local UISound = require(script.Parent.Parent.Parent.UISound)
 local SlotSchema = require(ReplicatedStorage.Shared.ui.EquipmentSlotSchema)
 
 local Selector = require(script.Parent.Parent.Parent.selectors.equipment)
@@ -40,16 +41,22 @@ local e = React.createElement
 export type Props = {
 	view: Selector.EquipmentView,
 	selectedSlot: Selector.EquipSlot?,
+	-- The basic attack's form for what is held, named under the weapon socket.
+	formName: string,
 	onSlotActivated: (slot: Selector.EquipSlot, uid: string?) -> (),
 	onCandidateActivated: (candidate: Selector.CandidateView) -> (),
+	onOpenLoadout: () -> (),
 }
 
--- Logical pixels.
-local TITLE_HEIGHT = 34
-local DOLL_HEIGHT = 300
-local HEADING_HEIGHT = 22
-local CELL = 56
+-- Logical pixels, at about one screen pixel each: nothing under 17.
+local TITLE_HEIGHT = 40
+local DOLL_HEIGHT = 340
+local HEADING_HEIGHT = 30
+local CELL = 64
 local GAP = 8
+-- Below the weapon socket, which ends at 73% of the doll.
+local FORM_LINK_Y = math.floor(DOLL_HEIGHT * 0.76)
+local FORM_LINK_HEIGHT = 56
 
 -- Column widths. `LOCAL` is what each column is given inside its parent; `ABS` is the same column as
 -- a fraction of the whole doll. Both are derived from one set of numbers so they cannot disagree.
@@ -121,6 +128,50 @@ local function Column(props: { width: number, layoutOrder: number, children: any
 	}, props.children)
 end
 
+-- The form the weapon gives, named under its socket: what the weapon does is set on the Loadout, so
+-- the name is a link there (progression-direction.md, "Menu structure").
+local function FormLink(props: { name: string, onActivated: () -> () })
+	local theme = ThemeContext.useTheme()
+	local hovered, setHovered = React.useState(false)
+	return e("TextButton", {
+		Text = "",
+		Size = UDim2.new(1, 0, 0, FORM_LINK_HEIGHT),
+		Position = UDim2.fromOffset(0, FORM_LINK_Y),
+		BackgroundTransparency = 1,
+		AutoButtonColor = false,
+		[React.Event.Activated] = function()
+			UISound.play("confirm")
+			props.onActivated()
+		end,
+		[React.Event.MouseEnter] = function()
+			setHovered(true)
+			UISound.play("hover")
+		end,
+		[React.Event.MouseLeave] = function()
+			setHovered(false)
+		end,
+	}, {
+		Caption = e("TextLabel", {
+			Text = "FORM  [L]",
+			Size = UDim2.new(1, 0, 0, 24),
+			BackgroundTransparency = 1,
+			FontFace = theme.face.bodyBold,
+			TextSize = 18,
+			TextColor3 = theme.color.textMuted,
+		}),
+		Name = e("TextLabel", {
+			Text = `{props.name}  ›`,
+			Size = UDim2.new(1, 0, 0, 30),
+			Position = UDim2.fromOffset(0, 24),
+			BackgroundTransparency = 1,
+			FontFace = theme.face.bodyBold,
+			TextSize = 21,
+			TextColor3 = if hovered then theme.color.accent else theme.color.textPrimary,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+		}),
+	})
+end
+
 local function EquipmentView(props: Props)
 	local theme = ThemeContext.useTheme()
 
@@ -185,7 +236,7 @@ local function EquipmentView(props: Props)
 			AnchorPoint = anchor,
 			BackgroundTransparency = 1,
 			FontFace = theme.face.mono,
-			TextSize = theme.type.small,
+			TextSize = 19,
 			TextColor3 = theme.color.textMuted,
 			TextXAlignment = Enum.TextXAlignment.Right,
 		})
@@ -221,7 +272,10 @@ local function EquipmentView(props: Props)
 			Left = e(Column, {
 				width = COLUMN_LOCAL.weapon,
 				layoutOrder = 1,
-				children = { Main = socket("Main") },
+				children = {
+					Main = socket("Main"),
+					Form = e(FormLink, { name = props.formName, onActivated = props.onOpenLoadout }),
+				},
 			}),
 
 			Armor = e("Frame", {
@@ -268,8 +322,8 @@ local function EquipmentView(props: Props)
 				Text = "EQUIPPABLE",
 				Size = UDim2.fromScale(0.5, 1),
 				BackgroundTransparency = 1,
-				FontFace = theme.face.display,
-				TextSize = theme.type.small,
+				FontFace = theme.face.bodyBold,
+				TextSize = 18,
 				TextColor3 = theme.color.textMuted,
 				TextXAlignment = Enum.TextXAlignment.Left,
 			}),

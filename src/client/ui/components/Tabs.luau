@@ -32,6 +32,9 @@ export type Props = {
 	heightPx: number?,
 	-- Pixels. Uniform across tabs regardless of label length.
 	textSize: number?,
+	-- Labels in the bold body face rather than the display face, which blurs below about 20 pixels on
+	-- a world panel.
+	bold: boolean?,
 }
 
 local function Tabs(props: Props)
@@ -72,6 +75,7 @@ local function Tabs(props: Props)
 				-- Fixed rather than scaled: scaling to the box would size each label by how long its
 				-- word happens to be, so "All" would tower over "Consumable".
 				textSize = props.textSize or theme.type.small,
+				props = if props.bold then { FontFace = theme.face.bodyBold } else nil,
 			}),
 			Mark = if active
 				then e("Frame", {

@@ -25,7 +25,7 @@ export type Props = {
 }
 
 -- Pixels.
-local LABEL_HEIGHT = 20
+local LABEL_HEIGHT = 26
 local BAR_HEIGHT = 6
 local GAP = 6
 
@@ -73,7 +73,7 @@ function PoolMeter.render(props: Props)
 			-- The slot is kept even without an icon, so captions line up down a stack of meters.
 			Icon = e("ImageLabel", {
 				Image = props.icon or "",
-				Size = UDim2.fromOffset(14, 14),
+				Size = UDim2.fromOffset(18, 18),
 				LayoutOrder = 1,
 				BackgroundTransparency = 1,
 				ImageColor3 = theme.color.textMuted,
@@ -85,13 +85,13 @@ function PoolMeter.render(props: Props)
 				AutomaticSize = Enum.AutomaticSize.X,
 				LayoutOrder = 2,
 				BackgroundTransparency = 1,
-				FontFace = theme.face.display,
-				TextSize = theme.type.label,
+				FontFace = theme.face.bodyBold,
+				TextSize = 18,
 				TextColor3 = theme.color.textMuted,
 			}),
 		}),
 		Value = e("TextLabel", {
-			Text = `{math.floor(props.current)}<font size="{theme.type.small}" color="#{theme.color.textMuted:ToHex()}"> / {math.floor(
+			Text = `{math.floor(props.current)}<font size="18" color="#{theme.color.textMuted:ToHex()}"> / {math.floor(
 				props.max
 			)}</font>`,
 			RichText = true,
@@ -99,7 +99,7 @@ function PoolMeter.render(props: Props)
 			Position = UDim2.fromScale(0.5, 0),
 			BackgroundTransparency = 1,
 			FontFace = theme.face.mono,
-			TextSize = theme.type.title,
+			TextSize = 23,
 			TextColor3 = theme.color.textHeading,
 			TextXAlignment = Enum.TextXAlignment.Right,
 		}),

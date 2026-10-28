@@ -68,17 +68,18 @@ local function Tab(props: { label: string, keyLabel: string, active: boolean, or
 				Size = UDim2.fromOffset(0, HEIGHT),
 				BackgroundTransparency = 1,
 				Text = props.label,
-				FontFace = theme.face.display,
-				TextSize = 15,
+				-- The bold body face: the display face blurs at a size that fits four tabs across.
+				FontFace = theme.face.bodyBold,
+				TextSize = 20,
 				TextColor3 = if lit then theme.color.textPrimary else theme.color.textMuted,
 				LayoutOrder = 1,
 			}),
 			Key = e("TextLabel", {
-				Size = UDim2.fromOffset(20, 20),
+				Size = UDim2.fromOffset(24, 24),
 				BackgroundTransparency = 1,
 				Text = props.keyLabel,
 				FontFace = theme.face.mono,
-				TextSize = 12,
+				TextSize = 17,
 				-- Muted, not disabled, when idle: on a world surface the disabled tone drops out entirely.
 				TextColor3 = if props.active then theme.color.textPrimary else theme.color.textMuted,
 				LayoutOrder = 2,

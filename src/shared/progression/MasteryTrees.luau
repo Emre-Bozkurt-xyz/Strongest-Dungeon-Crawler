@@ -67,7 +67,7 @@ local TREES: { TreeDef } = {
 		track = "Magic",
 		branches = { a = "Focus", b = "Area" },
 		nodes = {
-			{ id = "magic.mana_ball", displayName = "Mana Ball", kind = "form", branch = "trunk", rank = 0, contexts = ALL_MAGIC, shapes = { "wand_light_1h" }, attributes = { Intelligence = "Low" }, description = "A slow orb, three to a combo." },
+			{ id = "magic.mana_ball", displayName = "Mana Ball", kind = "form", branch = "trunk", rank = 0, contexts = ALL_MAGIC, shapes = { "wand_light_1h" }, attributes = { Intelligence = "Low" }, description = "A slow orb, two to a combo." },
 			{ id = "magic.arcane_focus", displayName = "Arcane Focus", kind = "passive", branch = "trunk", rank = 1, description = "Increased magic damage." },
 			{ id = "magic.mana_flow", displayName = "Mana Flow", kind = "passive", branch = "trunk", rank = 2, description = "Forms cost less mana." },
 			{ id = "magic.mana_bolt", displayName = "Mana Bolt", kind = "form", branch = "a", rank = 1, contexts = ALL_MAGIC, attributes = { Intelligence = "Low" }, description = "A fast, narrow bolt: fewer, harder hits." },

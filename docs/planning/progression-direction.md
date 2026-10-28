@@ -327,7 +327,8 @@ Menus are organised by the question the player is asking:
 | How do I fight? | **Loadout**: a fourth staged menu view, separate from Equipment |
 | How do I grow? | **Mastery canvas**: a full-screen overlay, reached through links, not a tab |
 
-Equipment's weapon slot shows the current form's name and links to Loadout.
+Equipment's weapon slot shows the current form's name and links to Loadout. *Built 2026-10-28:* the
+name sits under the weapon socket ("FORM [L] · Fire Mana Ball ›") and opens the Loadout.
 
 ### Loadout
 
@@ -366,8 +367,9 @@ Built 2026-10-28 (`client/ui/panels/LoadoutPanel`, `LoadoutSkillsPanel`), with t
   slot opens, one line says when.
 - The menu's views are one strip of tabs above the open panel (J, I, K, L, or click), so the Loadout
   is a fourth tab of the menu rather than another screen to remember.
-- Readability floor, tested here first: laid out at about one screen pixel per logical pixel, nothing
-  under 17, labels in bold Titillium rather than Michroma, no faint ink on anything that says
+- Readability floor, tested here first and then applied to every menu panel (System, Inventory,
+  Equipment, the item card and the view strip): laid out at about one screen pixel per logical pixel,
+  nothing under 17, labels in bold Titillium rather than Michroma, no faint ink on anything that says
   something. The Loadout keeps the other panels' angle; a pose turned square to the camera, which
   reads better but faces away from the character, is kept in `UIMenuConfig.stage.squareLoadoutPanel`.
 - The skill groups run most relevant first: the held weapon's mastery, the attuned ones, General,
@@ -375,9 +377,9 @@ Built 2026-10-28 (`client/ui/panels/LoadoutPanel`, `LoadoutSkillsPanel`), with t
   relevant ones start open, the rest closed, and the player's choice holds for the session. Skills
   are not ranked "best to worst" inside a group, since nothing measures that honestly; a tier on
   each skill would allow it once skills are authored with one.
-- Not yet: Equipment's weapon slot linking here; search and tag filters, once there are enough
-  skills to need them (around 15), with menu keys kept from firing while typing; the readability
-  pass on the other panels.
+- Not yet: search and tag filters, once there are enough skills to need them (around 15), with menu
+  keys kept from firing while typing; gamepad, which no menu supports yet (the click-click path is
+  there for it).
 
 ### Mastery canvas
 
@@ -391,6 +393,7 @@ around the character, which would bring back walls, depth sorting and foreshorte
   notifications (*"Fire Mastery 10 — a new path opens"*), which open the canvas centred on that node.
 - One mastery at a time, with a selector to move between them; unattuned masteries are viewable but
   read as dormant.
+- The full UI rework of the canvas and the attunement shrine is done; neither is a first cut any more.
 
 ### Later: live preview
 
@@ -462,7 +465,13 @@ rather than replace the mechanism:
    selectable passive pool (slots at levels 10/25/50); element resistance and penetration; a second
    cost resource (infusions cost mana per step); and enemy values from area level × type × rank with
    a light level-difference penalty.
-5. **Unique-weapon forms.**
+5. **Unique-weapon forms.** Not needed until unique weapons exist; the groundwork is in (2026-10-28).
+   A weapon already names its own default shape (`WeaponConfig.basicAttackProfile`), which may be a
+   profile no tree has. It can now also grant shapes (`WeaponConfig.grantsShapes`): selectable while
+   it is held in the main hand, whatever the player's mastery (`MasteryTree.isShapeAvailable`, used by
+   FormService and the canvas alike), checked at startup to exist, fit the weapon's class and be
+   able to fire what they fire. The Loadout's form card says "from <weapon>" for a granted shape. Not
+   yet: a way to select a granted shape that no tree node stands for, and weapons that unlock a node.
 
 ## Open questions
 
@@ -470,5 +479,3 @@ rather than replace the mechanism:
   expected to change as content gets more thought.
 - The mastery canvas entry sequence: what it looks like, and how long it may take before it feels
   slow on the tenth visit.
-- **The mastery canvas and the attunement shrine UI are first cuts**; both work in play, and a full
-  UI rework of the two is planned.

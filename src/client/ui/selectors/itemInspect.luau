@@ -14,8 +14,15 @@ local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local Registry = require(ReplicatedStorage.Shared.items.Registry)
 local ItemGlyphs = require(script.Parent.Parent.glyphs.ItemGlyphs)
 local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUtils)
+local StatsClientSpec = require(ReplicatedStorage.Shared.stats.ClientSpec)
 
 local Selector = {}
+
+-- A modifier's stat as the System panel names it ("Magic Damage"), not its id ("MagicDamage").
+local function statLabel(target: string): string
+	local spec = StatsClientSpec.get(target :: any)
+	return if spec then spec.label else target
+end
 
 export type ItemLocation = {
 	container: "inventory" | "equipment",
@@ -186,11 +193,11 @@ local function buildAffixRows(item: ItemTypes.ItemInstance?): { ModifierRow }
 		local anyAffix = affix :: any
 		if type(anyAffix) == "table" and anyAffix.modifiers then
 			for _, mod in ipairs(anyAffix.modifiers) do
-				table.insert(rows, { label = mod.target, value = formatModifierValue(mod) })
+				table.insert(rows, { label = statLabel(mod.target), value = formatModifierValue(mod) })
 			end
 		elseif anyAffix.target then
 			local mod = anyAffix :: ItemTypes.ModifierEntry
-			table.insert(rows, { label = mod.target, value = formatModifierValue(mod) })
+			table.insert(rows, { label = statLabel(mod.target), value = formatModifierValue(mod) })
 		end
 	end
 	return rows
@@ -233,7 +240,7 @@ function Selector.buildView(
 
 	local baseStats: { ModifierRow } = {}
 	for _, entry in ipairs(EquipmentDefUtils.getBaseModifiers(def, item)) do
-		table.insert(baseStats, { label = entry.target, value = formatModifierValue(entry) })
+		table.insert(baseStats, { label = statLabel(entry.target), value = formatModifierValue(entry) })
 	end
 
 	return {

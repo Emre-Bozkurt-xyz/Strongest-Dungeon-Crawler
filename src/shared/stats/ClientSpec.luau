@@ -7,7 +7,7 @@ local Types = require(script.Parent.Parent.StatTypes)
 export type StatDisplay = {
 	label: string,
 	description: string?,
-	group: "Pools" | "Offense" | "Recovery" | "Other"?,
+	group: "Pools" | "Offense" | "Elements" | "Recovery" | "Other"?,
 	format: "int" | "percent" | "value" | "regen"?,
 	order: number?,
 }
@@ -70,28 +70,28 @@ local ClientSpec: { [Types.StatType]: StatDisplay } = {
 	FireResistance = {
 		label = "Fire Resistance",
 		description = "Reduces incoming fire damage.",
-		group = "Offense",
+		group = "Elements",
 		format = "percent",
 		order = 151,
 	},
 	FrostResistance = {
 		label = "Frost Resistance",
 		description = "Reduces incoming frost damage.",
-		group = "Offense",
+		group = "Elements",
 		format = "percent",
 		order = 152,
 	},
 	FirePenetration = {
 		label = "Fire Penetration",
 		description = "Ignores part of a target's fire resistance.",
-		group = "Offense",
+		group = "Elements",
 		format = "percent",
 		order = 153,
 	},
 	FrostPenetration = {
 		label = "Frost Penetration",
 		description = "Ignores part of a target's frost resistance.",
-		group = "Offense",
+		group = "Elements",
 		format = "percent",
 		order = 154,
 	},

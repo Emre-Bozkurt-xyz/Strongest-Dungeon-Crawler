@@ -1,7 +1,7 @@
 --!strict
 -- Titled groups of label/value rows: the item card's details and the System panel's stats.
 --
--- Laid out in pixels for logical-width surfaces. Rows put the label in the body face and the value
+-- Laid out in pixels for logical-width surfaces. Rows put the label in the bold body face and the value
 -- in mono, like every other ticking value; mono also holds up at distance better than the narrow
 -- body face.
 --
@@ -19,9 +19,11 @@ local e = React.createElement
 
 local StatList = {}
 
-local DEFAULT_ROW_HEIGHT = 26
+-- Sized to read on a world panel at about one screen pixel per logical pixel: nothing under 17, and
+-- headings in the bold body face, since the display face blurs below about 20.
+local DEFAULT_ROW_HEIGHT = 30
 local ROW_GAP = 2
-local HEADING_HEIGHT = 22
+local HEADING_HEIGHT = 28
 local DEFAULT_LABEL_WIDTH = 0.58
 
 -- Pixel height of a section holding `rows` rows, for a parent that lays sections out by hand.
@@ -49,8 +51,8 @@ function StatList.Section(props: { title: string, layoutOrder: number?, rowHeigh
 			role = "MutedText",
 			layoutOrder = 0,
 			size = UDim2.new(1, 0, 0, HEADING_HEIGHT),
-			textSize = theme.type.small,
-			props = { FontFace = theme.face.display },
+			textSize = 18,
+			props = { FontFace = theme.face.bodyBold },
 		}),
 	}
 	local rowCount = 0
@@ -95,7 +97,9 @@ function StatList.Row(props: {
 			text = props.label,
 			role = props.role,
 			size = UDim2.fromScale(labelWidth, 1),
-			textSize = theme.type.body,
+			textSize = 19,
+			-- Bold: the regular weight thins to hairlines on a panel seen at an angle.
+			props = { FontFace = theme.face.bodyBold },
 		}),
 		Value = e(Text, {
 			text = props.value,
@@ -103,7 +107,7 @@ function StatList.Row(props: {
 			size = UDim2.fromScale(1 - labelWidth, 1),
 			position = UDim2.fromScale(labelWidth, 0),
 			alignX = Enum.TextXAlignment.Right,
-			textSize = theme.type.small,
+			textSize = 18,
 			props = { FontFace = theme.face.mono },
 		}),
 	})

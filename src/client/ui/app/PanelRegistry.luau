@@ -81,6 +81,7 @@ local EquipmentPanel = require(script.Parent.Parent.panels.EquipmentPanel)
 local InventoryPanel = require(script.Parent.Parent.panels.InventoryPanel)
 local LoadoutPanel = require(script.Parent.Parent.panels.LoadoutPanel)
 local SkillInspectPanel = require(script.Parent.Parent.panels.SkillInspectPanel)
+local ViewStripPanel = require(script.Parent.Parent.panels.ViewStripPanel)
 
 local function isMenuOpen(state: MenuState): boolean
 	return state.modal.open
@@ -213,6 +214,23 @@ local entries: { PanelEntry } = {
 				and isMenuOpen(state)
 				and state.modal.view == "loadout"
 		end,
+	},
+	{
+		id = "ViewStripPanel",
+		component = ViewStripPanel,
+		-- Four 140-pixel tabs at the System panel's density (768 logical pixels over 6.478 studs), so
+		-- its type reads at the size of the panels' own.
+		surface = {
+			width = 4.724,
+			height = 0.371,
+			thickness = 0.076,
+			pixelsPerStud = 200,
+			scale = MENU_PANEL_SCALE,
+			logicalWidth = 560,
+		},
+		placement = menuRigPlacement(),
+		-- Up in every view, so a switch glides it rather than switching it off and on again.
+		isVisible = isMenuOpen,
 	},
 }
 

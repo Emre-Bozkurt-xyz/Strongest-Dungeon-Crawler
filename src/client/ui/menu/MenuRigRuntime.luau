@@ -44,7 +44,11 @@ local MENU_PANEL_IDS = {
 	"LoadoutPanel",
 	"ItemInspectPanel",
 	"SkillInspectPanel",
+	"ViewStripPanel",
 }
+
+-- Not a primary or a side panel: placed over the primary, whichever that is.
+local VIEW_STRIP_ID = "ViewStripPanel"
 
 local PRIMARY_PANEL_BY_VIEW: { [MenuView]: string } = {
 	system = "SystemPanel",
@@ -274,6 +278,14 @@ function MenuRigRuntime:_solve(): Solve?
 			cursor += width / 2
 		end
 	end
+
+	-- Solved against the primary's target rather than its part, so on a view switch the strip sets
+	-- off for the new panel's top edge at once and glides there while the panels change over. The
+	-- part's face is its -Z, so toward the reader is -Z.
+	local strip = tunedTable("UIMenu.stage.viewStrip", StageConfig.viewStrip)
+	local primaryHeight = (self._panelSizes[self._primaryPanelId] or Vector2.zero).Y
+	local stripHeight = (self._panelSizes[VIEW_STRIP_ID] or Vector2.zero).Y
+	panels[VIEW_STRIP_ID] = primary * CFrame.new(0, primaryHeight / 2 + strip.gap + stripHeight / 2, -strip.lift)
 
 	return { camera = camera, panels = panels }
 end

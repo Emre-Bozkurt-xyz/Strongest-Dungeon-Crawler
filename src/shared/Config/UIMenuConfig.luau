@@ -58,6 +58,10 @@ local UIMenuConfig = {
 		spacing = 0.2,
 		-- Kept between the camera and a wall it is pulled in front of.
 		wallClearance = 0.4,
+		-- The view strip rides above whichever panel is primary, centred on it: `gap` studs above its
+		-- top edge, and `lift` studs out of its plane toward the reader, so the strip lies over the
+		-- panels rather than in them and never fights one for depth while it glides between views.
+		viewStrip = { gap = 0.12, lift = 0.08 },
 		views = {
 			-- Panel squarely in front of the character at chest height, facing it. The camera stands off
 			-- the right shoulder and turns back in to look across the character at the panel.
@@ -69,14 +73,16 @@ local UIMenuConfig = {
 				panel = { ahead = 3.5, right = 0.15, up = 1.2, faceCamera = 0.2, turn = -2, tilt = -0.5 },
 				camera = { right = 3.2, up = 2.4, back = 2.05, yaw = -24.5, pitch = -9.5, fov = 55 },
 			} :: ViewStage,
-			-- The paper doll is a tall panel; raised and set back so its lower rows clear the shoulder.
+			-- The paper doll is a tall panel; set back so it and the view strip above it fit between the
+			-- top bar and the skill bar, and its lower rows clear the shoulder.
 			equipment = {
-				panel = { ahead = 4.0, right = 0.15, up = 1.6, faceCamera = 0.2, turn = -2, tilt = -0.5 },
+				panel = { ahead = 4.6, right = 0.15, up = 1.2, faceCamera = 0.2, turn = -2, tilt = -0.5 },
 				camera = { right = 3.2, up = 2.4, back = 2.05, yaw = -24.5, pitch = -9.5, fov = 55 },
 			} :: ViewStage,
-			-- The widest panel, with a skill's details beside it: set further back to fit both.
+			-- The widest and tallest panel, with a skill's details beside it and the view strip above:
+			-- set furthest back, and low, to fit all three.
 			loadout = {
-				panel = { ahead = 4.6, right = 0.15, up = 1.5, faceCamera = 0.2, turn = -2, tilt = -0.5 },
+				panel = { ahead = 5.2, right = 0.15, up = 1.05, faceCamera = 0.2, turn = -2, tilt = -0.5 },
 				camera = { right = 3.2, up = 2.4, back = 2.05, yaw = -24.5, pitch = -9.5, fov = 55 },
 			} :: ViewStage,
 		},

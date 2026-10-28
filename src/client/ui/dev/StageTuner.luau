@@ -58,6 +58,8 @@ local PANEL_FIELDS: { Field } = {
 local GLOBAL_FIELDS: { Field } = {
 	{ key = "panelScale", label = "panel scale", min = 0.3, max = 1.5, step = 0.01 },
 	{ key = "spacing", label = "spacing", min = 0, max = 2, step = 0.05 },
+	{ key = "viewStrip.gap", label = "strip gap", min = 0, max = 1, step = 0.01 },
+	{ key = "viewStrip.lift", label = "strip lift", min = 0, max = 0.5, step = 0.01 },
 	{ key = "cameraMove", label = "camera in s", min = 0.05, max = 1, step = 0.01 },
 	{ key = "cameraRelease", label = "camera out s", min = 0.05, max = 1, step = 0.01 },
 }
@@ -102,6 +104,9 @@ local function exportStage(): string
 		`\t\tpanelScale = {fmt(readNumber("UIMenu.stage.panelScale"))},`,
 		`\t\tspacing = {fmt(readNumber("UIMenu.stage.spacing"))},`,
 		`\t\twallClearance = {fmt(readNumber("UIMenu.stage.wallClearance"))},`,
+		`\t\tviewStrip = \{ gap = {fmt(readNumber("UIMenu.stage.viewStrip.gap"))}, lift = {fmt(
+			readNumber("UIMenu.stage.viewStrip.lift")
+		)} \},`,
 		"\t\tviews = {",
 	}
 	for _, view in ipairs(VIEWS) do

@@ -1,10 +1,11 @@
 --!strict
--- The menu's views as one strip at the top of the screen while the menu is open: SYSTEM, INVENTORY,
--- EQUIPMENT, LOADOUT, each with its key. The views were always one menu, but each was reachable only
--- by its own key, so nothing on screen said the others were there. Clicking a tab switches to it.
+-- The menu's views as one strip: SYSTEM, INVENTORY, EQUIPMENT, LOADOUT, each with its key. The views
+-- were always one menu, but each was reachable only by its own key, so nothing said the others were
+-- there. Clicking a tab switches to it.
 --
--- Screen space rather than on the staged panels: the strip belongs to the menu, not to any one
--- panel, and it stays put while the camera moves between views.
+-- A panel of its own on the stage rather than part of any view's panel: it belongs to the menu, not to
+-- a view, so it stays up across a switch and MenuRigRuntime glides it over to whichever panel is
+-- primary. It is drawn in the world like the panels it heads, not on the screen over them.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -14,15 +15,14 @@ local useMenuState = require(script.Parent.Parent.hooks.useMenuState)
 local ThemeContext = require(script.Parent.Parent.hooks.ThemeContext)
 local MenuOrchestrator = require(script.Parent.Parent.menu.MenuOrchestrator)
 local MenuTypes = require(script.Parent.Parent.menu.MenuTypes)
-local Brackets = require(script.Parent.Parent.components.Brackets)
+local PanelFrame = require(script.Parent.Parent.components.PanelFrame)
 local UISound = require(script.Parent.Parent.UISound)
 
 local e = React.createElement
 
--- In the empty middle of Roblox's top bar, clear of the staged panels below it.
-local TOP = 10
-local TAB_WIDTH = 176
-local HEIGHT = 40
+-- The surface's logical size (PanelRegistry): four tabs across.
+local TAB_WIDTH = 140
+local HEIGHT = 44
 
 local TABS: { { view: MenuTypes.MenuView, label: string, key: string } } = {
 	{ view = "system", label = "SYSTEM", key = "J" },
@@ -43,6 +43,9 @@ local function Tab(props: { label: string, keyLabel: string, active: boolean, or
 		LayoutOrder = props.order,
 		[React.Event.MouseEnter] = function()
 			setHovered(true)
+			if not props.active then
+				UISound.play("hover")
+			end
 		end,
 		[React.Event.MouseLeave] = function()
 			setHovered(false)
@@ -58,7 +61,7 @@ local function Tab(props: { label: string, keyLabel: string, active: boolean, or
 				HorizontalAlignment = Enum.HorizontalAlignment.Center,
 				VerticalAlignment = Enum.VerticalAlignment.Center,
 				SortOrder = Enum.SortOrder.LayoutOrder,
-				Padding = UDim.new(0, 10),
+				Padding = UDim.new(0, 8),
 			}),
 			Label = e("TextLabel", {
 				AutomaticSize = Enum.AutomaticSize.X,
@@ -66,17 +69,18 @@ local function Tab(props: { label: string, keyLabel: string, active: boolean, or
 				BackgroundTransparency = 1,
 				Text = props.label,
 				FontFace = theme.face.display,
-				TextSize = 13,
+				TextSize = 15,
 				TextColor3 = if lit then theme.color.textPrimary else theme.color.textMuted,
 				LayoutOrder = 1,
 			}),
 			Key = e("TextLabel", {
-				Size = UDim2.fromOffset(18, 18),
+				Size = UDim2.fromOffset(20, 20),
 				BackgroundTransparency = 1,
 				Text = props.keyLabel,
 				FontFace = theme.face.mono,
-				TextSize = 11,
-				TextColor3 = if props.active then theme.color.textMuted else theme.color.textDisabled,
+				TextSize = 12,
+				-- Muted, not disabled, when idle: on a world surface the disabled tone drops out entirely.
+				TextColor3 = if props.active then theme.color.textPrimary else theme.color.textMuted,
 				LayoutOrder = 2,
 			}, {
 				Stroke = e("UIStroke", {
@@ -88,8 +92,8 @@ local function Tab(props: { label: string, keyLabel: string, active: boolean, or
 			}),
 		}),
 		Underline = e("Frame", {
-			Size = UDim2.new(1, -24, 0, 2),
-			Position = UDim2.fromScale(0.5, 1),
+			Size = UDim2.new(1, -28, 0, 2),
+			Position = UDim2.new(0.5, 0, 1, -5),
 			AnchorPoint = Vector2.new(0.5, 1),
 			BackgroundColor3 = theme.color.accent,
 			BackgroundTransparency = if props.active then 0 elseif hovered then 0.7 else 1,
@@ -98,11 +102,13 @@ local function Tab(props: { label: string, keyLabel: string, active: boolean, or
 	})
 end
 
-local function MenuViews()
+local function ViewStripPanel()
 	local state = useMenuState()
-	if not (state and state.modal.open) then
+	if not state then
 		return nil
 	end
+	-- Rendered while closing too, still marking the view it closes on.
+	local view = state.modal.view
 
 	local tabs: { [string]: any } = {
 		Layout = e("UIListLayout", {
@@ -114,10 +120,10 @@ local function MenuViews()
 		tabs[tab.label] = e(Tab, {
 			label = tab.label,
 			keyLabel = tab.key,
-			active = state.modal.view == tab.view,
+			active = view == tab.view,
 			order = order,
 			onActivated = function()
-				if state.modal.view ~= tab.view then
+				if state.modal.open and view ~= tab.view then
 					UISound.play("confirm")
 					MenuOrchestrator.setView(tab.view)
 				end
@@ -125,25 +131,13 @@ local function MenuViews()
 		})
 	end
 
-	return e("Frame", {
-		Size = UDim2.fromOffset(TAB_WIDTH * #TABS, HEIGHT),
-		Position = UDim2.new(0.5, 0, 0, TOP),
-		AnchorPoint = Vector2.new(0.5, 0),
-		BackgroundColor3 = Color3.new(0, 0, 0),
-		BackgroundTransparency = 0.45,
-		BorderSizePixel = 0,
+	return e(PanelFrame, {
+		layout = "free",
+		padding = 0,
+		brackets = "small",
 	}, {
-		Fade = e("UIGradient", {
-			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 0.6),
-				NumberSequenceKeypoint.new(0.15, 0),
-				NumberSequenceKeypoint.new(0.85, 0),
-				NumberSequenceKeypoint.new(1, 0.6),
-			}),
-		}),
-		Corners = e(Brackets, { size = "small", edgeTransparency = 1 }),
 		Tabs = e("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, tabs),
 	})
 end
 
-return MenuViews
+return ViewStripPanel

@@ -18,6 +18,7 @@ local useGlobalCooldown = require(script.Parent.Parent.hooks.useGlobalCooldown)
 local useCastBlocked = require(script.Parent.Parent.hooks.useCastBlocked)
 local useActiveSkill = require(script.Parent.Parent.hooks.useActiveSkill)
 local useOverlayOpen = require(script.Parent.Parent.hooks.useOverlayOpen)
+local useCombatLoadout = require(script.Parent.Parent.hooks.useCombatLoadout)
 local Selector = require(script.Parent.Parent.selectors.skillSlots)
 local SkillBar = require(script.SkillBar)
 
@@ -31,7 +32,9 @@ local function SkillSlotContainer()
 	-- Stays up under the menu, which sits beside the character, but not under a full-screen overlay.
 	local overlayOpen = useOverlayOpen()
 
-	local slots = Selector.buildSlots(filled)
+	-- The basic attack's slot shows the form it plays, which follows what is held.
+	local combat = useCombatLoadout()
+	local slots = Selector.buildSlots(filled, combat)
 
 	return e("Frame", {
 		Size = UDim2.fromScale(1, 1),

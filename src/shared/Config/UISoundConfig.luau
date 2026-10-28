@@ -39,6 +39,8 @@ local UISoundConfig = {
 		nodeSelect = { id = "rbxassetid://15675043410", volume = 0.4, speed = 1.3 },
 		formEquip = { id = "rbxassetid://15675043410", volume = 0.5, speed = 0.9 },
 		attune = { id = "rbxassetid://15675046931", volume = 0.55, speed = 0.75 },
+		-- The loadout: a skill put into a slot. A placeholder like the above.
+		slotAssign = { id = "rbxassetid://15675043410", volume = 0.45, speed = 1.1 },
 	} :: { [string]: Cue },
 
 	-- Pickup notices, by rarity: the notify stinger pitched up as the drop gets rarer.

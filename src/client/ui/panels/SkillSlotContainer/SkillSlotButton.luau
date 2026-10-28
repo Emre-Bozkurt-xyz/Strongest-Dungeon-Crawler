@@ -35,6 +35,7 @@ local useSkillRemaining = require(script.Parent.Parent.Parent.hooks.useSkillRema
 local SkillActions = require(script.Parent.Parent.Parent.actions.SkillActions)
 local Selector = require(script.Parent.Parent.Parent.selectors.skillSlots)
 local CooldownRadial = require(script.Parent.CooldownRadial)
+local SkillPicture = require(script.Parent.Parent.Parent.components.SkillPicture)
 
 local e = React.createElement
 
@@ -44,6 +45,7 @@ export type Props = {
 	index: number,
 	skill: string,
 	icon: string,
+	look: Selector.Look?,
 	keyLabel: string?,
 	layoutOrder: number,
 	-- Bindings shared across the whole bar; see the header note above.
@@ -172,9 +174,17 @@ local function SkillSlotButton(props: Props)
 				PaddingLeft = UDim.new(0, 4),
 				PaddingRight = UDim.new(0, 4),
 			}),
-			-- Renders nothing rather than a broken-image placeholder when a skill has no icon (R12
-			-- improvement over the old fallback of "rbxassetid://0").
-			Icon = if props.icon ~= ""
+			-- The skill's own art or glyph; the spec icon is the fallback, one placeholder shared by
+			-- every skill. Renders nothing rather than a broken-image placeholder when a skill has
+			-- neither (R12 improvement over the old fallback of "rbxassetid://0").
+			Icon = if props.look
+				then e(SkillPicture, {
+					look = props.look,
+					size = UDim2.fromScale(0.82, 0.82),
+					color = iconColor,
+					zIndex = 1,
+				})
+				elseif props.icon ~= ""
 				then e("ImageLabel", {
 					Image = props.icon,
 					ScaleType = Enum.ScaleType.Stretch,

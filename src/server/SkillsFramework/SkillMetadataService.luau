@@ -269,6 +269,8 @@ local function calculateMetadata(entityId: string, skillName: string): { [string
 		}
 	end
 
+	-- For the loadout's skill details.
+	metadata.description = skillData.description
 	metadata.cooldown = skillData.cooldown
 	metadata.gcd = skillData.gcd
 	metadata.baseDuration = skillData.baseDuration

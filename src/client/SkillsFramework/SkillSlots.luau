@@ -7,6 +7,9 @@
 -- no newer command is still in flight -- otherwise a slow answer to an earlier command would briefly
 -- undo a later one. The last answer always carries the full authoritative loadout, so the mirror
 -- converges even when the server refuses something it accepted locally.
+--
+-- Slots and sets the character's level has not opened (LoadoutUnlocks) keep what the save holds but
+-- do nothing: a locked slot fires no skill, and a locked active set falls back to the first.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -15,6 +18,8 @@ local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local LoadoutTypes = require(ReplicatedStorage.Shared.skills.LoadoutTypes)
 local LoadoutRules = require(ReplicatedStorage.Shared.skills.LoadoutRules)
+local LoadoutUnlocks = require(ReplicatedStorage.Shared.skills.LoadoutUnlocks)
+local ProgressionClient = require(script.Parent.Parent.Progression.ProgressionClient)
 
 type Loadout = LoadoutTypes.Loadout
 
@@ -55,13 +60,21 @@ local function subscribe(list: { Callback }, cb: Callback): () -> ()
 	end
 end
 
+local function limits(): LoadoutUnlocks.Limits
+	return LoadoutUnlocks.limitsFor(ProgressionClient.characterProgress().level)
+end
+
+local function activeIndex(): number
+	return if loadout then LoadoutRules.activeSet(loadout, limits()) else 1
+end
+
 local function replace(newLoadout: Loadout)
-	local previousActive = loadout and loadout.activeSet
+	local previousActive = activeIndex()
 	loadout = newLoadout
-	if previousActive ~= newLoadout.activeSet then
-		fire(activeSetChanged, newLoadout.activeSet)
+	if previousActive ~= activeIndex() then
+		fire(activeSetChanged, activeIndex())
 	end
-	fire(slotsChanged, newLoadout.activeSet)
+	fire(slotsChanged, activeIndex())
 end
 
 local function adoptServerLoadout(raw: any)
@@ -88,15 +101,15 @@ local function send(command: LoadoutTypes.LoadoutCommand)
 		logFlow(`SkillSlots: '{command.kind}' ignored, loadout not loaded yet`)
 		return
 	end
-	local ok, reason = LoadoutRules.apply(current, command)
+	local ok, reason = LoadoutRules.apply(current, command, limits())
 	if not ok then
 		logFlow(`SkillSlots: '{command.kind}' refused locally ({reason})`)
 		return
 	end
 	if command.kind == "setActive" then
-		fire(activeSetChanged, current.activeSet)
+		fire(activeSetChanged, activeIndex())
 	end
-	fire(slotsChanged, current.activeSet)
+	fire(slotsChanged, activeIndex())
 
 	inFlight += 1
 	task.spawn(function()
@@ -123,7 +136,7 @@ local function activeSlots(): { string }?
 	if not current then
 		return nil
 	end
-	local set = current.sets[current.activeSet]
+	local set = current.sets[activeIndex()]
 	return set and set.slots
 end
 
@@ -131,8 +144,12 @@ function SkillSlots.isLoaded(): boolean
 	return loadout ~= nil
 end
 
--- The skill in `index` of the active set, or nil when the slot is empty or nothing has loaded.
+-- The skill in `index` of the active set, or nil when the slot is empty, locked, or nothing has
+-- loaded.
 function SkillSlots.get(index: number): string?
+	if index > limits().slots then
+		return nil
+	end
 	local slots = activeSlots()
 	local skill = slots and slots[index]
 	if skill == nil or skill == LoadoutTypes.EMPTY then
@@ -141,15 +158,16 @@ function SkillSlots.get(index: number): string?
 	return skill
 end
 
--- The active set's filled slots, in slot order.
+-- The active set's filled, opened slots, in slot order.
 function SkillSlots.getFilledSlots(): { FilledSlot }
 	local list: { FilledSlot } = {}
 	local slots = activeSlots()
 	if not slots then
 		return list
 	end
+	local open = limits().slots
 	for index, skill in ipairs(slots) do
-		if skill ~= LoadoutTypes.EMPTY then
+		if index <= open and skill ~= LoadoutTypes.EMPTY then
 			table.insert(list, { index = index, skill = skill })
 		end
 	end
@@ -186,16 +204,29 @@ function SkillSlots.clear(slot: number, set: number?)
 	send({ kind = "clear", set = set or SkillSlots.getActiveSet(), slot = slot })
 end
 
+-- Every slot of `set`, opened or not, EMPTY where nothing is assigned; nil before the save loads.
+function SkillSlots.getSet(set: number): { string }?
+	local current = loadout
+	local entry = current and current.sets[set]
+	return if entry then table.clone(entry.slots) else nil
+end
+
+-- The slots and sets the character's level has opened.
+function SkillSlots.limits(): LoadoutUnlocks.Limits
+	return limits()
+end
+
+-- Sets the character can fight with.
 function SkillSlots.setCount(): number
-	return if loadout then #loadout.sets else 0
+	return if loadout then math.min(#loadout.sets, limits().sets) else 0
 end
 
 function SkillSlots.getActiveSet(): number
-	return if loadout then loadout.activeSet else 1
+	return activeIndex()
 end
 
 function SkillSlots.setActiveSet(set: number)
-	if loadout and set == loadout.activeSet then
+	if loadout and set == activeIndex() then
 		return
 	end
 	send({ kind = "setActive", set = set })
@@ -218,6 +249,18 @@ end
 function SkillSlots.onSlotsChanged(cb: Callback): () -> ()
 	return subscribe(slotsChanged, cb)
 end
+
+-- A level-up can open a slot or set, which changes what the bar holds.
+local lastLimits = limits()
+ProgressionClient.onChanged(function()
+	local now = limits()
+	if now.slots ~= lastLimits.slots or now.sets ~= lastLimits.sets then
+		lastLimits = now
+		if loadout then
+			fire(slotsChanged, activeIndex())
+		end
+	end
+end)
 
 -- Connected before the snapshot request, so a save that finishes loading while the request is out
 -- is not missed: whichever arrives first fills the mirror.

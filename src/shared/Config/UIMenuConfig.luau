@@ -74,10 +74,17 @@ local UIMenuConfig = {
 				panel = { ahead = 4.0, right = 0.15, up = 1.6, faceCamera = 0.2, turn = -2, tilt = -0.5 },
 				camera = { right = 3.2, up = 2.4, back = 2.05, yaw = -24.5, pitch = -9.5, fov = 55 },
 			} :: ViewStage,
+			-- The widest panel, with a skill's details beside it: set further back to fit both.
+			loadout = {
+				panel = { ahead = 4.6, right = 0.15, up = 1.5, faceCamera = 0.2, turn = -2, tilt = -0.5 },
+				camera = { right = 3.2, up = 2.4, back = 2.05, yaw = -24.5, pitch = -9.5, fov = 55 },
+			} :: ViewStage,
 		},
 	},
 	sideSlots = {
 		ItemInspectPanel = { side = "right", order = 100 } :: SideSlot,
+		-- The same place: the two never show together.
+		SkillInspectPanel = { side = "right", order = 100 } :: SideSlot,
 	},
 }
 

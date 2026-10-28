@@ -45,6 +45,10 @@ function Inputs.init()
 		toggleMenuView("equipment")
 	end)
 
+	InputManager.on("MenuViewLoadout", function()
+		toggleMenuView("loadout")
+	end)
+
 	InputManager.on("MasteryCanvas", function()
 		MasteryCanvasController.toggle()
 	end)

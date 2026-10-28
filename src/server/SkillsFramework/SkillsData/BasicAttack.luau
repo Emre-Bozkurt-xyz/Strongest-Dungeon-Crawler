@@ -10,7 +10,7 @@ local Types = require(ReplicatedStorage.Shared.skills.SkillSpecTypes)
 local data: Types.ServerSkillConfig = {
 	name = "BasicAttack",
 	tags = { "melee", "light" },
-	description = "Adaptive basic attack: uses the current weapon's basic attack profile, falling back to the unarmed profile when empty-handed.",
+	description = "Your weapon's combo, in the form you chose for it in the mastery trees.",
 	-- No cooldown and no GCD: the basic attack is what a character does between skills, so any
 	-- lockout here is dead time whenever their skills are also cooling down. Pacing comes from the
 	-- combo itself -- the finisher's `recovery` end lag and knockback in the weapon's profile.

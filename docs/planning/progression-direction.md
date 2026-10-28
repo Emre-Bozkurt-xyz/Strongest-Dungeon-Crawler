@@ -344,6 +344,22 @@ A staged world panel like the other views, with a wider camera seat than Invento
   Shrine."*
 - Detail for the selected skill or form opens in a **side slot**, the mechanism ItemInspect uses.
 
+Built 2026-10-28 (`client/ui/panels/LoadoutPanel`, `SkillInspectPanel`), with these decisions:
+
+- Form and infusion are only shown here and changed in the mastery trees; the recipe chips open the
+  tree with that node pinned.
+- Slot sets are not tied to a weapon. A skill the held weapon cannot use stays in its slot, dimmed,
+  with the reason in amber.
+- A character starts with one set of three slots; more slots and a second set open with level
+  (`shared/skills/LoadoutUnlocks`, placeholder levels). Locked slots and sets keep what the save holds.
+- The basic attack is a skill like any other and can sit in any slot. Moving a skill onto a filled
+  slot swaps the two.
+- The library is grouped by mastery rather than filtered by tag, while there are few skills.
+- Chosen selectable passives show as a row of the tree's own nodes, each opening its tree.
+- The menu's views are one strip of tabs at the top of the screen (J, I, K, L, or click), so the
+  Loadout is a fourth tab of the menu rather than another screen to remember.
+- Not yet: Equipment's weapon slot linking here, tag filters, dragging.
+
 ### Mastery canvas
 
 A full-screen overlay to start with — the System's inner view — rather than a 3D constellation

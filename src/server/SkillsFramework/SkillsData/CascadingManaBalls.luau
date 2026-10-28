@@ -3,7 +3,7 @@ local Types = require(game:GetService("ReplicatedStorage").Shared.skills.SkillSp
 
 local data: Types.ServerSkillConfig = {
 	name = "CascadingManaBalls",
-	description = "Fires a flurry of mana balls that cascade toward a target point.",
+	description = "A flurry of mana balls that rain down around a target point.",
 	cooldown = 4,
 	gcd = 0.7,
 	level = 1,

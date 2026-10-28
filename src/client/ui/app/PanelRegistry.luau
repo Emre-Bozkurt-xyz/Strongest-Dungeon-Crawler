@@ -79,6 +79,8 @@ end
 
 local EquipmentPanel = require(script.Parent.Parent.panels.EquipmentPanel)
 local InventoryPanel = require(script.Parent.Parent.panels.InventoryPanel)
+local LoadoutPanel = require(script.Parent.Parent.panels.LoadoutPanel)
+local SkillInspectPanel = require(script.Parent.Parent.panels.SkillInspectPanel)
 
 local function isMenuOpen(state: MenuState): boolean
 	return state.modal.open
@@ -151,6 +153,26 @@ local entries: { PanelEntry } = {
 		end,
 	},
 	{
+		id = "LoadoutPanel",
+		component = LoadoutPanel,
+		-- The widest menu panel: the form card, the slot bar and four columns of skills side by side.
+		-- 860 logical pixels across; the surface is taller than the panel needs, which draws itself
+		-- only as tall as its content.
+		surface = {
+			width = 7.2,
+			height = 6.9,
+			thickness = 0.076,
+			pixelsPerStud = 200,
+			scale = MENU_PANEL_SCALE,
+			logicalWidth = 860,
+			fitContent = true,
+		},
+		placement = menuRigPlacement(),
+		isVisible = function(state)
+			return isMenuOpen(state) and state.modal.view == "loadout"
+		end,
+	},
+	{
 		id = "ItemInspectPanel",
 		component = ItemInspectPanel,
 		-- 340 logical pixels across is about one screen pixel each at 1080p staging; the 562px canvas
@@ -166,7 +188,30 @@ local entries: { PanelEntry } = {
 		placement = menuRigPlacement(),
 		-- Hidden over the system view, which has no item context to inspect against.
 		isVisible = function(state)
-			return state.inspect ~= nil and isMenuOpen(state) and state.modal.view ~= "system"
+			return state.inspect ~= nil
+				and state.inspect.source ~= "loadout"
+				and isMenuOpen(state)
+				and state.modal.view ~= "system"
+		end,
+	},
+	{
+		id = "SkillInspectPanel",
+		component = SkillInspectPanel,
+		-- The item inspect panel's surface, in the same side slot: the two never show together.
+		surface = {
+			width = 1.875,
+			height = 3.34,
+			thickness = 0.076,
+			pixelsPerStud = 300,
+			scale = MENU_PANEL_SCALE,
+			logicalWidth = 340,
+		},
+		placement = menuRigPlacement(),
+		isVisible = function(state)
+			return state.inspect ~= nil
+				and state.inspect.source == "loadout"
+				and isMenuOpen(state)
+				and state.modal.view == "loadout"
 		end,
 	},
 }

@@ -45,6 +45,9 @@ export type SkillMetadata = {
 	-- Additional metadata (extensible)
 	customData: { [string]: any }?, -- Arbitrary key-value pairs for future additions
 
+	-- What the skill does, in words, for the loadout's skill details.
+	description: string?,
+
 	-- Timing/cooldown hints for local pacing
 	cooldown: number?,
 	gcd: number?,

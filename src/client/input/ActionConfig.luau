@@ -108,6 +108,14 @@ addAction("Core", {
 	consume = true,
 })
 
+addAction("Core", {
+	name = "MenuViewLoadout",
+	bindings = {
+		{ key = Enum.KeyCode.L, type = "press" },
+	},
+	consume = true,
+})
+
 -- The mastery canvas, a full-screen overlay rather than a menu view.
 addAction("Core", {
 	name = "MasteryCanvas",

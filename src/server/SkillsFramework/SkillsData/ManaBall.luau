@@ -3,7 +3,7 @@ local Types = require(game:GetService("ReplicatedStorage").Shared.skills.SkillSp
 
 local data: Types.ServerSkillConfig = {
 	name = "ManaBall",
-	description = "Fires a basic magic projectile.",
+	description = "A bolt of mana that homes in on its target.",
 	cooldown = 0.2,
 	gcd = 0.5,
 	level = 1,

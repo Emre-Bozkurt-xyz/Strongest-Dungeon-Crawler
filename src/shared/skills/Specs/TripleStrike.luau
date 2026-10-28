@@ -6,7 +6,7 @@ local Types = require(script.Parent.Parent.SkillSpecTypes)
 local spec: Types.SkillSpec = {
 	class = "BasicSkill",
 	icon = "rbxassetid://13050670424",
-	label = "Triple",
+	label = "Triple Strike",
 	-- Three heavy sword cuts: the Weight branch.
 	mastery = { track = "Blade", branch = "a" },
 	anim = {

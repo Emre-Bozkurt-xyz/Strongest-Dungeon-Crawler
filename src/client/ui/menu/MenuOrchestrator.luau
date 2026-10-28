@@ -17,7 +17,7 @@ local _store = nil
 local _disconnect = nil
 local _initialized = false
 
-local VIEWS: { MenuView } = { "system", "inventory", "equipment" }
+local VIEWS: { MenuView } = { "system", "inventory", "equipment", "loadout" }
 
 local function ensureInit()
 	if _initialized then

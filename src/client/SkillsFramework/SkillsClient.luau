@@ -143,6 +143,8 @@ dispatcher:on("StatusEffectBlocking", function(payload: any, _meta: any?)
 	end
 end)
 
+local knownChanged: { () -> () } = {}
+
 -- Instantiate a skill class and store it in availableSkills.
 -- Shared by the SkillsUpdate delta path and the snapshot catch-up path.
 -- Idempotent: re-registering an already-known skill is a no-op.
@@ -185,6 +187,9 @@ local function registerSkill(skillName: string, source: string): boolean
 	end
 
 	availableSkills[skillName] = skillInstance
+	for _, callback in ipairs(knownChanged) do
+		task.spawn(callback)
+	end
 	if DebugConfig.isEnabled("inputFlow") then
 		print("[InputFlow]", `registered skill '{skillName}' via {source}`)
 	end
@@ -233,6 +238,27 @@ function SkillsClient.requestSnapshot()
 	end
 	if DebugConfig.isEnabled("inputFlow") then
 		print("[InputFlow]", `SkillsSnapshot: {registered}/{#payload.skills} skill(s) available`)
+	end
+end
+
+-- Every skill the player has, by name, sorted.
+function SkillsClient.known(): { string }
+	local names: { string } = {}
+	for name in pairs(availableSkills) do
+		table.insert(names, name)
+	end
+	table.sort(names)
+	return names
+end
+
+-- Called whenever a skill is added.
+function SkillsClient.onKnownChanged(callback: () -> ()): () -> ()
+	table.insert(knownChanged, callback)
+	return function()
+		local index = table.find(knownChanged, callback)
+		if index then
+			table.remove(knownChanged, index)
+		end
 	end
 end
 

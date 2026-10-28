@@ -42,6 +42,7 @@ local function SkillBar(props: Props)
 			index = slot.index,
 			skill = slot.skill,
 			icon = slot.icon,
+			look = slot.look,
 			keyLabel = slot.keyLabel,
 			layoutOrder = order,
 			gcdProgress = props.gcdProgress,

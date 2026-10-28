@@ -7,6 +7,10 @@ local LoadoutTypes = {}
 -- Slots per set. Matches the Skill1..Skill5 input actions.
 LoadoutTypes.SLOTS_PER_SET = 5
 
+-- Sets a save holds. Every save has all of them, opened or not (LoadoutUnlocks), so a set that opens
+-- with a level is already there to fill.
+LoadoutTypes.MAX_SETS = 2
+
 -- Marks an empty slot. Slots are a dense array rather than a sparse one with nil holes: a sparse
 -- array does not survive either DataStore JSON or a remote intact.
 LoadoutTypes.EMPTY = ""

@@ -23,7 +23,7 @@ local InventoryClient = require(script.Parent.Parent.Parent.Inventory.InventoryC
 
 local e = React.createElement
 
-type View = "system" | "inventory" | "equipment"
+type View = "system" | "inventory" | "equipment" | "loadout"
 
 type Field = {
 	key: string,
@@ -34,7 +34,7 @@ type Field = {
 }
 
 local TOGGLE_KEY = Enum.KeyCode.F6
-local VIEWS: { View } = { "system", "inventory", "equipment" }
+local VIEWS: { View } = { "system", "inventory", "equipment", "loadout" }
 local ROW_HEIGHT = 26
 
 local CAMERA_FIELDS: { Field } = {

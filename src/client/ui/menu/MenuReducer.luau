@@ -18,6 +18,7 @@ local PRIMARY_BY_VIEW: { [MenuView]: string } = {
 	system = "SystemPanel",
 	inventory = "InventoryPanel",
 	equipment = "EquipmentPanel",
+	loadout = "LoadoutPanel",
 }
 
 local function resolveNextInspectState(inspect: Types.InspectState?, view: MenuView, modalOpen: boolean): Types.InspectState?
@@ -33,6 +34,9 @@ local function resolveNextInspectState(inspect: Types.InspectState?, view: MenuV
 	if inspect.source == "equipment" and view ~= "equipment" then
 		return nil
 	end
+	if inspect.source == "loadout" and view ~= "loadout" then
+		return nil
+	end
 	if view == "system" then
 		return nil
 	end
@@ -44,7 +48,7 @@ local function deriveLayout(state: MenuState): MenuState
 	local primary = PRIMARY_BY_VIEW[view]
 	local side: { string } = {}
 	if state.inspect ~= nil and view ~= "system" then
-		table.insert(side, "ItemInspectPanel")
+		table.insert(side, if state.inspect.source == "loadout" then "SkillInspectPanel" else "ItemInspectPanel")
 	end
 
 	local modal = {

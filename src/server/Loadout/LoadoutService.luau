@@ -16,6 +16,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local LoadoutTypes = require(ReplicatedStorage.Shared.skills.LoadoutTypes)
 local LoadoutRules = require(ReplicatedStorage.Shared.skills.LoadoutRules)
+local LoadoutUnlocks = require(ReplicatedStorage.Shared.skills.LoadoutUnlocks)
+local CharacterXP = require(ReplicatedStorage.Shared.progression.CharacterXP)
 
 local Server = ServerScriptService.Server
 local PlayerDataService = require(Server.PlayerData.PlayerDataService)
@@ -49,6 +51,13 @@ local function loadoutOf(player: Player): LoadoutTypes.Loadout?
 	return data and data.loadout
 end
 
+-- The slots and sets the character's level has opened.
+local function limitsOf(player: Player): LoadoutUnlocks.Limits
+	local data = PlayerDataService.get(player)
+	local xp = if data and data.character then data.character.xp else 0
+	return LoadoutUnlocks.limitsFor(CharacterXP.levelOf(xp))
+end
+
 -- The player has the skill right now. Slots keep a skill the player loses (a weapon that granted it
 -- was unequipped), but only a skill they have can be put into one.
 local function ownsSkill(player: Player, skillName: string): boolean
@@ -69,7 +78,7 @@ local function handleCommand(player: Player, command: any): LoadoutTypes.Loadout
 			return { ok = false, error = "skill_not_owned", loadout = loadout }
 		end
 	end
-	local ok, err = LoadoutRules.apply(loadout, command)
+	local ok, err = LoadoutRules.apply(loadout, command, limitsOf(player))
 	return { ok = ok, error = err, loadout = loadout }
 end
 

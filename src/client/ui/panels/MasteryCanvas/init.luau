@@ -309,7 +309,8 @@ local function MasteryCanvas()
 		setPan(clamped)
 	end
 
-	-- Opening, or switching track, frames the node in use.
+	-- Opening, or switching track, frames the node in use, or the node a link asked for (pinned, so
+	-- its details are already showing).
 	React.useEffect(function()
 		if not canvas.open or not tree then
 			return
@@ -320,13 +321,19 @@ local function MasteryCanvas()
 				focusNode = node
 			end
 		end
+		for _, node in ipairs(tree.nodes) do
+			if node.id == canvas.focus and node.visibility ~= "fogged" then
+				focusNode = node
+				setPinned({ id = node.id, at = os.clock() })
+			end
+		end
 		if focusNode then
 			-- Left of centre: trees grow rightward.
 			local view = viewSize()
 			local anchor = Vector2.new(view.X * FOCUS_X, view.Y / 2)
 			applyPan(anchor - nodePosition(focusNode))
 		end
-	end, { canvas.open, track.id, canvas.view } :: { any })
+	end, { canvas.open, track.id, canvas.view, canvas.focus } :: { any })
 
 	-- Dragging follows the pointer anywhere on screen once it has started on the field.
 	React.useEffect(function()

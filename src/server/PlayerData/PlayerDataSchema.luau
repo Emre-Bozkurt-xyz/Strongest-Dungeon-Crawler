@@ -126,7 +126,8 @@ function PlayerDataSchema.defaultLoadout(): LoadoutTypes.Loadout
 		activeSet = 1,
 		sets = {
 			{ slots = { "BasicAttack", "Dash", "DodgeRoll", EMPTY, EMPTY } },
-			{ slots = { "TripleStrike", "ManaBall", "CascadingManaBalls", EMPTY, EMPTY } },
+			-- Opens with level (LoadoutUnlocks); empty until the player fills it.
+			{ slots = { EMPTY, EMPTY, EMPTY, EMPTY, EMPTY } },
 		},
 	}
 end

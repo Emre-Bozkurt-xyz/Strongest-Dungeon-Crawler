@@ -18,13 +18,19 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 local ActionConfig = require(script.Parent.Parent.Parent.input.ActionConfig)
 local SkillSlots = require(script.Parent.Parent.Parent.SkillsFramework.SkillSlots)
+local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
+local skillLook = require(script.Parent.skillLook)
 
 local Selector = {}
+
+export type Look = skillLook.Look
 
 export type SlotView = {
 	index: number,
 	skill: string,
 	icon: string,
+	-- Drawn in place of `icon`, which is one placeholder shared by every skill for now.
+	look: skillLook.Look,
 	keyLabel: string?,
 }
 
@@ -56,7 +62,7 @@ local function formatBinding(binding: ActionConfig.Binding): string?
 	return nil
 end
 
-local function keyLabelFor(slotIndex: number): string?
+function Selector.keyLabelFor(slotIndex: number): string?
 	local core = ActionConfig.contexts.Core
 	local action = core and core.actions["Skill" .. tostring(slotIndex)]
 	if not action then
@@ -82,7 +88,7 @@ local function keyLabelFor(slotIndex: number): string?
 	return keyLabel
 end
 
-function Selector.buildSlots(filled: { SkillSlots.FilledSlot }): { SlotView }
+function Selector.buildSlots(filled: { SkillSlots.FilledSlot }, combat: ItemTypes.CombatLoadoutSnapshot?): { SlotView }
 	local views: { SlotView } = {}
 	for _, slot in ipairs(filled) do
 		local spec = ClientSpec[slot.skill]
@@ -91,7 +97,8 @@ function Selector.buildSlots(filled: { SkillSlots.FilledSlot }): { SlotView }
 			index = slot.index,
 			skill = slot.skill,
 			icon = icon,
-			keyLabel = keyLabelFor(slot.index),
+			look = skillLook(slot.skill, combat),
+			keyLabel = Selector.keyLabelFor(slot.index),
 		})
 	end
 	return views

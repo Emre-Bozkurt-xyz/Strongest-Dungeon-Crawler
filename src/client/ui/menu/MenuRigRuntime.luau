@@ -21,7 +21,7 @@ local DevTuningService = require(script.Parent.Parent.Parent.dev.DevTuningServic
 
 local StageConfig = UIMenuConfig.stage
 
-type MenuView = "system" | "inventory" | "equipment"
+type MenuView = "system" | "inventory" | "equipment" | "loadout"
 type ModalStateLike = {
 	open: boolean,
 	view: MenuView,
@@ -41,13 +41,16 @@ local MENU_PANEL_IDS = {
 	"SystemPanel",
 	"InventoryPanel",
 	"EquipmentPanel",
+	"LoadoutPanel",
 	"ItemInspectPanel",
+	"SkillInspectPanel",
 }
 
 local PRIMARY_PANEL_BY_VIEW: { [MenuView]: string } = {
 	system = "SystemPanel",
 	inventory = "InventoryPanel",
 	equipment = "EquipmentPanel",
+	loadout = "LoadoutPanel",
 }
 
 -- Above the HumanoidRootPart. The head is what a panel turns toward; the wall checks start there so a
@@ -154,13 +157,19 @@ end
 
 -- How far the composition can reach outward from the primary's centre: its half width plus every
 -- side panel that could open on the outer side. Counted whether or not they are showing, so a panel
--- opened later does not land in the wall the check was meant to avoid.
+-- opened later does not land in the wall the check was meant to avoid. Panels sharing a slot order
+-- are alternatives (an item's details or a skill's), so only the widest of them counts.
 function MenuRigRuntime:_outerReach(): number
 	local reach = (self._panelSizes[self._primaryPanelId] or Vector2.zero).X / 2
+	local widest: { [number]: number } = {}
 	for panelId, slot in pairs(UIMenuConfig.sideSlots :: any) do
 		if slot.side == "right" then
-			reach += StageConfig.spacing + (self._panelSizes[panelId] or Vector2.zero).X
+			local width = (self._panelSizes[panelId] or Vector2.zero).X
+			widest[slot.order] = math.max(widest[slot.order] or 0, width)
 		end
+	end
+	for _, width in pairs(widest) do
+		reach += StageConfig.spacing + width
 	end
 	return reach
 end

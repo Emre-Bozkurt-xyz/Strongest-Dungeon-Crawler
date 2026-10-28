@@ -226,7 +226,18 @@ local function MasteryCanvas()
 	local selectedShape = if progression then progression.shapes[context] else nil
 	local attuned = ProgressionClient.isAttuned(track.id)
 	local tree = React.useMemo(function()
-		return MasteryTree.build(track.id, branches, context, selectedShape, attuned)
+		-- The form in effect, so infusion nodes show which is in use and every node can name the
+		-- combination it would make with the other half.
+		local pairing = if progression
+			then MasteryTree.pairingFor(
+				context,
+				progression.shapes,
+				progression.infusion,
+				progression.masteries,
+				progression.attunement
+			)
+			else nil
+		return MasteryTree.build(track.id, branches, context, selectedShape, attuned, pairing)
 	end, { track.id, progression, context } :: { any })
 	local minimum, maximum = treeBounds(tree)
 
@@ -365,6 +376,15 @@ local function MasteryCanvas()
 					return columnStage(r, node.column)
 				end),
 				onActivated = function()
+					-- An infusion toggles: there is one or none, so choosing the one in use clears it.
+					if node.kind == "infusion" then
+						if not node.selectable then
+							UISound.play("error")
+							return
+						end
+						ProgressionClient.selectInfusion(if node.selected then "" else node.id)
+						return
+					end
 					-- Only an unlocked form that has a profile for the held weapon can be chosen.
 					local shapeId = node.shapeId
 					if not node.unlocked or node.dormant or node.kind ~= "form" or not shapeId then
@@ -679,8 +699,8 @@ local function MasteryCanvas()
 			AnchorPoint = Vector2.new(0.5, 1),
 			BackgroundTransparency = 1,
 			Text = if atShrine
-				then "DRAG TO MOVE   ·   CHOOSE A MASTERY ON THE RIGHT TO ATTUNE OR RELEASE IT"
-				else "DRAG TO MOVE   ·   CHOOSE AN UNLOCKED FORM TO USE IT",
+				then "DRAG TO MOVE   /   CHOOSE A MASTERY ON THE RIGHT TO ATTUNE OR RELEASE IT"
+				else "DRAG TO MOVE   /   CHOOSE AN UNLOCKED FORM OR INFUSION TO USE IT",
 			FontFace = theme.face.display,
 			TextSize = theme.type.label,
 			TextColor3 = theme.color.textMuted,

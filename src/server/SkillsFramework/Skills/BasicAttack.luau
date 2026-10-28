@@ -8,6 +8,9 @@
 -- Resolves the same BasicAttackProfileRegistry entry the client resolves, from the same
 -- CombatLoadoutService source, so the combo step count/timing/animation/damage the server executes
 -- always matches what the client already predicted (trap 4: do not reimplement resolution here).
+-- The form on top of it -- infusion and named combination (BasicAttackForm) -- resolves from that
+-- same snapshot; it changes what the damage is and how a projectile looks and lands, never the
+-- combo's timing, which the client predicts.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Server = game:GetService("ServerScriptService").Server
@@ -21,6 +24,8 @@ local ProjectileService = require(Server.Services.ProjectileService)
 local Registrar = require(Server.Services.Registrar)
 local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
 local BasicAttackProfileTypes = require(ReplicatedStorage.Shared.skills.BasicAttackProfileTypes)
+local BasicAttackForm = require(ReplicatedStorage.Shared.skills.BasicAttackForm)
+local FormCombinations = require(ReplicatedStorage.Shared.progression.FormCombinations)
 local HandResolver = require(ReplicatedStorage.Shared.skills.HandResolver)
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 local EntityUtils = require(ReplicatedStorage.Shared.EntityUtils)
@@ -55,6 +60,7 @@ function BasicAttack.new(casterId: string, data: any)
 	local self = BaseComboSkill.new(casterId, data)
 	setmetatable(self, BasicAttack)
 	self._activeProfile = nil :: BasicAttackProfileTypes.BasicAttackProfile?
+	self._activeForm = nil :: BasicAttackForm.Form?
 	-- Held from activation so a projectile fired partway through the animation uses the aim from when
 	-- the button was pressed, not wherever the camera has swung during the wind-up.
 	self._aimRequestData = nil :: any
@@ -77,15 +83,17 @@ local function casterOriginCFrame(skill: any): CFrame?
 	return root.CFrame
 end
 
--- Point this skill's config at the shape the caster's loadout resolves to now: its combo (step
--- count, timing, window) and its cost.
+-- Point this skill's config at the form the caster's loadout resolves to now: its shape's combo
+-- (step count, timing, window) and the form's cost.
 function BasicAttack:applyResolvedShape(): BasicAttackProfileTypes.BasicAttackProfile
-	local profile = BasicAttackProfileRegistry.resolve(CombatLoadoutService.get(self.casterId))
+	local form = BasicAttackForm.resolve(CombatLoadoutService.get(self.casterId))
+	local profile = form.profile
+	self._activeForm = form
 	self._activeProfile = profile
 	self.config.combo = profile.combo
 	-- Read by BaseSkill:applyResourceCost when BaseComboSkill.use charges the step.
-	self.config.costs = profile.cost.steps
-	self.config.baseResource = profile.cost.resource
+	self.config.costs = form.cost.steps
+	self.config.baseResource = form.cost.resource
 	return profile
 end
 
@@ -153,6 +161,42 @@ function BasicAttack:applyConeStep(step: number, coneAngle: number, coneRange: n
 	end
 end
 
+-- A named combination's explosion: every other enemy within its radius of the impact takes its
+-- share of the step's damage.
+function BasicAttack:explode(
+	position: Vector3,
+	struckId: string,
+	step: number,
+	damages: { AttackResolver.TypedDamage },
+	override: FormCombinations.ProjectileOverride
+)
+	local radius = override.explosionRadius
+	if not radius or radius <= 0 then
+		return
+	end
+	local share = override.explosionDamage or 1
+	local splash: { AttackResolver.TypedDamage } = {}
+	for _, entry in ipairs(damages) do
+		table.insert(splash, { type = entry.type, amount = entry.amount * share })
+	end
+	local targets = HitboxService.newQuery(CFrame.new(position))
+		:casterEntityId(self.casterId)
+		:factionRelation("enemy")
+		:playersOnly(false)
+		:sphere(radius)
+		:collect({ collectIds = true })
+	local targetIds = targets.ids
+	if not targetIds then
+		return
+	end
+	for _, targetEntityId in ipairs(targetIds) do
+		if targetEntityId ~= struckId then
+			local attack = self:resolveAttack({ damages = splash, comboStep = step })
+			CombatService.applyAttack(targetEntityId, attack, self.casterId :: string)
+		end
+	end
+end
+
 -- Fire the equipped weapon's projectile, carrying this step's already-scaled typed damage.
 --
 -- The weapon owns the projectile's identity and flight; this step only decided that one is fired
@@ -201,6 +245,19 @@ function BasicAttack:fireProjectileStep(
 	local speed = projectile.launchSpeed
 	local movementType = projectile.movementType or "linear"
 
+	-- The form decides how the shot looks and lands: an infusion colours it (clients tint the
+	-- weapon's template by `element`), and a named combination may resize it and make it explode.
+	local form = self._activeForm
+	local override = form and form.combination and form.combination.projectile
+	local extraData = table.clone(projectile.extraData or {})
+	if form and form.infusion then
+		extraData.element = form.infusion.element
+	end
+	if override then
+		extraData.scale = override.scale
+		extraData.impactScale = override.impactScale
+	end
+
 	-- Guidance is only meaningful for homing movement; passing it otherwise makes
 	-- ProjectileService acquire a target it will never steer toward.
 	local guidance: any = nil
@@ -229,10 +286,10 @@ function BasicAttack:fireProjectileStep(
 		radius = projectile.radius,
 		pierce = projectile.pierce,
 		guidance = guidance,
-		extraData = projectile.extraData,
+		extraData = extraData,
 		owner = self.caster,
 		faction = EntityUtils.getFaction(self.caster :: Model),
-		onHit = function(_proj, _hitPart, hitEntity, _result)
+		onHit = function(proj, _hitPart, hitEntity, _result)
 			local targetEntityId = Registrar.getEntityId(hitEntity)
 			if not targetEntityId then
 				warn(`[BasicAttack] Projectile hit '{hitEntity.Name}' which has no entityId - skipping damage`)
@@ -244,6 +301,9 @@ function BasicAttack:fireProjectileStep(
 				comboStep = step,
 			})
 			CombatService.applyAttack(targetEntityId, attack, self.casterId)
+			if override then
+				self:explode(proj.position, targetEntityId, step, damages, override)
+			end
 			-- Stop on first hit unless the weapon authored pierce.
 			return false
 		end,
@@ -328,6 +388,12 @@ function BasicAttack:onComboStep(step: number)
 	local scaled: { AttackResolver.TypedDamage } = {}
 	for _, entry in ipairs(damages) do
 		table.insert(scaled, { type = entry.type, amount = entry.amount * mult })
+	end
+	-- The infusion converts its share to the element (the generic rule), before delivery: a cone
+	-- and a projectile carry the same infused damage.
+	local form = self._activeForm
+	if form then
+		scaled = BasicAttackForm.infuse(form, scaled)
 	end
 
 	-- Delivery decides how the damage reaches a target; it never changes what the damage *is*.

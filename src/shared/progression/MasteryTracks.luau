@@ -20,6 +20,8 @@ export type Track = {
 	family: TrackFamily,
 	-- ItemGlyphs id drawn for the track.
 	glyph: string,
+	-- Element tracks: the colour the element's effects take (infused projectiles, impacts, hits).
+	color: Color3?,
 }
 
 local MasteryTracks = {}
@@ -29,8 +31,8 @@ local TRACKS: { Track } = {
 	{ id = "Blunt", displayName = "Blunt", family = "attack", glyph = "fist" },
 	{ id = "Magic", displayName = "Magic", family = "attack", glyph = "wand" },
 	{ id = "Ranged", displayName = "Ranged", family = "attack", glyph = "bow" },
-	{ id = "Fire", displayName = "Fire", family = "element", glyph = "flame" },
-	{ id = "Frost", displayName = "Frost", family = "element", glyph = "snowflake" },
+	{ id = "Fire", displayName = "Fire", family = "element", glyph = "flame", color = Color3.fromRGB(255, 120, 45) },
+	{ id = "Frost", displayName = "Frost", family = "element", glyph = "snowflake", color = Color3.fromRGB(120, 210, 255) },
 }
 
 -- The track whose root form a weapon context uses by default (progression-launch-content.md,

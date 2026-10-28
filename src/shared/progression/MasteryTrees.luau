@@ -33,6 +33,19 @@ export type NodeDef = {
 	-- Attribute name -> AttributeTier ("Low" / "Mid" / "High"). Shown on the node; not enforced yet.
 	-- Plain strings in the type, since inline table literals do not narrow to the tier union.
 	attributes: { [string]: string }?,
+	-- Infusion nodes: what selecting it does to the basic attack.
+	infusion: InfusionDef?,
+}
+
+-- The generic rule (progression-direction.md, "Forms"): any shape works with any infusion, by
+-- converting part of its damage to the element. Placeholder numbers, to tune with combat.
+export type InfusionDef = {
+	-- Damage type the converted share becomes; also the element track it feeds.
+	element: string,
+	-- Share of the form's damage converted, 0..1.
+	conversion: number,
+	-- Added to the form's cost, as a share of it: carrying an element costs more than a plain swing.
+	surcharge: number,
 }
 
 export type TreeDef = {
@@ -124,10 +137,10 @@ local TREES: { TreeDef } = {
 		track = "Fire",
 		branches = { a = "Reach", b = "Spread" },
 		nodes = {
-			{ id = "fire.fire_1", displayName = "Fire I", kind = "infusion", branch = "trunk", rank = 0, description = "Part of the damage becomes fire." },
+			{ id = "fire.fire_1", displayName = "Fire I", kind = "infusion", branch = "trunk", rank = 0, infusion = { element = "Fire", conversion = 0.25, surcharge = 0.1 }, description = "Part of the damage becomes fire." },
 			{ id = "fire.heat", displayName = "Heat", kind = "passive", branch = "trunk", rank = 1, description = "Increased fire damage." },
 			{ id = "fire.fire_ward", displayName = "Fire Ward", kind = "passive", branch = "trunk", rank = 2, description = "Fire resistance, capped low." },
-			{ id = "fire.fire_2", displayName = "Fire II", kind = "infusion", branch = "a", rank = 1, description = "More becomes fire; flames extend slashes and bolts." },
+			{ id = "fire.fire_2", displayName = "Fire II", kind = "infusion", branch = "a", rank = 1, infusion = { element = "Fire", conversion = 0.5, surcharge = 0.2 }, description = "More becomes fire; flames extend slashes and bolts." },
 			{ id = "fire.searing", displayName = "Searing", kind = "passive", branch = "a", rank = 2, description = "Fire penetration." },
 			{ id = "fire.flame_reach", displayName = "Flame Reach", kind = "passive", branch = "a", rank = 3, description = "Fire forms reach further as Fire grows." },
 			{ id = "fire.blaze", displayName = "Blaze", kind = "select", branch = "a", rank = 4, description = "Fire crits always ignite." },
@@ -135,7 +148,7 @@ local TREES: { TreeDef } = {
 			{ id = "fire.lingering_burn", displayName = "Lingering Burn", kind = "passive", branch = "b", rank = 2, description = "Burns last longer." },
 			{ id = "fire.cinders", displayName = "Cinders", kind = "passive", branch = "b", rank = 3, description = "Burning enemies splash fire when they die." },
 			{ id = "fire.wildfire", displayName = "Wildfire", kind = "select", branch = "b", rank = 4, description = "Burns spread to a nearby enemy on a kill." },
-			{ id = "fire.fire_3", displayName = "Fire III", kind = "infusion", branch = "join", description = "All of it becomes fire; opens Fireball and Fire Crescent." },
+			{ id = "fire.fire_3", displayName = "Fire III", kind = "infusion", branch = "join", infusion = { element = "Fire", conversion = 1, surcharge = 0.3 }, description = "All of it becomes fire; opens Fireball and Fire Crescent." },
 			{ id = "fire.kindled_soul", displayName = "Kindled Soul", kind = "attuned", branch = "end", description = "Burns stack once more, and more fire damage." },
 		},
 	},
@@ -143,10 +156,10 @@ local TREES: { TreeDef } = {
 		track = "Frost",
 		branches = { a = "Bite", b = "Grip" },
 		nodes = {
-			{ id = "frost.frost_1", displayName = "Frost I", kind = "infusion", branch = "trunk", rank = 0, description = "Part of the damage becomes frost." },
+			{ id = "frost.frost_1", displayName = "Frost I", kind = "infusion", branch = "trunk", rank = 0, infusion = { element = "Frost", conversion = 0.25, surcharge = 0.1 }, description = "Part of the damage becomes frost." },
 			{ id = "frost.cold", displayName = "Cold", kind = "passive", branch = "trunk", rank = 1, description = "Increased frost damage." },
 			{ id = "frost.frost_ward", displayName = "Frost Ward", kind = "passive", branch = "trunk", rank = 2, description = "Frost resistance, capped low." },
-			{ id = "frost.frost_2", displayName = "Frost II", kind = "infusion", branch = "a", rank = 1, description = "More becomes frost; hits splinter into shards." },
+			{ id = "frost.frost_2", displayName = "Frost II", kind = "infusion", branch = "a", rank = 1, infusion = { element = "Frost", conversion = 0.5, surcharge = 0.2 }, description = "More becomes frost; hits splinter into shards." },
 			{ id = "frost.frostbite", displayName = "Frostbite", kind = "passive", branch = "a", rank = 2, description = "Frost penetration." },
 			{ id = "frost.brittle", displayName = "Brittle", kind = "passive", branch = "a", rank = 3, description = "Frost crits deal more against chilled enemies." },
 			{ id = "frost.shatter", displayName = "Shatter", kind = "select", branch = "a", rank = 4, description = "Killing a frozen enemy bursts it into ice." },
@@ -154,7 +167,7 @@ local TREES: { TreeDef } = {
 			{ id = "frost.deep_chill", displayName = "Deep Chill", kind = "passive", branch = "b", rank = 2, description = "Chill is stronger and lasts longer." },
 			{ id = "frost.freeze", displayName = "Freeze", kind = "passive", branch = "b", rank = 3, description = "Fully chilled enemies freeze briefly." },
 			{ id = "frost.permafrost", displayName = "Permafrost", kind = "select", branch = "b", rank = 4, description = "Frost area hits leave chilling ground." },
-			{ id = "frost.frost_3", displayName = "Frost III", kind = "infusion", branch = "join", description = "All of it becomes frost; opens Ice Lance and Frost Nova." },
+			{ id = "frost.frost_3", displayName = "Frost III", kind = "infusion", branch = "join", infusion = { element = "Frost", conversion = 1, surcharge = 0.3 }, description = "All of it becomes frost; opens Ice Lance and Frost Nova." },
 			{ id = "frost.heart_of_winter", displayName = "Heart of Winter", kind = "attuned", branch = "end", description = "Freezes last longer, and more frost damage." },
 		},
 	},
@@ -179,6 +192,21 @@ for _, tree in ipairs(TREES) do
 			assert(node.rank and node.rank >= 0 and node.rank <= 2, `MasteryTrees: trunk node '{node.id}' needs rank 0-2`)
 		elseif branch == "a" or branch == "b" then
 			assert(node.rank and node.rank >= 1 and node.rank <= 4, `MasteryTrees: branch node '{node.id}' needs rank 1-4`)
+		end
+		local infusion = node.infusion
+		assert(
+			(node.kind == "infusion") == (infusion ~= nil),
+			`MasteryTrees: node '{node.id}' must carry infusion data exactly when it is an infusion`
+		)
+		if infusion then
+			assert(
+				infusion.element == tree.track,
+				`MasteryTrees: infusion '{node.id}' converts to '{infusion.element}', not its tree's element '{tree.track}'`
+			)
+			assert(
+				infusion.conversion > 0 and infusion.conversion <= 1,
+				`MasteryTrees: infusion '{node.id}' conversion must be in (0, 1]`
+			)
 		end
 		local entry = { tree = tree, node = node }
 		nodeById[node.id] = entry

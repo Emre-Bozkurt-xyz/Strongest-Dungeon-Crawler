@@ -16,6 +16,7 @@ local CollectionService = game:GetService("CollectionService")
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local Entities = require(ReplicatedStorage.Shared.Utils.Entities)
 local FXPlayer = require(script.Parent.Parent.fx.FXPlayer)
+local ElementLook = require(script.Parent.Parent.fx.ElementLook)
 local AnimationCoordinator = require(script.Parent.Parent.Animation.AnimationCoordinator)
 local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
@@ -127,9 +128,15 @@ if not VIS_ROOT then
 	VIS_ROOT.Parent = Workspace
 end
 
-local function acquireVisual(templateKey: string)
-	pools[templateKey] = pools[templateKey] or {}
-	local pool = pools[templateKey]
+-- The pool a visual returns to: its template, plus its look when it has been recoloured or resized.
+local function poolKeyOf(templateKey: string, look: ElementLook.Look?): string
+	return if look then templateKey .. look.key else templateKey
+end
+
+local function acquireVisual(templateKey: string, look: ElementLook.Look?)
+	local poolKey = poolKeyOf(templateKey, look)
+	pools[poolKey] = pools[poolKey] or {}
+	local pool = pools[poolKey]
 	if #pool > 0 then
 		return table.remove(pool)
 	end
@@ -139,6 +146,7 @@ local function acquireVisual(templateKey: string)
 		local tpl = projFolder:FindFirstChild(templateKey)
 		if tpl then
 			local clone = tpl:Clone()
+			ElementLook.apply(clone, look)
 			if clone:IsA("Model") then
 				local primary = clone.PrimaryPart
 				if primary then
@@ -235,7 +243,7 @@ local function trySpeculativeImpact(entry: any, prevPos: Vector3, pos: Vector3, 
 				if entityId and entityId ~= localEntityId then
 					local forward = if vel.Magnitude > 0.001 then vel.Unit else Vector3.new(0, 0, 1)
 					local cf = CFrame.lookAt(pos, pos + forward)
-					FXPlayer.playAt(impactKey, cf)
+					FXPlayer.playAt(impactKey, cf, nil, ElementLook.fromExtraData(recipe.extraData, true))
 					entry._specHit = true
 					entry._specHitAt = os.clock()
 					if entry.remainingPierce and entry.remainingPierce > 0 then
@@ -264,7 +272,7 @@ local function trySpeculativeImpact(entry: any, prevPos: Vector3, pos: Vector3, 
 					if entityId and entityId ~= localEntityId then
 						local forward = if vel.Magnitude > 0.001 then vel.Unit else Vector3.new(0, 0, 1)
 						local cf = CFrame.lookAt(result.Position, result.Position + forward)
-						FXPlayer.playAt(impactKey, cf)
+						FXPlayer.playAt(impactKey, cf, nil, ElementLook.fromExtraData(recipe.extraData, true))
 						entry._specHit = true
 						entry._specHitAt = os.clock()
 						if entry.remainingPierce and entry.remainingPierce > 0 then
@@ -448,7 +456,8 @@ local function createVisualEntry(
 	recipe: any,
 	attach: any
 )
-	local inst = acquireVisual(templateKey or "")
+	local look = ElementLook.fromExtraData(recipe and recipe.extraData)
+	local inst = acquireVisual(templateKey or "", look)
 	assert(inst, "acquireVisual returned nil")
 	inst.Parent = VIS_ROOT
 	applyCFrame(inst, cframe)
@@ -457,6 +466,7 @@ local function createVisualEntry(
 		id = id,
 		inst = inst,
 		templateKey = templateKey,
+		poolKey = poolKeyOf(templateKey or "", look),
 		recipe = recipe or { movementType = "linear" },
 		startCFrame = cframe,
 		startPos = cframe.Position,
@@ -614,7 +624,7 @@ destroyVisualEntry = function(id: number)
 		predictedByToken[entry.predictedToken] = nil
 	end
 	visuals[id] = nil
-	releaseVisual(entry.templateKey or "", inst)
+	releaseVisual(entry.poolKey or entry.templateKey or "", inst)
 end
 
 -- Return the locally-generated attach token for a given partName (if any).
@@ -1079,7 +1089,8 @@ dispatcher:on("ProjectileEvent", function(payload: any, _meta: any)
 			local entry = visuals[id]
 			local recentSpec = entry and entry._specHitAt and (os.clock() - entry._specHitAt) < 0.25
 			if not recentSpec then
-				FXPlayer.playAt(impactKey, hitCf)
+				local extraData = payload.extraData or (entry and entry.recipe and entry.recipe.extraData)
+				FXPlayer.playAt(impactKey, hitCf, nil, ElementLook.fromExtraData(extraData, true))
 			end
 			if entry and not recentSpec then
 				entry._specHit = true

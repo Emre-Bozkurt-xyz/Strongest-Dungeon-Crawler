@@ -72,9 +72,9 @@ Loot, NPC logic and NPC visuals are left for a separate pass.
 ## Validation results
 
 Studio playtest over MCP, 2026-10-27. The client was not rendering, because the Studio window was in
-the background: screenshots timed out and proximity prompts never showed. So the prompt → canvas
-path and the canvas visuals are **not verified**. Everything else was checked through real network
-requests:
+the background: screenshots timed out and proximity prompts never showed. The prompt → canvas path and
+shrine mode were verified by hand in play afterwards. Everything else was checked through real
+network requests:
 
 | Check | Result |
 |---|---|
@@ -92,10 +92,10 @@ selected for unarmed.
 ## Notes
 
 - **To check in Studio:**
-  - walk up to the shrine, press E, and look at the canvas shrine panel;
   - inspect a locked item;
   - drag-equip one to see the notice.
-- **Save the place.** The Slime prefab fix lives only in the open place.
+- **The Slime prefab fix lives in the place file**, which Studio auto-saves.
+- **The mastery canvas and shrine UI are first cuts.** Both are due a full rework.
 - **NPCs are physics-owned by the nearest player's client** (automatic network ownership). With the
   state machine off, the Slime stayed frozen even after a server-side state change, until the server
   took ownership. Server-owned NPC physics is worth considering in the NPC pass.

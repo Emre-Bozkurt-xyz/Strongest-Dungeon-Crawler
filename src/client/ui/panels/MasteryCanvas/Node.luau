@@ -3,9 +3,11 @@
 --
 -- Three looks, one per thing the player can know about it: a fogged node is only its corners and a
 -- question mark (it exists, nothing more); a locked node shows its name and what it takes; an
--- unlocked node is lit, the form in use outlined in the focus colour. Only forms are chosen here;
--- other unlocked nodes say what kind of node they are. An earned node of a track that is not
--- attuned is dormant: lit dimly, and not chosen until the track is attuned.
+-- unlocked node is lit, the form and infusion in use outlined in the focus colour. Forms and
+-- infusions are chosen here; other unlocked nodes say what kind of node they are. An earned node of
+-- a track that is not attuned is dormant: lit dimly, and not chosen until the track is attuned.
+-- A node that would make a named combination with the other half of the current form names it, so
+-- the pairing is advertised before it is made.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -34,7 +36,6 @@ export type Props = {
 }
 
 local KIND_LABEL: { [string]: string } = {
-	infusion = "INFUSION",
 	passive = "PASSIVE",
 	select = "SELECTABLE PASSIVE",
 	attuned = "ATTUNED",
@@ -45,19 +46,22 @@ local function statusText(node: MasteryTree.Node): string
 	if not node.unlocked then
 		return node.requirement or "LOCKED"
 	end
+	local status
 	if node.selected then
-		return "IN USE"
-	end
-	if node.dormant then
+		status = "IN USE"
+	elseif node.dormant then
 		return "DORMANT · NOT ATTUNED"
-	end
-	if node.kind == "form" then
-		if node.shapeId then
-			return "AVAILABLE"
+	elseif node.kind == "form" then
+		if not node.shapeId then
+			return if node.built then "DOES NOT FIT YOUR WEAPON" else "NOT BUILT YET"
 		end
-		return if node.built then "DOES NOT FIT YOUR WEAPON" else "NOT BUILT YET"
+		status = "AVAILABLE"
+	elseif node.kind == "infusion" then
+		status = "AVAILABLE"
+	else
+		return KIND_LABEL[node.kind] or "UNLOCKED"
 	end
-	return KIND_LABEL[node.kind] or "UNLOCKED"
+	return if node.combination then `{status} · {string.upper(node.combination)}` else status
 end
 
 local function NodeView(props: Props)

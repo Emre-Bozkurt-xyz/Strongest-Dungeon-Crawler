@@ -1,7 +1,7 @@
 --!strict
 -- ProgressionClient: the client's copy of the player's progression -- character XP, mastery
--- progress, attunement and form selections (server: ProgressionSync) -- and the System's
--- announcements when they change.
+-- progress, attunement, and form and infusion selections (server: ProgressionSync) -- and the
+-- System's announcements when they change.
 --
 -- The server sends the whole progression -- character XP, XP per track and branch, and the selected
 -- form per weapon context -- whenever any of it changes; this keeps the latest and lets the STATUS
@@ -34,6 +34,8 @@ export type Snapshot = {
 	masteries: { [string]: { [string]: number } },
 	-- Weapon context -> selected profile id.
 	shapes: { [string]: string },
+	-- Selected infusion node id, or "" for none.
+	infusion: string,
 	-- Attuned track ids, in the order they were attuned.
 	attunement: { string },
 }
@@ -96,7 +98,14 @@ local function sanitize(raw: any): Snapshot?
 	end
 	local character = raw.character
 	local characterXp = if type(character) == "table" and type(character.xp) == "number" then character.xp else 0
-	return { characterXp = characterXp, masteries = masteries, shapes = shapes, attunement = attunement }
+	local infusion = if type(raw.infusion) == "string" then raw.infusion else ""
+	return {
+		characterXp = characterXp,
+		masteries = masteries,
+		shapes = shapes,
+		infusion = infusion,
+		attunement = attunement,
+	}
 end
 
 local function announce(previous: Snapshot, current: Snapshot, events: any)
@@ -249,6 +258,25 @@ function ProgressionClient.selectShape(classKey: string, shapeId: string)
 		end
 		UISound.play("error")
 		warn("ProgressionClient: shape selection failed:", if ok and type(response) == "table" then response.error else response)
+	end)
+end
+
+-- Ask the server to use the infusion `infusionId` (a node id), or "" for none. The server's
+-- progression update follows on success.
+function ProgressionClient.selectInfusion(infusionId: string)
+	task.spawn(function()
+		local ok, response = pcall(function()
+			return dispatcher:request("LoadoutSelectInfusion", { infusionId = infusionId })
+		end)
+		if ok and type(response) == "table" and response.ok then
+			UISound.play("confirm")
+			return
+		end
+		UISound.play("error")
+		warn(
+			"ProgressionClient: infusion selection failed:",
+			if ok and type(response) == "table" then response.error else response
+		)
 	end)
 end
 

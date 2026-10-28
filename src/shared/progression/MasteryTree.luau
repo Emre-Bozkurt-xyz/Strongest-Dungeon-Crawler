@@ -15,6 +15,7 @@ local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.Basic
 local MasteryTracks = require(script.Parent.MasteryTracks)
 local MasteryTrees = require(script.Parent.MasteryTrees)
 local MasteryXP = require(script.Parent.MasteryXP)
+local FormCombinations = require(script.Parent.FormCombinations)
 
 type NodeDef = MasteryTrees.NodeDef
 type TreeDef = MasteryTrees.TreeDef
@@ -38,8 +39,14 @@ export type Node = {
 	-- Whether any profile implements this node at all, for telling "not built yet" from "does not fit
 	-- what you hold".
 	built: boolean,
-	-- The form in use for the held weapon: the player's selection, or the default when none is made.
+	-- Infusion nodes: whether it can be selected now (earned and in effect).
+	selectable: boolean,
+	-- The form in use for the held weapon (the player's selection, or the default when none is made),
+	-- or the infusion in use.
 	selected: boolean,
+	-- The named combination this node makes with the other half of the current form -- the infusion
+	-- in use for a form node, the form in use for an infusion node -- if they are a named pair.
+	combination: string?,
 	isDefault: boolean,
 	-- What it takes, for a locked node.
 	requirement: string?,
@@ -160,6 +167,21 @@ function MasteryTree.isShapeUnlocked(
 		and MasteryTree.isActive(node, tree.track, attuned)
 end
 
+-- Whether an infusion node may be selected: earned, and in effect (element tracks always are).
+function MasteryTree.isInfusionUnlocked(
+	infusionId: string,
+	masteries: { [string]: { [string]: number } },
+	attunement: { string }
+): boolean
+	local node, tree = MasteryTrees.node(infusionId)
+	if not node or not tree or node.kind ~= "infusion" then
+		return false
+	end
+	local attuned = table.find(attunement, tree.track) ~= nil
+	return MasteryTree.isUnlocked(node, masteries[tree.track] or {}, attuned)
+		and MasteryTree.isActive(node, tree.track, attuned)
+end
+
 -- Which branches a use of `node` feeds, and how much of it each takes. A join form sits beyond both
 -- branches and feeds them equally; an end node feeds the trunk.
 function MasteryTree.creditFor(node: NodeDef): { [string]: number }
@@ -209,6 +231,46 @@ local function defaultShapeFor(context: string): string
 	return BasicAttackProfileRegistry.resolveForWeapon(nil, context, nil).id
 end
 
+-- The halves of the form currently in effect, for marking the infusion in use and the named
+-- combinations a node would make (BasicAttackForm.resolve gives both).
+export type Pairing = {
+	-- Node id of the shape in use.
+	shapeNode: string?,
+	-- Node id of the infusion in use.
+	infusion: string?,
+}
+
+-- The form in effect for `context`, by the rules the server applies when it writes the combat
+-- loadout (FormService): the selected shape if it fits and is unlocked, else the context's
+-- default; the selected infusion if it is unlocked, else none.
+function MasteryTree.pairingFor(
+	context: string,
+	shapes: { [string]: string },
+	infusion: string?,
+	masteries: { [string]: { [string]: number } },
+	attunement: { string }
+): Pairing
+	local shapeId = defaultShapeFor(context)
+	local selected = shapes[context]
+	local profile = if selected then BasicAttackProfileRegistry.get(selected) else nil
+	if
+		selected
+		and profile
+		and BasicAttackProfileRegistry.fitsClass(profile, context)
+		and MasteryTree.isShapeUnlocked(selected, masteries, attunement)
+	then
+		shapeId = selected
+	end
+	local shapeNode = MasteryTrees.nodeForShape(shapeId)
+	local infusionOk = infusion ~= nil
+		and infusion ~= ""
+		and MasteryTree.isInfusionUnlocked(infusion, masteries, attunement)
+	return {
+		shapeNode = if shapeNode then shapeNode.id else nil,
+		infusion = if infusionOk then infusion else nil,
+	}
+end
+
 -- `branches`: this track's branch XP. `context`: the held weapon's class key. `selectedShape`: the
 -- player's selection for that context, if any. `attuned`: whether this track is attuned.
 function MasteryTree.build(
@@ -216,7 +278,8 @@ function MasteryTree.build(
 	branches: { [string]: number },
 	context: string,
 	selectedShape: string?,
-	attuned: boolean?
+	attuned: boolean?,
+	pairing: Pairing?
 ): Tree?
 	local track = MasteryTracks.get(trackId)
 	local tree = MasteryTrees.get(trackId)
@@ -288,6 +351,11 @@ function MasteryTree.build(
 					break
 				end
 			end
+			local selectable = node.kind == "infusion" and unlocked[node.id] and not dormant[node.id]
+			local combination = if node.kind == "form"
+				then FormCombinations.find(node.id, pairing and pairing.infusion)
+				elseif node.kind == "infusion" then FormCombinations.find(pairing and pairing.shapeNode, node.id)
+				else nil
 			table.insert(nodes, {
 				id = node.id,
 				displayName = node.displayName,
@@ -299,7 +367,10 @@ function MasteryTree.build(
 				dormant = dormant[node.id],
 				shapeId = shapeId,
 				built = node.shapes ~= nil and #node.shapes > 0,
-				selected = shapeId ~= nil and shapeId == inUse,
+				selectable = selectable,
+				selected = (shapeId ~= nil and shapeId == inUse)
+					or (selectable and pairing ~= nil and pairing.infusion == node.id),
+				combination = if combination then combination.displayName else nil,
 				isDefault = shapeId ~= nil and shapeId == defaultShape,
 				requirement = if unlocked[node.id] then nil else requirementOf(tree, track, node),
 				attributes = node.attributes,

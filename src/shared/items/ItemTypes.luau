@@ -51,9 +51,9 @@ export type WeaponClass = "sword" | "dagger" | "axe" | "mace" | "wand" | "staff"
 -- Damage types a weapon range or attack packet can carry.
 --
 -- A type does not need a matching `<Type>Damage` stat: BaseSkill.resolveFlatDamageBonus returns 0
--- for types that have none, which is a legitimate authoring state (see D2). Fire has no stat yet, so
--- it deals damage but takes no flat scaling.
-export type DamageType = "Physical" | "Magic" | "Fire"
+-- for types that have none, which is a legitimate authoring state (see D2). Fire and Frost have no
+-- stat yet, so they deal damage but take no flat scaling.
+export type DamageType = "Physical" | "Magic" | "Fire" | "Frost"
 
 -- Which affix pool an item rolls from (AffixTierDef.modifiersByContext keys). An item whose
 -- context no affix declares rolls nothing but "any" entries -- the validator warns about this.
@@ -457,6 +457,17 @@ export type CombatLoadoutSnapshot = {
 	-- once it has checked the shape fits and is unlocked. Absent means the weapon's default. Carried
 	-- here so both peers resolve the basic attack from this one snapshot.
 	basicAttackShape: string?,
+	-- The infusion the player selected, under the same rule: set by the server only once it has
+	-- checked the infusion is unlocked. `potency` scales the damage it converts, from the element's
+	-- mastery level and attunement (BasicAttackForm.potencyFor); it is decided here so both peers and
+	-- every hit read one number.
+	basicAttackInfusion: BasicAttackInfusion?,
+}
+
+export type BasicAttackInfusion = {
+	-- Infusion node id (MasteryTrees), e.g. "fire.fire_2".
+	id: string,
+	potency: number,
 }
 
 export type InventoryCommand = {

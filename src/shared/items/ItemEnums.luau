@@ -101,6 +101,7 @@ ItemEnums.DamageType = {
 	Physical = "Physical" :: ItemTypes.DamageType,
 	Magic = "Magic" :: ItemTypes.DamageType,
 	Fire = "Fire" :: ItemTypes.DamageType,
+	Frost = "Frost" :: ItemTypes.DamageType,
 }
 
 ItemEnums.AffixContext = {

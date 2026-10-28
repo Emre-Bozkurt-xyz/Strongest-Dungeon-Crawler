@@ -136,7 +136,7 @@ local Channels: { [Names.ChannelName]: ChannelDefinition } = {
 		remoteFunction = "LoadoutRequest",
 		direction = "bidirectional",
 		qos = "HIGH",
-		intents = { "LoadoutSnapshot", "LoadoutCommand", "LoadoutSelectShape" },
+		intents = { "LoadoutSnapshot", "LoadoutCommand", "LoadoutSelectShape", "LoadoutSelectInfusion" },
 		events = { "LoadoutUpdate" },
 	},
 	Progression = {

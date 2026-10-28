@@ -222,24 +222,38 @@ Key decisions
 - Loadout rules (`shared/skills/LoadoutRules`) are shared so the client's optimistic change matches
   the server's; the server adds the ownership check.
 
-### 3.8b Forms (basic attack shapes)
-Paths: `src/server/Forms/FormService.luau`, `src/shared/skills/BasicAttackProfileRegistry.luau`
+### 3.8b Forms (basic attack shapes, infusions, named combinations)
+Paths: `src/server/Forms/FormService.luau`, `src/shared/skills/BasicAttackProfileRegistry.luau`,
+`src/shared/skills/BasicAttackForm.luau`, `src/shared/progression/FormCombinations.luau`
 
 What it does
 - A basic attack profile is a *shape*: how the basic attack is delivered with a class of weapon,
   including what each step costs. Each weapon class has one default; alternatives declare
-  `shapeFor` and `requires` (mastery levels).
-- `FormService` keeps the player's selection per class key (weapon class or `unarmed`) in their
-  save, validates `LoadoutSelectShape` requests, and is the combat loadout's shape selector.
+  `shapeFor` and are unlocked through the mastery tree node that names them.
+- An *infusion* is an element tree node (`MasteryTrees`, `infusion = { element, conversion,
+  surcharge }`). One or none is selected for the character and carries over to any weapon.
+- A *form* is shape + infusion (`BasicAttackForm.resolve`): the infusion converts its share of every
+  step's damage to its element, scaled by potency (element level, ×1.5 attuned), and adds its
+  surcharge to the cost. A named pair (`FormCombinations`, e.g. Mana Ball + Fire III = Fireball) adds
+  its own name, cost and projectile override (size, explosion).
+- `FormService` keeps the shape per class key (weapon class or `unarmed`) and the infusion in the
+  save, validates `LoadoutSelectShape` / `LoadoutSelectInfusion`, and is the combat loadout's shape
+  and infusion selector.
 
 Key decisions
-- The selected shape travels in `CombatLoadoutSnapshot.basicAttackShape`, set only when it fits what
-  is held and is unlocked. `BasicAttackProfileRegistry.resolve` honours it, so client prediction and
-  server execution still resolve from one snapshot and the client never needs mastery data.
-- Unlocks are derived from saved mastery levels, never stored.
-- Cost lives on the shape: `BasicAttack:applyResolvedShape` sets the charged cost, and
-  `SkillMetadataService` computes the client's cost preview from the same shape, refreshed whenever
-  the combat loadout changes.
+- The selected shape travels in `CombatLoadoutSnapshot.basicAttackShape`, the infusion in
+  `basicAttackInfusion` (`{ id, potency }`), each set only when unlocked (and, for the shape, when it
+  fits what is held). Both peers resolve the form from that one snapshot and the client never needs
+  mastery data to swing. Potency is decided when the snapshot is built, so a level that changes it
+  recomputes the loadout (`MasteryService.onProgressChanged`).
+- Unlocks are derived from saved mastery XP and attunement, never stored.
+- Cost lives on the form: `BasicAttack:applyResolvedShape` sets the charged cost, and
+  `SkillMetadataService` computes the client's cost preview from the same form, refreshed whenever
+  the combat loadout changes. Infusions only add a surcharge on the shape's own resource; a second
+  resource (stamina and mana) needs the cost pipeline to carry more than one.
+- An infusion never changes combo timing, which the client predicts; it changes what the damage is
+  and how a projectile looks (`extraData.element` / `scale` / `impactScale`, recoloured on the client
+  by `client/fx/ElementLook`).
 - `SkillsManager` asks a skill to `resolveComboConfig()` (when it has one) before opening or
   advancing a chain, so a chain always uses the current shape's step count and window.
 

@@ -1,15 +1,17 @@
 --!strict
--- FormService: which basic attack shape each player uses, and what they may choose
+-- FormService: which basic attack shape and infusion each player uses, and what they may choose
 -- (docs/planning/progression-direction.md, "Forms").
 --
--- A player's selection is kept per class key (a weapon class, or "unarmed") in their save, so
--- changing weapons brings back the shape last chosen for that weapon. What is unlocked is never
--- stored: it is derived from saved mastery XP and attunement each time, so changing a requirement
--- needs no save migration.
+-- A player's shape is kept per class key (a weapon class, or "unarmed") in their save, so changing
+-- weapons brings back the shape last chosen for that weapon. The infusion is one for the
+-- character: it carries over to whatever is held, so picking up a sword with Fire selected gives a
+-- fire slash at once. What is unlocked is never stored: it is derived from saved mastery XP and
+-- attunement each time, so changing a requirement needs no save migration.
 --
--- The chosen shape reaches combat through the combat loadout snapshot. This service decides it at
--- every recompute -- only a shape that fits what is held and is unlocked -- and both peers then
--- resolve the basic attack from that snapshot (BasicAttackProfileRegistry.resolve).
+-- Both selections reach combat through the combat loadout snapshot. This service decides them at
+-- every recompute -- only a shape that fits what is held and is unlocked, only an infusion that is
+-- unlocked, with its potency at the element's current level -- and both peers then resolve the
+-- form from that snapshot (BasicAttackForm.resolve).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -18,7 +20,10 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
 local BasicAttackProfileTypes = require(ReplicatedStorage.Shared.skills.BasicAttackProfileTypes)
+local BasicAttackForm = require(ReplicatedStorage.Shared.skills.BasicAttackForm)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
+local MasteryTrees = require(ReplicatedStorage.Shared.progression.MasteryTrees)
+local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
 
 local Server = ServerScriptService.Server
 local PlayerDataService = require(Server.PlayerData.PlayerDataService)
@@ -75,7 +80,34 @@ local function selectedShape(entityId: string, snapshot: any): string?
 	return nil
 end
 
--- Re-decide the player's shape now, e.g. after their mastery changed.
+-- The infusion to write into this snapshot: the player's selection, if it is still unlocked, at the
+-- potency its element's level and attunement give now. Nil means none.
+local function selectedInfusion(entityId: string): ItemTypes.BasicAttackInfusion?
+	local player = Registrar.getPlayerById(entityId)
+	local data = player and PlayerDataService.get(player)
+	if not player or not data then
+		return nil
+	end
+	local infusionId = data.progression.infusion
+	if type(infusionId) ~= "string" or infusionId == "" then
+		return nil
+	end
+	local attunement = AttunementService.attunedOf(data)
+	if not MasteryTree.isInfusionUnlocked(infusionId, MasteryService.masteriesOf(data), attunement) then
+		return nil
+	end
+	local _, tree = MasteryTrees.node(infusionId)
+	if not tree then
+		return nil
+	end
+	local attuned = table.find(attunement, tree.track) ~= nil
+	return {
+		id = infusionId,
+		potency = BasicAttackForm.potencyFor(MasteryService.getLevel(player, tree.track), attuned),
+	}
+end
+
+-- Re-decide the player's form now, e.g. after their mastery changed.
 function FormService.refresh(player: Player)
 	local entityId = Registrar.getPlayerId(player)
 	if entityId and CombatLoadoutService.get(entityId) then
@@ -115,11 +147,40 @@ function FormService.select(player: Player, classKey: any, shapeId: any): (boole
 	return true, nil
 end
 
+-- Select the infusion `infusionId` (a node id), or "" for none.
+function FormService.selectInfusion(player: Player, infusionId: any): (boolean, string?)
+	local data = PlayerDataService.get(player)
+	if not data then
+		return false, "not_loaded"
+	end
+	if infusionId == "" then
+		data.progression.infusion = ""
+		FormService.refresh(player)
+		ProgressionSync.publish(player, nil)
+		return true, nil
+	end
+	local node = if type(infusionId) == "string" then MasteryTrees.node(infusionId) else nil
+	if not node or node.kind ~= "infusion" then
+		return false, "unknown_infusion"
+	end
+	if
+		not MasteryTree.isInfusionUnlocked(node.id, MasteryService.masteriesOf(data), AttunementService.attunedOf(data))
+	then
+		return false, "locked"
+	end
+	data.progression.infusion = node.id
+	FormService.refresh(player)
+	ProgressionSync.publish(player, nil)
+	return true, nil
+end
+
 function FormService.start()
 	CombatLoadoutService.setShapeSelector(selectedShape)
+	CombatLoadoutService.setInfusionSelector(selectedInfusion)
 
-	-- Progress can unlock or lock the selected shape; re-deciding it applies that at once.
-	MasteryService.onUnlocksChanged(function(player)
+	-- Progress can unlock or lock a selection, or change an infusion's potency; re-deciding the form
+	-- applies that at once.
+	MasteryService.onProgressChanged(function(player)
 		FormService.refresh(player)
 	end)
 	-- Releasing a track puts its forms to sleep; the weapon's default takes over, selection kept.
@@ -127,7 +188,7 @@ function FormService.start()
 		FormService.refresh(player)
 	end)
 
-	-- A different shape means a different cost; the client predicts affordability from metadata.
+	-- A different form means a different cost; the client predicts affordability from metadata.
 	CombatLoadoutService.onChanged(function(entityId)
 		local player = Registrar.getPlayerById(entityId)
 		if player then
@@ -152,6 +213,25 @@ function FormService.start()
 		end
 		local ok, err = FormService.select(player, payload.classKey, payload.shapeId)
 		return { ok = ok, error = err }
+	end)
+
+	dispatcher:onRequest("LoadoutSelectInfusion", function(payload, _meta, context): { ok: boolean, error: string? }
+		local player = context.player
+		if not player then
+			return { ok = false, error = "no_player" }
+		end
+		if not withinRate(player) then
+			return { ok = false, error = "rate_limited" }
+		end
+		if type(payload) ~= "table" then
+			return { ok = false, error = "invalid_request" }
+		end
+		local ok, err = FormService.selectInfusion(player, payload.infusionId)
+		return { ok = ok, error = err }
+	end)
+
+	ProgressionSync.addSection("infusion", function(data)
+		return data.progression.infusion
 	end)
 end
 

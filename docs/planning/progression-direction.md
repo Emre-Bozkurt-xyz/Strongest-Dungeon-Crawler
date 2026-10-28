@@ -1,7 +1,7 @@
 # Progression Direction — masteries, attunement, classes, forms
 
 Status: **direction agreed 2026-10-25; XP, tracks and branches revised 2026-10-26.** Build steps 1–3
-are done, plus attunement and hard gear requirements (see "Build order"). Content (the actual masteries, trees, classes, numbers) and the
+are done, plus attunement and hard gear requirements, and a first cut of step 4 (see "Build order"). Content (the actual masteries, trees, classes, numbers) and the
 management space are still to be designed.
 
 ## What it has to achieve
@@ -414,6 +414,13 @@ rather than replace the mechanism:
    levels 3 and 6, placeholder), changed at an Attunement Shrine (free until currency exists), with
    unattuned attack-type forms dormant; gear requirements enforced as hard locks.
 4. **Infusions and named combinations,** including new on-hit mechanics (e.g. the crescent).
+   *First cut done (2026-10-27, verified in play; `docs/tasks/infusions-and-combinations.md`):*
+   infusion selection (one per character, saved, carried to any weapon), the generic rule
+   (conversion scaled by element level and attunement, cost surcharge), element XP through the
+   infusion's node, element-coloured projectiles, impacts and hits, and the named-combination table
+   with Fireball (Mana Ball + Fire III: larger orb that explodes) as the first built pair. Not yet:
+   the other six pairs (their shapes have no profile), passive effects such as Ignite and Chill, and
+   a second cost resource.
 5. **Unique-weapon forms.**
 
 ## Open questions
@@ -422,3 +429,5 @@ rather than replace the mechanism:
   expected to change as content gets more thought.
 - The mastery canvas entry sequence: what it looks like, and how long it may take before it feels
   slow on the tenth visit.
+- **The mastery canvas and the attunement shrine UI are first cuts**; both work in play, and a full
+  UI rework of the two is planned.

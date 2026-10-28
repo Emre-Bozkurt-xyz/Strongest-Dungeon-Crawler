@@ -15,7 +15,9 @@
 --     flat training XP instead, below the cap only.
 --   * Element damage in a hit credits that element's track for its share of the damage.
 -- What a use feeds: the basic attack's selected form's node (MasteryTrees), or a skill's `mastery`
--- tag in its shared spec.
+-- tag in its shared spec. An infused basic attack also feeds its infusion's node, in the element's
+-- track: its use and training XP, and the element's share of what a hit earns. Element damage from
+-- anything else lands in the element's trunk.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -25,7 +27,7 @@ local MasteryTracks = require(ReplicatedStorage.Shared.progression.MasteryTracks
 local MasteryTrees = require(ReplicatedStorage.Shared.progression.MasteryTrees)
 local MasteryTree = require(ReplicatedStorage.Shared.progression.MasteryTree)
 local MasteryXP = require(ReplicatedStorage.Shared.progression.MasteryXP)
-local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
+local BasicAttackForm = require(ReplicatedStorage.Shared.skills.BasicAttackForm)
 local ClientSpec = require(ReplicatedStorage.Shared.skills.ClientSpec)
 
 local Server = ServerScriptService.Server
@@ -51,7 +53,7 @@ type Credit = {
 
 local MasteryService = {}
 
-local unlockListeners: { (Player) -> () } = {}
+local progressListeners: { (Player) -> () } = {}
 
 local function branchesOf(data: PlayerSaveData, trackId: string): { [string]: number }
 	local masteries = data.progression.masteries
@@ -91,9 +93,10 @@ function MasteryService.masteriesOf(data: PlayerSaveData): { [string]: { [string
 	return out
 end
 
--- Called when anything a player could select may have opened or closed.
-function MasteryService.onUnlocksChanged(listener: (Player) -> ())
-	table.insert(unlockListeners, listener)
+-- Called when anything derived from a player's mastery may have changed: what they could select
+-- has opened or closed, or a level that scales what is in use (an infusion's potency) moved.
+function MasteryService.onProgressChanged(listener: (Player) -> ())
+	table.insert(progressListeners, listener)
 end
 
 function MasteryService.getLevel(player: Player, trackId: string): number
@@ -121,8 +124,8 @@ function MasteryService.grant(player: Player, trackId: string, branch: string, a
 	branches[branch] = current + added
 
 	local levelAfter = MasteryXP.levelOf(MasteryXP.totalOf(branches))
-	if ranksOf(branches) ~= ranksBefore then
-		for _, listener in ipairs(unlockListeners) do
+	if ranksOf(branches) ~= ranksBefore or levelAfter ~= levelBefore then
+		for _, listener in ipairs(progressListeners) do
 			task.spawn(listener, player)
 		end
 	end
@@ -141,7 +144,7 @@ function MasteryService.setBranchXp(player: Player, trackId: string, branch: str
 	end
 	local branches = branchesOf(data, trackId)
 	branches[branch] = math.clamp(xp, 0, MasteryXP.capOf(branch))
-	for _, listener in ipairs(unlockListeners) do
+	for _, listener in ipairs(progressListeners) do
 		task.spawn(listener, player)
 	end
 	ProgressionSync.schedule(player, nil)
@@ -150,7 +153,7 @@ end
 -- What a use of `skillName` by `casterId` feeds, or nil for skills that teach nothing.
 local function creditFor(casterId: string, skillName: string?): Credit?
 	if skillName == BASIC_ATTACK_SKILL then
-		local profile = BasicAttackProfileRegistry.resolve(CombatLoadoutService.get(casterId))
+		local profile = BasicAttackForm.resolve(CombatLoadoutService.get(casterId)).profile
 		local node, tree = MasteryTrees.nodeForShape(profile.id)
 		if not node or not tree then
 			return nil
@@ -163,6 +166,36 @@ local function creditFor(casterId: string, skillName: string?): Credit?
 		return nil
 	end
 	return { track = mastery.track, branches = { [mastery.branch] = 1 }, tier = mastery.tier or 1 }
+end
+
+-- What the infusion of an infused basic attack feeds, in its element's track.
+local function infusionCreditFor(casterId: string, skillName: string?): Credit?
+	if skillName ~= BASIC_ATTACK_SKILL then
+		return nil
+	end
+	local infusion = BasicAttackForm.resolve(CombatLoadoutService.get(casterId)).infusion
+	if not infusion then
+		return nil
+	end
+	local node, tree = MasteryTrees.node(infusion.id)
+	if not node or not tree then
+		return nil
+	end
+	return { track = tree.track, branches = MasteryTree.creditFor(node), tier = 1 }
+end
+
+-- Everything a use of `skillName` feeds: its own track, and its infusion's element.
+local function creditsFor(casterId: string, skillName: string?): { Credit }
+	local out: { Credit } = {}
+	local own = creditFor(casterId, skillName)
+	if own then
+		table.insert(out, own)
+	end
+	local infusion = infusionCreditFor(casterId, skillName)
+	if infusion then
+		table.insert(out, infusion)
+	end
+	return out
 end
 
 local function grantSplit(player: Player, credit: Credit, amount: number)
@@ -181,9 +214,10 @@ local function onUsed(casterId: string, skillName: string)
 	if not player or not data then
 		return
 	end
-	local credit = creditFor(casterId, skillName)
-	if credit and belowTrainingCap(data, credit.track) then
-		grantSplit(player, credit, MasteryXP.USE_XP)
+	for _, credit in ipairs(creditsFor(casterId, skillName)) do
+		if belowTrainingCap(data, credit.track) then
+			grantSplit(player, credit, MasteryXP.USE_XP)
+		end
 	end
 end
 
@@ -198,10 +232,13 @@ local function onHit(sourceEntityId: string, targetEntityId: string, result: any
 		return
 	end
 	local credit = creditFor(sourceEntityId, metadata.skillId)
+	local infusionCredit = infusionCreditFor(sourceEntityId, metadata.skillId)
 
 	if target:GetAttribute("TrainingTarget") == true then
-		if credit and belowTrainingCap(data, credit.track) then
-			grantSplit(player, credit, MasteryXP.TRAINING_HIT_XP)
+		for _, each in ipairs(creditsFor(sourceEntityId, metadata.skillId)) do
+			if belowTrainingCap(data, each.track) then
+				grantSplit(player, each, MasteryXP.TRAINING_HIT_XP)
+			end
 		end
 		return
 	end
@@ -221,15 +258,18 @@ local function onHit(sourceEntityId: string, targetEntityId: string, result: any
 		grantSplit(player, credit, math.min(earned, MasteryXP.ceilingFor(totalOf(data, credit.track))))
 	end
 
-	-- Each element in the hit is credited for its share of the damage, to its trunk until
-	-- infusions exist to say which branch.
+	-- Each element in the hit is credited for its share of the damage: through the infusion's node
+	-- when the infusion put it there, to the element's trunk otherwise.
 	local total = result.totalDamage
 	if type(total) == "number" and total > 0 and type(result.byType) == "table" then
 		for damageType, amount in pairs(result.byType) do
 			local element = MasteryTracks.forDamageType(damageType)
 			if element and type(amount) == "number" and amount > 0 then
-				local share = earned * amount / total
-				MasteryService.grant(player, element.id, "trunk", math.min(share, MasteryXP.ceilingFor(totalOf(data, element.id))))
+				local share = math.min(earned * amount / total, MasteryXP.ceilingFor(totalOf(data, element.id)))
+				local into: Credit = if infusionCredit and infusionCredit.track == element.id
+					then infusionCredit
+					else { track = element.id, branches = { trunk = 1 }, tier = 1 }
+				grantSplit(player, into, share)
 			end
 		end
 	end

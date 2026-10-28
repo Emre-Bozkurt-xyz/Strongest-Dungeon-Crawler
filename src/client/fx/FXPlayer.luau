@@ -3,6 +3,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local ElementLook = require(script.Parent.ElementLook)
+
 local FXPlayer = {}
 
 local FXFolder = ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("FX")
@@ -71,7 +73,8 @@ local function computeMaxParticleLifetime(inst: Instance): number
 	return maxLife
 end
 
-function FXPlayer.playAt(key: string, cframe: CFrame, lifetime: number?)
+-- `look` recolours and resizes this one play (an infused impact), leaving the template as authored.
+function FXPlayer.playAt(key: string, cframe: CFrame, lifetime: number?, look: ElementLook.Look?)
 	if not FXFolder then
 		return
 	end
@@ -80,6 +83,7 @@ function FXPlayer.playAt(key: string, cframe: CFrame, lifetime: number?)
 		return
 	end
 	local fx = template:Clone()
+	ElementLook.apply(fx, look)
 	if fx:IsA("BasePart") then
 		local offsets = buildChildPartOffsets(fx)
 		fx.Transparency = 1

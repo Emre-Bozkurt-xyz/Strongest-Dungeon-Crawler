@@ -21,6 +21,7 @@ local Networking = require(ReplicatedStorage.Shared.Networking)
 local Ease = require(ReplicatedStorage.Shared.ui.Ease)
 local Themes = require(ReplicatedStorage.Shared.ui.themes)
 local Registrar = require(script.Parent.Parent.Services.Registrar)
+local ElementLook = require(script.Parent.Parent.fx.ElementLook)
 
 local DamageNumberController = {}
 
@@ -59,9 +60,10 @@ local CRIT_SCALE = 1.3
 local TEXT_SIZE = 26
 local DEBUG = false
 
+-- Elements (Fire, Frost) take their track's colour instead (ElementLook), so a number matches the
+-- effects around it.
 local DAMAGE_COLORS = {
 	Physical = Color3.fromRGB(255, 255, 255),
-	Fire = Color3.fromRGB(255, 100, 50),
 	Lightning = Color3.fromRGB(150, 200, 255),
 	Ice = Color3.fromRGB(100, 200, 255),
 	Poison = Color3.fromRGB(100, 255, 100),
@@ -233,7 +235,8 @@ function DamageNumberController.spawnNumber(targetId: string, amount: number, da
 	if metadata.crit then
 		text ..= "!"
 	end
-	spawnText(targetId, text, DAMAGE_COLORS[damageType] or DAMAGE_COLORS.Physical, metadata.crit == true)
+	local color = ElementLook.colorOf(damageType) or DAMAGE_COLORS[damageType] or DAMAGE_COLORS.Physical
+	spawnText(targetId, text, color, metadata.crit == true)
 end
 
 -- Numbers for each damage type in a hit, staggered slightly so they read as a cascade.

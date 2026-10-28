@@ -8,10 +8,12 @@ local CombatLoadoutResolver = require(script.Parent.CombatLoadoutResolver)
 local CombatLoadoutService = {}
 
 type ShapeSelector = (entityId: string, snapshot: ItemTypes.CombatLoadoutSnapshot) -> string?
+type InfusionSelector = (entityId: string) -> ItemTypes.BasicAttackInfusion?
 
 local itemGetter: ((uid: string) -> ItemTypes.ItemInstance?)? = nil
 local emitter: ((entityId: string, snapshot: ItemTypes.CombatLoadoutSnapshot) -> ())? = nil
 local shapeSelector: ShapeSelector? = nil
+local infusionSelector: InfusionSelector? = nil
 local activeFilter: ((entityId: string, uid: string) -> boolean)? = nil
 local changedListeners: { (entityId: string, snapshot: ItemTypes.CombatLoadoutSnapshot) -> () } = {}
 local currentByEntity: { [string]: ItemTypes.CombatLoadoutSnapshot } = {}
@@ -29,6 +31,11 @@ end
 -- required, since the selection lives in the player's save and this module only knows equipment.
 function CombatLoadoutService.setShapeSelector(selector: ShapeSelector)
 	shapeSelector = selector
+end
+
+-- Decides the basic attack infusion written into each snapshot, injected for the same reason.
+function CombatLoadoutService.setInfusionSelector(selector: InfusionSelector)
+	infusionSelector = selector
 end
 
 -- Whether an equipped item counts (EquipmentProjectionService.isActive). Injected rather than
@@ -60,6 +67,7 @@ function CombatLoadoutService.recompute(entityId: string): ItemTypes.CombatLoado
 		return if not filter or filter(entityId, uid) then getter(uid) else nil
 	end)
 	snapshot.basicAttackShape = if shapeSelector then shapeSelector(entityId, snapshot) else nil
+	snapshot.basicAttackInfusion = if infusionSelector then infusionSelector(entityId) else nil
 	local version = (versionByEntity[entityId] or 0) + 1
 	versionByEntity[entityId] = version
 	snapshot.version = version

@@ -17,7 +17,7 @@ local SkillModifierRegistry = require(ServerScriptService.Server.Stats.SkillModi
 local SkillsConfig = require(script.Parent.SkillsConfig)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 local SkillQueryTypes = require(ReplicatedStorage.Shared.skills.SkillQueryTypes)
-local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
+local BasicAttackForm = require(ReplicatedStorage.Shared.skills.BasicAttackForm)
 local CombatLoadoutService = require(ServerScriptService.Server.Inventory.CombatLoadout.CombatLoadoutService)
 
 type SkillData = SkillsConfig.SkillData
@@ -181,15 +181,15 @@ local function isAdaptiveBasicAttack(skillData: SkillData): boolean
 	return requirements ~= nil and requirements.weapon ~= nil and requirements.weapon.mode == "adaptive"
 end
 
--- The adaptive basic attack's combo and cost belong to the shape its caster currently resolves,
--- not to its static data, so its metadata is computed from that shape -- the same one
--- BasicAttack:use charges for.
+-- The adaptive basic attack's combo and cost belong to the form its caster currently resolves (the
+-- shape, plus what the infusion and a named combination add to its cost), not to its static data,
+-- so its metadata is computed from that form -- the same one BasicAttack:use charges for.
 local function withResolvedShape(entityId: string, skillData: SkillData): SkillData
-	local shape = BasicAttackProfileRegistry.resolve(CombatLoadoutService.get(entityId))
+	local form = BasicAttackForm.resolve(CombatLoadoutService.get(entityId))
 	local data = table.clone(skillData :: any)
-	data.combo = shape.combo
-	data.costs = shape.cost.steps
-	data.baseResource = shape.cost.resource
+	data.combo = form.profile.combo
+	data.costs = form.cost.steps
+	data.baseResource = form.cost.resource
 	return data :: any
 end
 

@@ -36,6 +36,7 @@ export type IntentName =
 	| "LoadoutSnapshot"
 	| "LoadoutCommand"
 	| "LoadoutSelectShape"
+	| "LoadoutSelectInfusion"
 	| "ProgressionSnapshot"
 	| "ProgressionAttune"
 

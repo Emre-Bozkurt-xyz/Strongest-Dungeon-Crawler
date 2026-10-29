@@ -14,11 +14,13 @@
 --   * a tall thin arc to its right while a held skill charges (CombatSignals): a line filling from
 --     the bottom for a smooth charge such as a draw, or one bead per thing gathered (mana balls),
 --     empty at first and filling in the charge's colour;
---   * a short shake and a red flash when an attack is refused for want of resources.
+--   * a brief ease into red and back, with a light shake, when an attack is refused for want of
+--     resources.
 --
 -- Under a lock the target's corners become the crosshair: the dot and strokes fade out, the corners
--- dim and flash as the strokes would, and the hit markers, combo dashes and charge arc glide over to
--- the target, standing off its corners, and back when the lock ends.
+-- dim and redden as the strokes would, a hit shakes them instead of drawing a marker, and the combo
+-- dashes and charge arc glide over to the target, standing off its corners, and back when the lock
+-- ends.
 --
 -- Shown only while the cursor is captured for aiming. It changes every frame, so its pieces are
 -- built once and updated in place rather than re-rendered through React.
@@ -91,8 +93,15 @@ local LOCK_SNAP_SCALE = 1.45
 local LOCK_MOVE = 0.18
 -- Pixels between a locked target's corners and the charge arc beside them.
 local ARC_CLEARANCE = 12
-local REFUSED_DURATION = 0.28
-local REFUSED_SHAKE = 4
+-- Refused: the marks ease into red and back over the duration, with a light sideways shake over its
+-- start. Polish, not an alarm.
+local REFUSED_DURATION = 0.5
+local REFUSED_RISE = 0.08
+local REFUSED_SHAKE = 2
+local REFUSED_SHAKE_DURATION = 0.25
+-- Under a lock a hit shakes the target's corners rather than drawing a marker: a kick in a random
+-- direction, settling over the hit's duration.
+local HIT_SHAKE = { hit = 2, crit = 3.5, kill = 5 }
 -- Studs added to a melee cone's reach: it is measured to the target's centre, which sits inside it.
 local MELEE_MARGIN = 1.5
 -- How long after a hit the target is checked for having died of it.
@@ -341,14 +350,15 @@ local function build(root: Frame, theme: any): () -> ()
 	end
 
 	-- Hits from the server: only the player's own.
-	local hit: { kind: HitKind, at: number }? = nil
+	local hit: { kind: HitKind, at: number, kick: Vector2 }? = nil
 	local function markHit(kind: HitKind)
 		local current = hit
 		-- A kill outranks the hit that caused it; a later plain hit does not hide a kill or crit.
 		if current and os.clock() - current.at < HIT_DURATION[current.kind] and HIT_LENGTH[current.kind] > HIT_LENGTH[kind] then
 			return
 		end
-		hit = { kind = kind, at = os.clock() }
+		local angle = math.random() * math.pi * 2
+		hit = { kind = kind, at = os.clock(), kick = Vector2.new(math.cos(angle), math.sin(angle)) }
 	end
 	local offHit = (Networking.client() :: any):on("HitEvent", function(event)
 		if type(event) ~= "table" or event.sourceId ~= Registrar.getLocalEntityId() then
@@ -418,7 +428,7 @@ local function build(root: Frame, theme: any): () -> ()
 	end
 
 	-- Puts `box` over `anchor`; returns the box's middle and, at `scale` 1, its size.
-	local function placeBox(box: Frame, camera: Camera, anchor: BasePart?, scale: number, shake: number): (Vector2?, Vector2?)
+	local function placeBox(box: Frame, camera: Camera, anchor: BasePart?, scale: number, shake: Vector2): (Vector2?, Vector2?)
 		if not anchor or not anchor.Parent then
 			box.Visible = false
 			return nil, nil
@@ -432,7 +442,7 @@ local function build(root: Frame, theme: any): () -> ()
 			return nil, nil
 		end
 		local side = math.max(math.abs(bottom.Y - top.Y), BRACKET_MIN)
-		local middle = Vector2.new((top.X + bottom.X) / 2 + shake, (top.Y + bottom.Y) / 2)
+		local middle = Vector2.new((top.X + bottom.X) / 2, (top.Y + bottom.Y) / 2) + shake
 		box.Visible = true
 		box.Position = UDim2.fromOffset(middle.X, middle.Y)
 		box.Size = UDim2.fromOffset(side * scale, side * scale)
@@ -449,12 +459,25 @@ local function build(root: Frame, theme: any): () -> ()
 		local now = os.clock()
 		local viewport = camera.ViewportSize
 
-		-- Refused: a short sideways shake.
+		-- Refused: how red the marks are, and their sideways shake.
 		local refusedAge = now - refusedAt
-		local refused = refusedAge < REFUSED_DURATION
-		local shake = if refused
-			then math.sin(refusedAge * 70) * REFUSED_SHAKE * (1 - refusedAge / REFUSED_DURATION)
+		local redness = if refusedAge < REFUSED_RISE
+			then refusedAge / REFUSED_RISE
+			elseif refusedAge < REFUSED_DURATION then 1 - (refusedAge - REFUSED_RISE) / (REFUSED_DURATION - REFUSED_RISE)
 			else 0
+		redness = redness * redness * (3 - 2 * redness)
+		local shake = if refusedAge < REFUSED_SHAKE_DURATION
+			then math.sin(refusedAge * 70) * REFUSED_SHAKE * (1 - refusedAge / REFUSED_SHAKE_DURATION)
+			else 0
+
+		-- The hit's kick, for the lock's corners.
+		local current = hit
+		local hitAge = if current then now - current.at else math.huge
+		local hitShake = Vector2.zero
+		if current and hitAge < HIT_DURATION[current.kind] then
+			local settle = 1 - hitAge / HIT_DURATION[current.kind]
+			hitShake = current.kick * HIT_SHAKE[current.kind] * math.cos(hitAge * 55) * settle * settle
+		end
 
 		local combat = CombatLoadoutMirror.get()
 		if combat ~= cachedCombat then
@@ -473,7 +496,7 @@ local function build(root: Frame, theme: any): () -> ()
 				and (target.anchor.Position - myRoot.Position).Magnitude <= reach
 		end
 
-		local tint = if refused then refusedColor else Color3.new(1, 1, 1)
+		local tint = Color3.new(1, 1, 1):Lerp(refusedColor, redness)
 		local transparency = if target and not inReach then 0.45 else 0
 
 		-- The lock's corners start wide and close onto the enemy as it is taken.
@@ -484,9 +507,15 @@ local function build(root: Frame, theme: any): () -> ()
 		end
 		local snap = math.clamp((now - lockedAt) / LOCK_SNAP, 0, 1)
 		local eased = 1 - (1 - snap) * (1 - snap)
-		local middle, size = placeBox(lockBox, camera, locked, LOCK_SNAP_SCALE + (1 - LOCK_SNAP_SCALE) * eased, shake)
+		local middle, size = placeBox(
+			lockBox,
+			camera,
+			locked,
+			LOCK_SNAP_SCALE + (1 - LOCK_SNAP_SCALE) * eased,
+			Vector2.new(shake, 0) + hitShake
+		)
 		-- Under a lock the soft target is not where attacks go, so it is not marked.
-		placeBox(softBox, camera, if targeting.soft and not locked then targeting.soft.anchor else nil, 1, 0)
+		placeBox(softBox, camera, if targeting.soft and not locked then targeting.soft.anchor else nil, 1, Vector2.zero)
 		for _, piece in ipairs(lockBox:GetChildren()) do
 			if piece:IsA("Frame") then
 				piece.BackgroundColor3 = tint
@@ -523,10 +552,8 @@ local function build(root: Frame, theme: any): () -> ()
 			setAlpha(stroke, reticleTransparency)
 		end
 
-		-- Hit marker, fading out over its duration.
-		local current = hit
-		local hitAge = if current then now - current.at else math.huge
-		local showing = current ~= nil and hitAge < HIT_DURATION[current.kind]
+		-- Hit marker, fading out over its duration; under a lock the corners' shake says it instead.
+		local showing = current ~= nil and hitAge < HIT_DURATION[current.kind] and blend < 1
 		for index, stroke in ipairs(hitStrokes) do
 			stroke.Visible = showing
 			if showing and current then
@@ -537,7 +564,7 @@ local function build(root: Frame, theme: any): () -> ()
 				stroke.Size = UDim2.fromOffset(length, STROKE_THICKNESS)
 				stroke.Position = UDim2.fromOffset(direction.X * offset * 0.7071, direction.Y * offset * 0.7071)
 				stroke.BackgroundColor3 = hitColor[current.kind]
-				setAlpha(stroke, fade * fade)
+				setAlpha(stroke, 1 - (1 - fade * fade) * (1 - blend))
 			end
 		end
 

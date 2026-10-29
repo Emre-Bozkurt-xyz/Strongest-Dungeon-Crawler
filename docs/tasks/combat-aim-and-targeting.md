@@ -19,16 +19,24 @@ refused-attack jolt.
 
 ## The pieces
 
-- **Crosshair** (`client/ui/panels/Crosshair`): a dot and four ticks at the screen centre, shown only
-  while aiming (over-the-shoulder camera, cursor captured). On it:
-  - the ticks close and turn the danger colour while attacks are going to an enemy within the basic
-    attack's reach (a shot's flight, or a swing's cone), and dim while it is out of reach;
-  - brackets over the target in the world: faint for the soft target, solid accent for a lock;
-  - hit markers from the server's own `HitEvent`s: a cross for a hit, heavier in the crit colour
-    (theme `critical`) for a critical, larger in the danger colour for a kill. No colour by element;
-  - combo pips under it while the basic attack's chain is running;
-  - a ring filling while a held skill charges (`HeldSkill:chargeDuration`, via `CombatSignals`);
-  - a short jolt in the danger colour when an attack is refused for want of resources.
+- **Crosshair** (`client/ui/panels/Crosshair`): a dot and four short rounded strokes at the screen
+  centre, shown only while aiming (over-the-shoulder camera, cursor captured). Minimal on purpose,
+  in one pale ink that runs from a cool to a warm white (the user asked for a white with some
+  texture, not plain white), with a soft dark edge so it reads over sky. On it:
+  - the strokes close in while attacks are going to an enemy within the basic attack's reach (a
+    shot's flight, or a swing's cone), and dim while it is out of reach. No colour change;
+  - corners over the target in the world: short and faint for the soft target, longer and full for
+    a lock, closing in on the enemy as it is locked;
+  - hit markers from the server's own `HitEvent`s: a cross for a hit, longer and pale gold (theme
+    `critical`) for a critical, longest and pale red for a kill. No colour by element;
+  - combo dashes under it, lit up to the step just played. After the last step they empty over its
+    end lag and stay empty a moment, so the chain is seen to reset before the next one starts;
+  - a tall thin arc to its right while a held skill charges (`HeldSkill:chargeDuration`, via
+    `CombatSignals`): a line filling bottom-up in the ink for a smooth charge (a bow's draw, later),
+    or, when the skill counts its charge in whole things (`HeldSkill:chargeShape`), beads on the
+    arc that start empty and fill in the resource's colour -- Cascading Mana Balls draws six beads,
+    five balls each, filling light blue;
+  - a short shake and a red flash when an attack is refused for want of resources.
 - **TargetAssist** (`client/SkillsFramework/TargetAssist`):
   - *Soft target*, always on: the enemy whose body is nearest the crosshair, within 8% of the screen's
     height, in range (60 studs) and in sight. Attacks go to it; nothing else changes.

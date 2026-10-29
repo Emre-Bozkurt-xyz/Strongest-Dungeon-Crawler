@@ -125,6 +125,12 @@ function HeldSkill:chargeDuration(): number?
 	return self:_getMaxHoldDuration()
 end
 
+-- What the charge gathers, for the crosshair to draw; nil for a smooth charge. Override in
+-- subclasses whose charge is counted in whole things.
+function HeldSkill:chargeShape(): CombatSignals.CastShape?
+	return nil
+end
+
 -- Override in subclasses. Return { deferCommit = true } to delay commitRelease.
 function HeldSkill:onRelease(_holdToken: string, _attemptId: string?): { [string]: any }?
 	return nil
@@ -159,7 +165,7 @@ function HeldSkill:use()
 	self:requestHoldStartAsync(self._holdToken, startExtra)
 	local charge = self:chargeDuration()
 	if charge and charge > 0 then
-		CombatSignals.beginCast(charge)
+		CombatSignals.beginCast(charge, self:chargeShape())
 	end
 
 	local maxHold = self:_getMaxHoldDuration()

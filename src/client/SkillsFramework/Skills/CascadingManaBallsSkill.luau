@@ -168,6 +168,12 @@ function CascadingManaBallsSkill:chargeDuration(): number?
 	return (chargeCfg.maxCount or flurryCfg.count or 30) * (chargeCfg.interval or 0.08)
 end
 
+function CascadingManaBallsSkill:chargeShape()
+	local chargeCfg = self.config.charge or {}
+	local flurryCfg = self.config.flurry or {}
+	return { charges = chargeCfg.maxCount or flurryCfg.count or 30, resource = "Mana" }
+end
+
 function CascadingManaBallsSkill:_stopCharge()
 	self._chargeActive = false
 	if self._chargeConn then

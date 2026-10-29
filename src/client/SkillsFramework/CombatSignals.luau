@@ -6,6 +6,16 @@ export type Cast = {
 	startedAt: number,
 	-- Seconds to a full charge.
 	duration: number,
+	-- How a charge that gathers whole things (mana balls) is counted, gathering evenly over the
+	-- duration; nil for a smooth charge such as a draw.
+	charges: number?,
+	-- The resource the charge is made of, which tints what it gathers.
+	resource: string?,
+}
+
+export type CastShape = {
+	charges: number?,
+	resource: string?,
 }
 
 local CombatSignals = {}
@@ -28,8 +38,13 @@ function CombatSignals.onRejected(callback: (reason: string) -> ()): () -> ()
 end
 
 -- A held skill started charging toward a full charge in `duration` seconds.
-function CombatSignals.beginCast(duration: number)
-	cast = { startedAt = os.clock(), duration = duration }
+function CombatSignals.beginCast(duration: number, shape: CastShape?)
+	cast = {
+		startedAt = os.clock(),
+		duration = duration,
+		charges = shape and shape.charges,
+		resource = shape and shape.resource,
+	}
 end
 
 function CombatSignals.endCast()

@@ -734,8 +734,9 @@ function CombatService.applyAttack(
 		)
 	end
 
-	-- Apply stagger if damage was dealt (before broadcasting so client gets the flag)
-	if attackResult.totalDamage > 0 then
+	-- Apply stagger if damage was dealt (before broadcasting so client gets the flag). A status's own
+	-- damage (a burn's tick) never staggers: ticks would keep a target staggered between blows.
+	if attackResult.totalDamage > 0 and attack.metadata.effectId == nil then
 		-- Resolve specId from entity's CharacterSpecId attribute, fallback to PlayerCharacter
 		local specId = "PlayerCharacter"
 		local targetModel = Registrar.getEntityById(targetEntityId)

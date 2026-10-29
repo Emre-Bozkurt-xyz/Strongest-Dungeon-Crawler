@@ -73,7 +73,7 @@ local Channels: { [Names.ChannelName]: ChannelDefinition } = {
 		direction = "server_to_client",
 		qos = "HIGH",
 		intents = nil,
-		events = { "EntityInfoDelta", "EntityVitals" },
+		events = { "EntityInfoDelta", "EntityVitals", "EntityStatuses" },
 	},
 	Inventory = {
 		remote = "Inventory",

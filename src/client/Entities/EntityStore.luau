@@ -3,7 +3,8 @@
 --
 -- Presence (`EntityInfoDelta`, a few times a second) decides which entities exist here and what
 -- the player may know about their health. Vitals (`EntityVitals`, the frame after a pool changes)
--- update the health of entities presence already admitted. Health here is only ever the server's;
+-- update the health of entities presence already admitted, and statuses (`EntityStatuses`) the
+-- status effects on them. Health here is only ever the server's;
 -- predicted hits are recorded separately as a strike time, for reactions that must not wait on a
 -- round trip, and never touch the value.
 --
@@ -22,12 +23,22 @@ export type Health = {
 	ratio: number,
 }
 
+export type Status = {
+	id: string,
+	stacks: number,
+	-- Server time (Clock.serverNow): when the effect's timer was last set, and when it runs out.
+	startedAt: number,
+	endsAt: number,
+}
+
 export type Entry = {
 	id: string,
 	kind: string,
 	name: string,
 	-- Nil while the player's perception does not reveal it.
 	health: Health?,
+	-- Status effects on it, by id.
+	statuses: { Status },
 	-- The part the entity's UI stands over; nil until its model streams in.
 	anchor: BasePart?,
 	-- In the latest presence. False while it waits out the grace period.
@@ -69,15 +80,38 @@ local function healthFrom(item: any): Health?
 	return nil
 end
 
+local function statusesFrom(list: any): { Status }
+	local statuses: { Status } = {}
+	if type(list) ~= "table" then
+		return statuses
+	end
+	for _, item in ipairs(list) do
+		if type(item) == "table" and type(item.id) == "string" and type(item.endsAt) == "number" then
+			table.insert(statuses, {
+				id = item.id,
+				stacks = if type(item.stacks) == "number" then item.stacks else 1,
+				startedAt = if type(item.startedAt) == "number" then item.startedAt else item.endsAt,
+				endsAt = item.endsAt,
+			})
+		end
+	end
+	return statuses
+end
+
 -- Only what consumers draw; positions are read live from the anchor.
 local function signatureOf(list: { Entry }): string
 	local parts = table.create(#list)
 	for _, entry in ipairs(list) do
 		local health = entry.health
+		local statuses = {}
+		for _, status in ipairs(entry.statuses) do
+			table.insert(statuses, `{status.id}x{status.stacks}@{status.endsAt}`)
+		end
 		table.insert(
 			parts,
 			`{entry.id}:{entry.name}:{entry.present}:{entry.anchor ~= nil}:`
 				.. (if health then `{health.current or ""}/{health.max or ""}/{math.floor(health.ratio * 1000)}` else "-")
+				.. `:{table.concat(statuses, ",")}`
 		)
 	end
 	return table.concat(parts, "\n")
@@ -91,6 +125,7 @@ local function publish()
 			kind = record.kind,
 			name = record.name,
 			health = record.health,
+			statuses = record.statuses,
 			anchor = record.anchor,
 			present = record.present,
 		})
@@ -123,12 +158,20 @@ local function onPresence(payload: any)
 	for _, item in ipairs(payload.items) do
 		local record = records[item.id]
 		if not record then
-			record = { id = item.id, kind = item.kind, name = item.name, present = true, lastSeen = now }
+			record = {
+				id = item.id,
+				kind = item.kind,
+				name = item.name,
+				statuses = {},
+				present = true,
+				lastSeen = now,
+			}
 			records[item.id] = record
 		end
 		record.kind = item.kind
 		record.name = item.name
 		record.health = healthFrom(item)
+		record.statuses = statusesFrom(item.statuses)
 		record.present = true
 		record.lastSeen = now
 		refreshAnchor(record)
@@ -159,6 +202,19 @@ local function onVitals(payload: any)
 	publish()
 end
 
+local function onStatuses(payload: any)
+	if type(payload) ~= "table" or type(payload.items) ~= "table" then
+		return
+	end
+	for _, item in ipairs(payload.items) do
+		local record = records[item.id]
+		if record then
+			record.statuses = statusesFrom(item.statuses)
+		end
+	end
+	publish()
+end
+
 function EntityStore.start()
 	if started then
 		return
@@ -167,6 +223,7 @@ function EntityStore.start()
 	local dispatcher = Networking.client() :: any
 	dispatcher:on("EntityInfoDelta", onPresence)
 	dispatcher:on("EntityVitals", onVitals)
+	dispatcher:on("EntityStatuses", onStatuses)
 end
 
 function EntityStore.get(id: string): Entry?

@@ -70,6 +70,8 @@ export type ActiveEffectState = {
 	source: string?,
 	def: EffectDef,
 	lastTick: number,
+	-- When an application last set the timer, for drawing how much of it is left.
+	appliedAt: number,
 	nextTickAt: number?, -- aggregate/charges per-effect tick time
 	-- Multi / Aggregate contributors
 	entries: { ActiveEntry }?,
@@ -81,6 +83,24 @@ export type ActiveEffectState = {
 local registry: { [string]: EffectDef } = require(script.Parent.EffectsIndex)
 -- Active table keyed by root model (or instance) to map of effectId -> state
 local active: { [string]: { [string]: ActiveEffectState } } = {}
+
+-- Called with a target whenever what it carries changes: an effect applied, refreshed, a stack
+-- gone, an effect ended. For whoever shows effects to players (EntityInfoService).
+local changeListeners: { [{}]: (target: string) -> () } = {}
+
+local function notifyChanged(target: string)
+	for _, listener in pairs(changeListeners) do
+		listener(target)
+	end
+end
+
+function StatusEffectsService.onChanged(listener: (target: string) -> ()): () -> ()
+	local token = {}
+	changeListeners[token] = listener
+	return function()
+		changeListeners[token] = nil
+	end
+end
 
 -- Optional context set by the consumer (e.g., CombatService) to avoid cyclic requires
 local context: EffectContext? = nil
@@ -159,6 +179,7 @@ function StatusEffectsService.remove(target: string, id: string)
 	if next(bucket) == nil then
 		active[target] = nil
 	end
+	notifyChanged(target)
 end
 
 -- Check if entity has any effect blocking a specific action
@@ -204,6 +225,7 @@ function StatusEffectsService.clearAll(target: string)
 		bucket[id] = nil
 	end
 	active[target] = nil
+	notifyChanged(target)
 end
 
 function StatusEffectsService.getDef(id: string): EffectDef?
@@ -262,6 +284,7 @@ local function ensureState(
 		source = source,
 		def = def,
 		lastTick = now,
+		appliedAt = now,
 		nextTickAt = (def.tickInterval and def.tickInterval > 0) and (now + def.tickInterval) or nil,
 		entries = (mode == "multi" or def.paramCombine) and ({} :: { ActiveEntry }) or nil,
 		chargeExpiries = (mode == "charges" and (def.durationPolicy == "independent")) and ({} :: { number }) or nil,
@@ -361,7 +384,7 @@ local function recomputeAggregateParams(st: ActiveEffectState)
 	end
 end
 
-function StatusEffectsService.apply(target: string, id: string, source: string?, params: any?): boolean
+local function applyEffect(target: string, id: string, source: string?, params: any?): boolean
 	local def = registry[id]
 	if not def then
 		warn("StatusEffectsService: effect not registered:", id)
@@ -391,6 +414,7 @@ function StatusEffectsService.apply(target: string, id: string, source: string?,
 		st = ensureState(id, def, source, params, now, duration)
 		bucket[id] = st
 	end
+	st.appliedAt = now
 
 	-- Apply per mode
 	if mode == "multi" then
@@ -598,6 +622,57 @@ function StatusEffectsService.apply(target: string, id: string, source: string?,
 	end
 end
 
+function StatusEffectsService.apply(target: string, id: string, source: string?, params: any?): boolean
+	local applied = applyEffect(target, id, source, params)
+	-- Instant effects are never stored, so there is nothing new to show.
+	local bucket = active[target]
+	if applied and bucket and bucket[id] then
+		notifyChanged(target)
+	end
+	return applied
+end
+
+export type StatusView = {
+	id: string,
+	stacks: number,
+	-- os.clock() on the server, which clients read through TimeSync.
+	startedAt: number,
+	endsAt: number,
+}
+
+-- What a target carries, for showing: each effect once, with the timer of whichever of its stacks
+-- lasts longest (the effect ends with it), counted from when that stack was applied.
+function StatusEffectsService.describe(target: string): { StatusView }
+	local views: { StatusView } = {}
+	local bucket = active[target]
+	if not bucket then
+		return views
+	end
+	for id, st in pairs(bucket) do
+		local stacks = getStacksFor(st)
+		if stacks <= 0 then
+			continue
+		end
+		local startedAt, endsAt = st.appliedAt, st.expiresAt
+		if st.mode == "multi" and st.entries then
+			local last: ActiveEntry? = nil
+			for _, entry in ipairs(st.entries) do
+				if not last or entry.expiresAt > last.expiresAt then
+					last = entry
+				end
+			end
+			if last then
+				startedAt, endsAt = last.addedAt, last.expiresAt
+			end
+		end
+		table.insert(views, { id = id, stacks = stacks, startedAt = math.min(startedAt, endsAt), endsAt = endsAt })
+	end
+	table.sort(views, function(a, b)
+		return a.id < b.id
+	end)
+	return views
+end
+
 -- Heartbeat processing for ticking and expiration
 RunService.Heartbeat:Connect(function(dt: number)
 	local now = os.clock()
@@ -612,6 +687,7 @@ RunService.Heartbeat:Connect(function(dt: number)
 					entriesOpt = st.entries
 				end
 				local entriesNN = entriesOpt :: { ActiveEntry }
+				local before = #entriesNN
 				local i = 1
 				local maxExp = now
 				while i <= #entriesNN do
@@ -626,6 +702,9 @@ RunService.Heartbeat:Connect(function(dt: number)
 				end
 				st.stacks = #entriesNN
 				st.expiresAt = maxExp
+				if st.stacks ~= before then
+					notifyChanged(root)
+				end
 				if st.stacks <= 0 then
 					if def.onRemove then
 						pcall(def.onRemove, root, st.source, 0)
@@ -657,6 +736,7 @@ RunService.Heartbeat:Connect(function(dt: number)
 					arrOpt = st.chargeExpiries
 				end
 				local arrNN = arrOpt :: { number }
+				local before = #arrNN
 				-- independent charge expiry
 				local i2 = 1
 				local maxExp3 = now
@@ -672,6 +752,9 @@ RunService.Heartbeat:Connect(function(dt: number)
 				end
 				st.stacks = #arrNN
 				st.expiresAt = maxExp3
+				if st.stacks ~= before then
+					notifyChanged(root)
+				end
 				if st.stacks <= 0 then
 					if def.onRemove then
 						pcall(def.onRemove, root, st.source, 0)
@@ -705,6 +788,7 @@ RunService.Heartbeat:Connect(function(dt: number)
 					-- Emit blocking update (effect removed)
 					emitBlockingUpdate(root, def, false)
 					bucket[id] = nil
+					notifyChanged(root)
 					continue
 				end
 				if def.onTick then

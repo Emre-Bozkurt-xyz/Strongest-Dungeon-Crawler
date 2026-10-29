@@ -30,7 +30,10 @@ refused-attack jolt.
     model's larger side plus 15%, measured once when it is first marked (bounds move with every
     animation frame). An enemy whose model measures badly sets a `TargetFrame` number attribute
     (the side in studs) on its model; nothing else needs authoring per enemy;
-  - hit markers from the server's own `HitEvent`s: a cross for a hit, longer and pale gold (theme
+  - hit markers from the server's own `HitEvent`s, only for what an attack struck: a status's own
+    damage (a burn's tick; `HitEvent.effectId`) and passive damage (`skillId == "Passive"`, an
+    on-kill explosion or a field) are ignored, or a damage-over-time build would keep the marks
+    shaking with nothing done. A cross for a hit, longer and pale gold (theme
     `critical`) for a critical, longest and pale red for a kill. No colour by element;
   - combo dashes under it, lit up to the step just played. After the last step they empty over its
     end lag and stay empty a moment, so the chain is seen to reset before the next one starts;

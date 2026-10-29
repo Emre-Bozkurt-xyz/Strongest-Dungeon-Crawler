@@ -11,7 +11,12 @@
 --   sent only to viewers whose latest presence included them, at the tier that presence used. This
 --   is what lets a health bar move on the frame after a hit instead of waiting out a presence tick.
 --
--- Presence decides who may see what; vitals never widen it, so an entity that walks into range is
+--   Statuses (`EntityStatuses`, once per frame) -- the status effects on entities whose effects
+--   changed this frame, to the same viewers as vitals. Presence carries them too, so an entity that
+--   comes into range arrives with what it already carries. Statuses are what anyone could see on the
+--   enemy (it is burning), so no perception tier gates them.
+--
+-- Presence decides who may see what; vitals and statuses never widen it, so an entity that walks into range is
 -- only reported once the next presence tick has admitted it.
 
 local Players = game:GetService("Players")
@@ -22,6 +27,7 @@ local Server = game:GetService("ServerScriptService").Server
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local Registrar = require(Server.Services.Registrar)
 local StatsManager = require(Server.Stats.StatsManager)
+local StatusEffectsService = require(Server.StatusEffects.StatusEffectsService)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
 
 export type EntityKind = "player" | "npc"
@@ -43,10 +49,12 @@ local HEALTH_POOL = StatTypes.PoolStats.Health
 -- viewer -> entityId -> reveal tier used by that viewer's latest presence.
 local viewing: { [Player]: { [string]: number } } = {}
 local dirty: { [string]: true } = {}
+local statusDirty: { [string]: true } = {}
 
 local presenceConnection: RBXScriptConnection? = nil
 local vitalsConnection: RBXScriptConnection? = nil
 local disconnectPoolListener: (() -> ())? = nil
+local disconnectStatusListener: (() -> ())? = nil
 local playerRemovingConnection: RBXScriptConnection? = nil
 
 local function rootOf(model: Model): BasePart?
@@ -114,6 +122,10 @@ local function tickPresence(viewer: Player, candidates: { Candidate })
 				item.hpPerc = reveal.hpPerc
 				item.hp = reveal.hp
 			end
+			local statuses = StatusEffectsService.describe(candidate.id)
+			if #statuses > 0 then
+				item.statuses = statuses
+			end
 			table.insert(items, item)
 			seen[candidate.id] = tier
 		end
@@ -153,6 +165,34 @@ local function flushVitals()
 	end
 end
 
+local function flushStatuses()
+	if next(statusDirty) == nil then
+		return
+	end
+	local changed = statusDirty
+	statusDirty = {}
+
+	local views: { [string]: { StatusEffectsService.StatusView } } = {}
+	for entityId in pairs(changed) do
+		views[entityId] = StatusEffectsService.describe(entityId)
+	end
+	for viewer, seen in pairs(viewing) do
+		local items = nil
+		for entityId, statuses in pairs(views) do
+			if seen[entityId] then
+				items = items or {}
+				table.insert(items, { id = entityId, statuses = statuses })
+			end
+		end
+		if items then
+			dispatcher:emit("EntityStatuses", { items = items }, {
+				targets = viewer,
+				qos = "HIGH",
+			})
+		end
+	end
+end
+
 function EntityInfoService.start()
 	if presenceConnection then
 		return
@@ -162,6 +202,10 @@ function EntityInfoService.start()
 		if poolName == HEALTH_POOL then
 			dirty[entityId] = true
 		end
+	end)
+
+	disconnectStatusListener = StatusEffectsService.onChanged(function(entityId)
+		statusDirty[entityId] = true
 	end)
 
 	local accumulator = 0
@@ -177,7 +221,10 @@ function EntityInfoService.start()
 		end
 	end)
 
-	vitalsConnection = RunService.Heartbeat:Connect(flushVitals)
+	vitalsConnection = RunService.Heartbeat:Connect(function()
+		flushVitals()
+		flushStatuses()
+	end)
 
 	playerRemovingConnection = Players.PlayerRemoving:Connect(function(player)
 		viewing[player] = nil
@@ -195,8 +242,13 @@ function EntityInfoService.stop()
 		disconnectPoolListener()
 		disconnectPoolListener = nil
 	end
+	if disconnectStatusListener then
+		disconnectStatusListener()
+		disconnectStatusListener = nil
+	end
 	table.clear(viewing)
 	table.clear(dirty)
+	table.clear(statusDirty)
 end
 
 return EntityInfoService

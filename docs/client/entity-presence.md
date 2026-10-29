@@ -11,6 +11,12 @@ health bars and hit reactions.
 |---|---|---|---|
 | `EntityInfoDelta` | 2 Hz | Every entity within the viewer's `PerceptionDistance`: `id`, `kind`, `name`, plus health at the viewer's `PerceptionTier` | Membership, and the backstop for health changes vitals do not report |
 | `EntityVitals` | once per frame, only when something changed | `id` + health for entities whose Health pool changed this frame | Health bars move the frame after a hit |
+| `EntityStatuses` | once per frame, only when something changed | `id` + `statuses` (each `id`, `stacks`, `startedAt`, `endsAt` in server `os.clock()`) for entities whose status effects changed this frame | Status marks under the health bar |
+
+Presence items also carry `statuses` when the entity has any, so an entity coming into range
+arrives with what it already carries. Statuses are not gated by perception tier (anyone can see an
+enemy burning). The change signal is `StatusEffectsService.onChanged`, and the views come from
+`StatusEffectsService.describe(target)`: one per effect, timed by whichever stack lasts longest.
 
 Reveal tiers: tier 1 reveals `hpPerc`, tier 2 adds `hp = { current, max }`.
 
@@ -41,6 +47,14 @@ Rules:
 `src/client/ui/panels/EnemyBars` draws a bar for every entry with revealed health. The value is
 always the server's; a predicted strike (`markStruck`) only jolts the bar sideways for ~0.18 s so
 the hit registers on the frame it lands, and the cells drop when vitals confirm the damage.
+
+Under the bar, one 26 px square per status effect, from the left edge in arrival order (up to six):
+the effect's glyph and colour (`EnemyBars/StatusLooks`, placeholders; unknown ids show an orb,
+`invulnerable` is hidden) and a stack count past the corner when above one. The square's white
+outline is the timer: whole when applied, the gap opening at the top and sweeping clockwise as it
+runs out, over a faint full track. Seconds-left text over the glyph was tried (`SHOW_SECONDS`) and
+hid the glyph at this size, so it is off. Statuses can be put on an NPC for testing with
+`ServerStorage.DevStatus:Fire(player, "Dummy", "Burn", { damagePerTick = 2, duration = 10 })`.
 
 ## Predicted melee reactions
 

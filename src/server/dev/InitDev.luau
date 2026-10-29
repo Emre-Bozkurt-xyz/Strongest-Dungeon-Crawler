@@ -177,6 +177,24 @@ function Dev.start(ctx)
 		}, playerId)
 	end)
 
+	-- Puts a status effect from the player on every living NPC named `npcName`, for checking the
+	-- status marks without a build that applies it: ServerStorage.DevStatus:Fire(player, "Dummy",
+	-- "Burn", { damagePerTick = 2 }).
+	local devStatus = Instance.new("BindableEvent")
+	devStatus.Name = "DevStatus"
+	devStatus.Parent = game:GetService("ServerStorage")
+	devStatus.Event:Connect(function(player: Player, npcName: string, effectId: string, params: any?)
+		local registrar = require(script.Parent.Parent.Services.Registrar)
+		local statusEffects = require(script.Parent.Parent.StatusEffects.StatusEffectsService)
+		local playerId = registrar.getPlayerId(player)
+		for _, entity in ipairs(registrar.getAllEntities()) do
+			local targetId = registrar.getEntityId(entity)
+			if entity.Name == npcName and entity:GetAttribute("Dead") ~= true and targetId then
+				statusEffects.apply(targetId, effectId, playerId, params)
+			end
+		end
+	end)
+
 	-- Adds character XP outright: ServerStorage.DevGrantXP:Fire(player, 500).
 	local devGrantXp = Instance.new("BindableEvent")
 	devGrantXp.Name = "DevGrantXP"

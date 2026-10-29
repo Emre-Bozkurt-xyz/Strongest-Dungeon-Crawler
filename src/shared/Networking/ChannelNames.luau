@@ -51,6 +51,7 @@ export type EventName =
 	| "CooldownEvents"
 	| "EntityInfoDelta"
 	| "EntityVitals"
+	| "EntityStatuses"
 	| "InventoryEvent"
 	| "ProjectileEvent"
 	| "FXEvent"

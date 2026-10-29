@@ -45,6 +45,9 @@ export type AttackMetadata = {
 	delivery: string?,
 	-- Scales how much this hit staggers, on top of its damage (attack hooks set it).
 	staggerScale: number?,
+	-- Set on a status's own damage (a burn's tick): the status that dealt it. Passives and the
+	-- crosshair do not treat such damage as a hit.
+	effectId: string?,
 	-- Extensible: skills can add custom metadata fields
 	[string]: any,
 }

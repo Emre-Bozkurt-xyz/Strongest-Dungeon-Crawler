@@ -350,7 +350,9 @@ local function build(root: Frame, theme: any): () -> ()
 		end
 	end
 
-	-- Hits from the server: only the player's own.
+	-- Hits from the server: only the player's own, and only what an attack struck. Damage the build
+	-- deals by itself -- a burn's ticks, a passive's explosion or field -- would keep the marks shaking
+	-- without the player doing anything.
 	local hit: { kind: HitKind, at: number }? = nil
 	local function markHit(kind: HitKind)
 		local current = hit
@@ -362,6 +364,9 @@ local function build(root: Frame, theme: any): () -> ()
 	end
 	local offHit = (Networking.client() :: any):on("HitEvent", function(event)
 		if type(event) ~= "table" or event.sourceId ~= Registrar.getLocalEntityId() then
+			return
+		end
+		if event.effectId ~= nil or event.skillId == "Passive" then
 			return
 		end
 		local result = event.result or {}

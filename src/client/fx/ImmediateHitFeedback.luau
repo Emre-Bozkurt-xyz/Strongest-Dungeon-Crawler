@@ -63,6 +63,14 @@ local function getCharacterPosition(): Vector3?
 	return hrp and hrp.Position
 end
 
+-- Each play is pitched up to this share either side of its centre, so the same sound repeated in a
+-- combo or a flurry does not read as one sample on a loop.
+local PITCH_VARIATION = 0.06
+
+local function varied(pitch: number?): number
+	return (pitch or 1) * (1 + (math.random() * 2 - 1) * PITCH_VARIATION)
+end
+
 -- Pick a random sound from a list
 local function pickRandomSound(sounds: { string }?): string?
 	if not sounds or #sounds == 0 then
@@ -75,6 +83,8 @@ export type CastSoundOptions = {
 	castSounds: { string }?, -- Array of cast sound IDs
 	position: Vector3?, -- Position to play at (defaults to character)
 	replicateSound: boolean?, -- Replicate to other players (default true)
+	volume: number?, -- Defaults to the effect volume
+	pitch: number?, -- Centre of the pitch variation (default 1)
 }
 
 -- Play immediate cast sound when skill starts
@@ -95,7 +105,8 @@ function ImmediateHitFeedback.onCastStart(opts: CastSoundOptions?): BasePart?
 	end
 
 	-- Play locally
-	local soundPart = Replicator.playSoundAt(soundId, position)
+	local pitch = varied(options.pitch)
+	local soundPart = Replicator.playSoundAt(soundId, position, options.volume, pitch)
 
 	-- Replicate to other players
 	local shouldReplicate = options.replicateSound ~= false
@@ -103,6 +114,8 @@ function ImmediateHitFeedback.onCastStart(opts: CastSoundOptions?): BasePart?
 		Replicator.emitSFX({
 			soundId = soundId,
 			position = position,
+			volume = options.volume,
+			pitch = pitch,
 		})
 	end
 
@@ -114,13 +127,20 @@ function ImmediateHitFeedback.flashTarget(target: Model, isCrit: boolean?)
 	flashModel(target, isCrit)
 end
 
--- Play hit sound at a specific position
-function ImmediateHitFeedback.playHitSound(position: Vector3, sounds: { string }?, replicate: boolean?)
+-- Play hit sound at a specific position. `pitch` is the centre it is varied around.
+function ImmediateHitFeedback.playHitSound(
+	position: Vector3,
+	sounds: { string }?,
+	replicate: boolean?,
+	volume: number?,
+	pitch: number?
+)
 	local soundId = pickRandomSound(sounds or DEFAULT_HIT_SOUNDS)
 	if soundId then
-		Replicator.playSoundAt(soundId, position)
+		local played = varied(pitch)
+		Replicator.playSoundAt(soundId, position, volume, played)
 		if replicate ~= false then
-			Replicator.emitSFX({ soundId = soundId, position = position })
+			Replicator.emitSFX({ soundId = soundId, position = position, volume = volume, pitch = played })
 		end
 	end
 end

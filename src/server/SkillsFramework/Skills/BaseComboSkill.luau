@@ -1,4 +1,7 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local BaseSkill = require(script.Parent.BaseSkill)
+local ComboWindow = require(ReplicatedStorage.Shared.skills.ComboWindow)
 local SessionManager = require(script.Parent.Parent.SessionManager) -- Phase 3: Unified system
 -- Cooldown start will be handled centrally on execution completion (SkillsManager listener)
 
@@ -112,15 +115,15 @@ function BaseComboSkill:use(requestData: any?): any
 	end
 
 	if self._sessionId and not isFinal then
-		local windowOpenDelay = stepDuration + stepDelay
-		SessionManager.extendComboWindow(self._sessionId, windowOpenDelay, window, requestData and requestData.inputTime)
+		local next = ComboWindow.resolve(stepDuration, hitDelay, stepDelay, window, comboConfig and comboConfig.cancelShare)
+		SessionManager.extendComboWindow(self._sessionId, next.openDelay, next.length, requestData and requestData.inputTime)
 		debugPhase3(
 			"Extended combo window:",
 			self._sessionId:sub(1, 8),
 			"openDelay=",
-			windowOpenDelay,
+			next.openDelay,
 			"window=",
-			window
+			next.length
 		)
 	end
 

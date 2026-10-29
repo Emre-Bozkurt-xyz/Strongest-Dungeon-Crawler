@@ -62,8 +62,23 @@ dispatcher:on("FXEvent", function(payload, meta)
 	relay("FXEvent", payload, meta)
 end)
 
+-- What a sound may be played at on other players' machines: a client chooses its own sounds, not
+-- how loud or warped they are for everyone else.
+local MAX_VOLUME = 1
+local MIN_PITCH, MAX_PITCH = 0.5, 2
+
+-- Nil (the receiver's default) for anything that is not a finite number.
+local function clamped(value: any, low: number, high: number): number?
+	if type(value) ~= "number" or value ~= value then
+		return nil
+	end
+	return math.clamp(value, low, high)
+end
+
 dispatcher:on("SFXEvent", function(payload, meta)
 	if type(payload) == "table" and type(payload.soundId) == "string" then
+		payload.volume = clamped(payload.volume, 0, MAX_VOLUME)
+		payload.pitch = clamped(payload.pitch, MIN_PITCH, MAX_PITCH)
 		relay("SFXEvent", payload, meta)
 	end
 end)

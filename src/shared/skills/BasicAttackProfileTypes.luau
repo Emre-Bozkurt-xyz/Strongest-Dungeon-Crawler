@@ -36,6 +36,17 @@ export type BasicAttackComboSpec = {
 	-- `stepDurations` because those set the animation's playback length; folding end lag into them
 	-- would slow the finisher's swing and push its visible impact past its hit delay.
 	recovery: number?,
+	-- Share of a step's follow-through that plays before the next step may cut it off
+	-- (ComboWindow). Unset uses ComboWindow's default.
+	cancelShare: number?,
+}
+
+-- The sound a step makes as it starts, in place of the skill spec's cast sounds: a caster's cast is
+-- not a fist's whoosh. `pitch` is the centre the sound is varied around.
+export type BasicAttackCastSound = {
+	id: string,
+	volume: number?,
+	pitch: number?,
 }
 
 -- Push a struck target directly away from the attacker. `distance` in studs, covered over
@@ -122,6 +133,8 @@ export type BasicAttackProfile = {
 	-- settles into its own stance instead of snapping back to the default idle mid-combo. The
 	-- adaptive equivalent of a static spec's `anim.comboIdle`.
 	idleAnimation: string?,
+	-- Unset plays the skill spec's cast sounds.
+	castSound: BasicAttackCastSound?,
 	unarmedBase: BasicAttackUnarmedBase?,
 }
 

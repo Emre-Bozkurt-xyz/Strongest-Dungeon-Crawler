@@ -541,13 +541,12 @@ end
 -- Broadcast the outcome of a hit for damage numbers, flashes and stagger. Only what clients draw;
 -- the internal breakdown (mitigation, absorption, mediator metadata) stays on the server. `effectId`
 -- marks a status's own damage (a burn's tick), which clients may draw but should not react to as a
--- strike.
+-- strike; `delivery` lets them react to a shot landing differently from a blow.
 local function broadcastHit(
 	sourceEntityId: string,
 	targetEntityId: string,
 	attackResult: AttackResult,
-	skillId: string?,
-	effectId: string?
+	metadata: AttackTypes.AttackMetadata
 )
 	if DebugConfig.isEnabled("combat") then
 		print(
@@ -563,8 +562,9 @@ local function broadcastHit(
 	dispatcher:emit("HitEvent", {
 		sourceId = sourceEntityId,
 		targetId = targetEntityId,
-		skillId = skillId,
-		effectId = effectId,
+		skillId = metadata.skillId,
+		effectId = metadata.effectId,
+		delivery = metadata.delivery,
 		result = {
 			totalDamage = attackResult.totalDamage,
 			byType = attackResult.byType,
@@ -762,13 +762,7 @@ function CombatService.applyAttack(
 		or attackResult.dodged
 		or (attackResult.effectsApplied and #attackResult.effectsApplied > 0)
 	then
-		broadcastHit(
-			sourceEntityId,
-			targetEntityId,
-			attackResult,
-			attack.metadata.skillId,
-			attack.metadata.effectId
-		)
+		broadcastHit(sourceEntityId, targetEntityId, attackResult, attack.metadata)
 	end
 
 	if attackResult.totalDamage > 0 then

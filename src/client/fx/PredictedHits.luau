@@ -3,7 +3,9 @@
 --
 -- Each hit fires on the same schedule and against the same cone (MeleeHits) the server resolves, so
 -- what flashes here is what the server is about to damage. Only reactions are predicted -- flash,
--- hit sound, hitstop, a jolt on the target's health bar. Damage numbers and health stay on the
+-- a burst at the point of contact, hit sound, hitstop on both bodies, a kick of the camera, a jolt
+-- on the target's health bar. A heavy hit (a chain's finisher) weighs more in every one of them.
+-- Damage numbers and health stay on the
 -- server's confirmation: dodges, crits and mitigation are rolled there, and a predicted number that
 -- turns into a miss reads worse than one that arrives a moment later.
 
@@ -16,6 +18,8 @@ local Registrar = require(script.Parent.Parent.Services.Registrar)
 local EntityStore = require(script.Parent.Parent.Entities.EntityStore)
 local ImmediateHitFeedback = require(script.Parent.ImmediateHitFeedback)
 local Hitstop = require(script.Parent.Hitstop)
+local CameraKick = require(script.Parent.CameraKick)
+local FXPlayer = require(script.Parent.FXPlayer)
 
 export type ScheduleOptions = {
 	hits: { MeleeHits.Hit },
@@ -29,6 +33,30 @@ export type ScheduleOptions = {
 }
 
 local PredictedHits = {}
+
+type Weight = {
+	hitstop: number,
+	-- Camera kick, degrees, and how long it takes to settle.
+	kick: number,
+	kickDuration: number,
+	volume: number,
+	-- Centre of the hit sound's pitch: a heavy blow sounds deeper.
+	pitch: number,
+	-- Size of the contact burst against its template.
+	burst: number,
+}
+
+local LIGHT: Weight = { hitstop = Hitstop.LIGHT, kick = 0.45, kickDuration = 0.12, volume = 0.4, pitch = 1.08, burst = 0.8 }
+local HEAVY: Weight = { hitstop = Hitstop.HEAVY, kick = 1.1, kickDuration = 0.2, volume = 0.6, pitch = 0.85, burst = 1.35 }
+
+local BURST_KEY = "Punch_Hit"
+-- The burst stands this far out of the struck body's centre, towards the attacker, near where a
+-- blade or fist would meet it.
+local BURST_OUTSET = 1
+local BURST_LOOKS = {
+	[LIGHT] = { scale = LIGHT.burst, key = "|hit|light" },
+	[HEAVY] = { scale = HEAVY.burst, key = "|hit|heavy" },
+}
 
 local function rootOf(model: Model): BasePart?
 	local root = model:FindFirstChild("HumanoidRootPart")
@@ -56,6 +84,7 @@ local function resolve(hit: MeleeHits.Hit, options: ScheduleOptions)
 		return
 	end
 
+	local weight = if hit.heavy then HEAVY else LIGHT
 	local nearest: Vector3? = nil
 	local nearestDistance = math.huge
 	for _, target in ipairs(targets) do
@@ -64,9 +93,17 @@ local function resolve(hit: MeleeHits.Hit, options: ScheduleOptions)
 		if id then
 			EntityStore.markStruck(id)
 		end
+		if hit.hitstop then
+			Hitstop.applyModel(target, weight.hitstop)
+		end
 		local root = rootOf(target)
 		if root then
-			local distance = (root.Position - origin.Position).Magnitude
+			local toCaster = origin.Position - root.Position
+			local flat = Vector3.new(toCaster.X, 0, toCaster.Z)
+			local outward = if flat.Magnitude > 1e-3 then flat.Unit else Vector3.zero
+			local contact = root.Position + outward * BURST_OUTSET
+			FXPlayer.playAt(BURST_KEY, CFrame.lookAt(contact, contact + outward), nil, BURST_LOOKS[weight])
+			local distance = toCaster.Magnitude
 			if distance < nearestDistance then
 				nearest = root.Position
 				nearestDistance = distance
@@ -74,11 +111,13 @@ local function resolve(hit: MeleeHits.Hit, options: ScheduleOptions)
 		end
 	end
 	if nearest then
-		ImmediateHitFeedback.playHitSound(nearest, options.hitSounds)
+		ImmediateHitFeedback.playHitSound(nearest, options.hitSounds, nil, weight.volume, weight.pitch)
 	end
 	if hit.hitstop then
-		Hitstop.apply(options.getTrack())
+		Hitstop.apply(options.getTrack(), weight.hitstop)
 	end
+	-- Down, as if the blow pushed back through the arms, with a little sideways give either way.
+	CameraKick.kick(-weight.kick, (math.random() * 2 - 1) * weight.kick * 0.4, weight.kickDuration)
 end
 
 function PredictedHits.schedule(options: ScheduleOptions)

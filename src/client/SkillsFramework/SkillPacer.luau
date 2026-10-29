@@ -2,6 +2,9 @@
 -- SkillPacer: client-side execution pacing + local cooldown/GCD scheduling.
 -- Keeps UX consistent under latency by simulating timing locally.
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local ComboWindow = require(ReplicatedStorage.Shared.skills.ComboWindow)
 local SkillMetadataClient = require(script.Parent.SkillMetadataClient)
 local CooldownClient = require(script.Parent.CooldownClient)
 
@@ -408,9 +411,10 @@ function SkillPacer.computeComboTiming(
 	local windowOpensAt = nil
 	local windowExpiresAt = nil
 	if step < totalSteps then
-		local openDelay = stepDuration + stepDelay
-		windowOpensAt = now() + openDelay
-		windowExpiresAt = if window > 0 then windowOpensAt + window else windowOpensAt
+		-- The same rule the server validates the next press against.
+		local next = ComboWindow.resolve(stepDuration, hitDelay, stepDelay, window, comboConfig and comboConfig.cancelShare)
+		windowOpensAt = now() + next.openDelay
+		windowExpiresAt = windowOpensAt + next.length
 	end
 
 	return {

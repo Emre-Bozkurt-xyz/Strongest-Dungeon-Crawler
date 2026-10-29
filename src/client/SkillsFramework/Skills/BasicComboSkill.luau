@@ -11,6 +11,9 @@ local TargetAssist = require(script.Parent.Parent.TargetAssist)
 local MeleeHits = require(ReplicatedStorage.Shared.skills.MeleeHits)
 local AnimationPlayer = require(script.Parent.Parent.Parent.fx.AnimationPlayer)
 local AnimationOverrideStore = require(script.Parent.Parent.Parent.Animation.AnimationOverrideStore)
+local AttackLunge = require(script.Parent.Parent.Parent.Movement.AttackLunge)
+local CameraKick = require(script.Parent.Parent.Parent.fx.CameraKick)
+local CombatSignals = require(script.Parent.Parent.CombatSignals)
 local Networking = require(ReplicatedStorage.Shared.Networking)
 local Schema = require(ReplicatedStorage.Shared.Debug.Schema)
 local Clock = require(ReplicatedStorage.Shared.Time.Clock)
@@ -42,6 +45,11 @@ local BUFFERABLE: { [string]: boolean } = {
 	combo_pending = true,
 	locked = true,
 }
+
+-- A shot leaving the weapon nudges the view up, a little less than a melee hit's kick: enough to
+-- feel the cast go, not enough to throw off the next one.
+local FIRE_KICK = 0.35
+local FIRE_KICK_DURATION = 0.1
 
 type BufferedPress = {
 	releaseAt: number,
@@ -175,16 +183,22 @@ function BasicComboSkill:_scheduleComboIdle(idleKey: string, startDelay: number,
 	end)
 end
 
+-- The local side of a shot leaving: the view kicks and the crosshair spreads.
+function BasicComboSkill:_onRelease()
+	CameraKick.kick(FIRE_KICK, 0, FIRE_KICK_DURATION)
+	CombatSignals.fired()
+end
+
 -- Report a projectile step's release marker so the server fires the shot on the frame the animation
--- reaches it, instead of on the authored hit delay.
+-- reaches it, instead of on the authored hit delay. False when there is no animation to watch.
 --
 -- Fire-and-forget: the server is already holding an armed release with its own timeout, so a
 -- dropped or late request costs the shot its timing, not the shot.
-function BasicComboSkill:_bindReleaseMarker(markerName: string, step: number, attemptId: string?)
+function BasicComboSkill:_bindReleaseMarker(markerName: string, step: number, attemptId: string?): boolean
 	local handle = self.currentAnimationHandle
 	local track = handle and handle:getTrack()
 	if not track then
-		return
+		return false
 	end
 
 	local conn
@@ -197,6 +211,7 @@ function BasicComboSkill:_bindReleaseMarker(markerName: string, step: number, at
 		if attemptId and self.currentAttemptId ~= attemptId then
 			return
 		end
+		self:_onRelease()
 
 		local payload = {
 			skillName = self.name,
@@ -216,6 +231,7 @@ function BasicComboSkill:_bindReleaseMarker(markerName: string, step: number, at
 			conn = nil
 		end
 	end
+	return true
 end
 
 -- The looping animation to hold between combo steps, or nil for none.
@@ -314,6 +330,10 @@ function BasicComboSkill:use()
 	-- Turned before the swing's hits are predicted, so a cone resolved from the character's facing
 	-- goes to the target the player is locked on or aiming near.
 	TargetAssist.faceForAttack(math.max(predictedStepDuration, 0.2))
+	local predictedHit = activeProfile and MeleeHits.forProfileStep(activeProfile, predictedStep)
+	if predictedHit then
+		AttackLunge.start(predictedHit.range)
+	end
 
 	local cooldown = comboConfig.comboCooldown or (metadata and metadata.cooldown) or nil
 	local gcd = metadata and metadata.gcd or nil
@@ -329,7 +349,12 @@ function BasicComboSkill:use()
 	)
 
 	-- IMMEDIATE CAST SOUND: Play before animation starts (no network wait)
-	self:playCastSoundLocal()
+	local castSound = activeProfile and activeProfile.castSound
+	if castSound then
+		self:playCastSoundLocal({ castSound.id }, castSound.volume, castSound.pitch)
+	else
+		self:playCastSoundLocal()
+	end
 
 	-- Get animation for predicted step
 	local animSpec = comboSteps[predictedStep]
@@ -354,15 +379,23 @@ function BasicComboSkill:use()
 		step = predictedStep,
 	})
 
-	local predictedHit = activeProfile and MeleeHits.forProfileStep(activeProfile, predictedStep)
 	if predictedHit then
 		self:predictHits({ predictedHit }, durationScale)
 	end
 
-	-- Bound after playAnimation, which is what creates the track the marker lives on.
+	-- Bound after playAnimation, which is what creates the track the marker lives on. A projectile
+	-- step with no marker to watch shows its shot leaving at the hit delay, as the server fires it.
 	local activeStepSpec = activeProfile and activeProfile.steps[predictedStep]
-	if activeStepSpec and activeStepSpec.releaseMarker then
-		self:_bindReleaseMarker(activeStepSpec.releaseMarker, predictedStep, self.currentAttemptId)
+	if activeStepSpec and activeStepSpec.delivery == "projectile" then
+		local attemptId = self.currentAttemptId
+		local marker = activeStepSpec.releaseMarker
+		if not (marker and self:_bindReleaseMarker(marker, predictedStep, attemptId)) then
+			task.delay(timing.hitDelay, function()
+				if self.currentAttemptId == attemptId then
+					self:_onRelease()
+				end
+			end)
+		end
 	end
 
 	local idleKey = self:_resolveComboIdleKey(activeProfile)

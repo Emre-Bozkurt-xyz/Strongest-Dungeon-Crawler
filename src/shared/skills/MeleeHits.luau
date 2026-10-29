@@ -22,6 +22,8 @@ export type Hit = {
 	range: number,
 	-- Freeze the caster's swing briefly on contact. Off for hits that are not a weapon meeting a body.
 	hitstop: boolean,
+	-- A finishing blow, which the reaction to it weighs more heavily (PredictedHits).
+	heavy: boolean,
 }
 
 local MeleeHits = {}
@@ -36,6 +38,7 @@ function MeleeHits.fromSpec(spec: SkillSpecTypes.HitSpec): Hit
 		angle = spec.coneAngle or DEFAULT_ANGLE,
 		range = spec.coneRange or DEFAULT_RANGE,
 		hitstop = spec.hitstop ~= false,
+		heavy = spec.heavy == true,
 	}
 end
 
@@ -69,6 +72,8 @@ function MeleeHits.forProfileStep(profile: BasicAttackProfileTypes.BasicAttackPr
 		angle = angle,
 		range = range,
 		hitstop = true,
+		-- The chain's last step, or any step that throws the target back.
+		heavy = step >= profile.combo.steps or stepSpec.knockback ~= nil,
 	}
 end
 

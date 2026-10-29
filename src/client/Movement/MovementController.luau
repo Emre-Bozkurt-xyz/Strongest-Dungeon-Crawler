@@ -116,6 +116,11 @@ local function startLocalMovement(spec: MovementSpec.MovementSpec): string
 	return id
 end
 
+-- True while a dash, roll or push is moving the character.
+function MovementController.isActive(): boolean
+	return active ~= nil and Clock.localNow() < active.localEndAt
+end
+
 function MovementController.startLocalDash(spec: MovementSpec.DashSpec): string
 	return startLocalMovement(spec)
 end

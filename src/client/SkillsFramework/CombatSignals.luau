@@ -1,6 +1,7 @@
 --!strict
 -- CombatSignals: moments in the player's own combat that the HUD shows, raised by the skills that
--- cause them without those skills knowing about the HUD -- an action refused, and a charge filling.
+-- cause them without those skills knowing about the HUD -- an action refused, a shot leaving, and a
+-- charge filling.
 
 export type Cast = {
 	startedAt: number,
@@ -21,6 +22,7 @@ export type CastShape = {
 local CombatSignals = {}
 
 local rejectedListeners: { [{}]: (reason: string) -> () } = {}
+local firedListeners: { [{}]: () -> () } = {}
 local cast: Cast? = nil
 
 function CombatSignals.rejected(reason: string)
@@ -34,6 +36,21 @@ function CombatSignals.onRejected(callback: (reason: string) -> ()): () -> ()
 	rejectedListeners[key] = callback
 	return function()
 		rejectedListeners[key] = nil
+	end
+end
+
+-- A shot left the player's weapon.
+function CombatSignals.fired()
+	for _, listener in pairs(firedListeners) do
+		task.spawn(listener)
+	end
+end
+
+function CombatSignals.onFired(callback: () -> ()): () -> ()
+	local key = {}
+	firedListeners[key] = callback
+	return function()
+		firedListeners[key] = nil
 	end
 end
 

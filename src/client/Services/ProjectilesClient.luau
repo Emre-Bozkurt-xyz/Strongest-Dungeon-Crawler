@@ -628,6 +628,28 @@ destroyVisualEntry = function(id: number)
 end
 
 -- Return the locally-generated attach token for a given partName (if any).
+-- A small burst where one of the player's own shots leaves the weapon, in the shot's element colour:
+-- the impact effect, shrunk. The spawn names no owner, so a shot starting within reach of the
+-- player's own character is taken as theirs.
+local MUZZLE_KEY = "ManaBallImpact"
+local MUZZLE_SCALE = 0.35
+local MUZZLE_REACH = 6
+
+local function playMuzzleBurst(cframe: CFrame, recipe: any)
+	local character = Players.LocalPlayer and Players.LocalPlayer.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not (root and root:IsA("BasePart")) or (root.Position - cframe.Position).Magnitude > MUZZLE_REACH then
+		return
+	end
+	local element = ElementLook.fromExtraData(recipe and recipe.extraData)
+	local color = element and element.color
+	FXPlayer.playAt(MUZZLE_KEY, CFrame.new(cframe.Position), nil, {
+		color = color,
+		scale = MUZZLE_SCALE,
+		key = `|muzzle|{if color then color:ToHex() else ""}`,
+	})
+end
+
 function ProjectilesClient.getAttachToken(partName: string): string?
 	if not partName then
 		return nil
@@ -1049,6 +1071,7 @@ dispatcher:on("ProjectileEvent", function(payload: any, _meta: any)
 			local velocity = payload.velocity or Vector3.new()
 			local recipe = payload.recipe or { movementType = "linear" }
 			createVisualEntry(id, template, cframe, velocity, recipe, attach)
+			playMuzzleBurst(cframe, recipe)
 		end
 	elseif phase == "destroy" then
 		local id = payload.id

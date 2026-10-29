@@ -41,6 +41,10 @@ local UISoundConfig = {
 		attune = { id = "rbxassetid://15675046931", volume = 0.55, speed = 0.75 },
 		-- The loadout: a skill put into a slot. A placeholder like the above.
 		slotAssign = { id = "rbxassetid://15675043410", volume = 0.45, speed = 1.1 },
+		-- A shot of the player's landing (fx/HitConfirm), heard however far away it struck; higher for
+		-- a critical. Placeholders from the stock clicks.
+		hitConfirm = { id = "rbxassetid://15675032796", volume = 0.4, speed = 1.45 },
+		hitConfirmCrit = { id = "rbxassetid://15675059323", volume = 0.35, speed = 1.5 },
 	} :: { [string]: Cue },
 
 	-- Pickup notices, by rarity: the notify stinger pitched up as the drop gets rarer.

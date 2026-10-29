@@ -87,8 +87,9 @@ function BaseSkill:use()
 end
 
 -- Play cast sound immediately (no network wait)
--- Call this at the start of skill:use() after validation passes
-function BaseSkill:playCastSoundLocal(castSoundsOverride: { string }?)
+-- Call this at the start of skill:use() after validation passes. An override's volume and pitch go
+-- with it; otherwise the spec's `castVolume` applies.
+function BaseSkill:playCastSoundLocal(castSoundsOverride: { string }?, volume: number?, pitch: number?)
 	-- Stop any previous cast sound part (avoid stacking)
 	if self.currentCastSoundPart then
 		pcall(function()
@@ -104,6 +105,8 @@ function BaseSkill:playCastSoundLocal(castSoundsOverride: { string }?)
 
 	self.currentCastSoundPart = ImmediateHitFeedback.onCastStart({
 		castSounds = castSounds,
+		volume = if castSoundsOverride then volume else self.config and self.config.castVolume,
+		pitch = pitch,
 	})
 end
 

@@ -49,6 +49,7 @@ local spec: Types.SkillSpec = {
 	hitSounds = { "rbxassetid://9117969584" },
 	-- Cast sounds played when skill starts
 	castSounds = { "rbxassetid://5835032207" },
+	castVolume = 0.08,
 	sfx = {
 		impact = { "Punch_Hit_SFX" },
 	},

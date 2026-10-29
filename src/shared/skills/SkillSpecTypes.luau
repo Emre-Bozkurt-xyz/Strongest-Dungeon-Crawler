@@ -176,6 +176,9 @@ export type SkillSpec = {
 	sfx: SFXSpec?,
 	hitSounds: { string }?,
 	castSounds: { string }?,
+	-- Volume for `castSounds`; unset uses the default effect volume. A whoosh on every swing wears
+	-- quickly, so a basic attack's sits well under the hit.
+	castVolume: number?,
 	-- Scripted melee hits, shared with the server so the client predicts the reaction to exactly the
 	-- hits the server resolves (see MeleeHits). The adaptive basic attack derives its hits from the
 	-- weapon profile instead.
@@ -231,6 +234,8 @@ export type HitSpec = {
 	-- Server-only: scales the hit's damage. The client reads timing and shape alone.
 	damageMult: number?,
 	hitstop: boolean?,
+	-- A finishing blow: a longer hitstop, a bigger camera kick and burst, a deeper sound.
+	heavy: boolean?,
 }
 
 export type ServerSkillConfig = {

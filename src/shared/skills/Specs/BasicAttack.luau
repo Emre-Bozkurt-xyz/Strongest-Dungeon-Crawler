@@ -35,6 +35,8 @@ local spec: Types.SkillSpec = {
 	},
 	hitSounds = { "rbxassetid://9117969584" },
 	castSounds = { "rbxassetid://5835032207" },
+	-- Barely there: it plays on every swing, and the hit is the sound that should carry.
+	castVolume = 0.08,
 	sfx = {
 		impact = { "Punch_Hit_SFX" },
 	},

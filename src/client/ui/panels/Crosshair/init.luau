@@ -61,6 +61,8 @@ local STROKE_THICKNESS = 2
 local GAP_OPEN = 8
 local GAP_TARGET = 4
 local CLOSE_RATE = 18
+-- A shot leaving spreads the strokes this far, and they close back at CLOSE_RATE.
+local FIRE_BLOOM = 5
 local HIT_GAP = 6
 local HIT_LENGTH = { hit = 6, crit = 9, kill = 12 }
 local HIT_DURATION = { hit = 0.18, crit = 0.26, kill = 0.45 }
@@ -395,6 +397,9 @@ local function build(root: Frame, theme: any): () -> ()
 	local cachedCombat: ItemTypes.CombatLoadoutSnapshot? = nil
 	local reach = reachOf(nil)
 	local gap = GAP_OPEN
+	local offFired = CombatSignals.onFired(function()
+		gap += FIRE_BLOOM
+	end)
 	local lockedAnchor: BasePart? = nil
 	local lockedAt = 0
 	-- The combo as the dashes last drew it: when its last step began and when it ends, for the
@@ -667,6 +672,7 @@ local function build(root: Frame, theme: any): () -> ()
 		connection:Disconnect()
 		offHit()
 		offRefused()
+		offFired()
 		centre:Destroy()
 		lockBox:Destroy()
 		softBox:Destroy()

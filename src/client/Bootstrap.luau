@@ -82,6 +82,7 @@ function Bootstrap.startAll(): BootstrapContext
 		local EntityStore = require(script.Parent.Entities.EntityStore)
 		local DamageNumberController = require(script.Parent.ui.DamageNumberController)
 		local ElementHitFX = require(script.Parent.fx.ElementHitFX)
+		local HitConfirm = require(script.Parent.fx.HitConfirm)
 		local StaggerController = require(script.Parent.ui.controllers.StaggerController)
 		local KnockbackClient = require(script.Parent.Movement.KnockbackClient)
 		local LootClient = require(script.Parent.ui.controllers.LootClient)
@@ -93,6 +94,7 @@ function Bootstrap.startAll(): BootstrapContext
 
 		DamageNumberController.init()
 		ElementHitFX.init()
+		HitConfirm.init()
 		StaggerController.init()
 		KnockbackClient.init()
 

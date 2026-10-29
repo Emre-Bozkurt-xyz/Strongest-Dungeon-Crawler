@@ -13,6 +13,7 @@ local WorldGUIManager = require(script.Parent.WorldGUIManager)
 local CharacterFacingController = require(script.Parent.CharacterFacingController)
 local SharedConfig = require(ReplicatedStorage.Shared.Config)
 local DevTuningService = require(script.Parent.dev.DevTuningService)
+local CameraKick = require(script.Parent.fx.CameraKick)
 local Ease = require(ReplicatedStorage.Shared.ui.Ease)
 
 local CameraController = {}
@@ -817,6 +818,10 @@ function CameraController:_updateCamera()
 	end
 
 	local settings = self:_computeOverrides()
+	-- Last frame's kick, if any; only the gameplay pose below carries one (CameraKick).
+	local s: any = self
+	local lastKick: CFrame = s._kick or CFrame.identity
+	s._kick = nil
 	self._lockYaw = settings.lockYaw
 	self._lockPitch = settings.lockPitch
 	self.camera.FieldOfView = settings.fov
@@ -871,8 +876,9 @@ function CameraController:_updateCamera()
 	-- Create new camera CFrame looking at target
 	local newCFrame = CFrame.lookAt(newPosition, lookAtPosition)
 
-	-- Smooth rotation interpolation
-	local currentCFrame = self.camera.CFrame
+	-- Smooth rotation interpolation, from the pose without last frame's kick so a kick never drifts
+	-- the aim.
+	local currentCFrame = self.camera.CFrame * lastKick:Inverse()
 	local finalCFrame = (currentCFrame:Lerp(newCFrame, settings.lookSmoothness)) :: CFrame
 
 	if settings.shake then
@@ -889,7 +895,9 @@ function CameraController:_updateCamera()
 		end
 	end
 
-	self.camera.CFrame = finalCFrame
+	local kick = CameraKick.current()
+	s._kick = kick
+	self.camera.CFrame = finalCFrame * kick
 end
 
 -- Start the camera update loop

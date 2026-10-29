@@ -26,7 +26,12 @@ local profile: Types.BasicAttackProfile = {
 		stepDurations = { 0.5, 0.5 },
 		-- The bolt leaves the wand partway through the cast animation, not on frame one.
 		hitDelays = { 0.25, 0.25 },
+		-- No cancelling into the next cast: the bolt leaves on the animation's release marker, which
+		-- can fall after the hit delay estimate, and cutting the animation short would lose it.
+		cancelShare = 1,
 	},
+	-- Placeholder until a cast sound exists: the swing whoosh, high and quiet, reads as a flick.
+	castSound = { id = "rbxassetid://5835032207", volume = 0.1, pitch = 1.7 },
 	-- `hand` omitted so HandResolver picks the hand holding the wand, alternating when dual-wielding
 	-- (D9). Each hand fires from its own muzzle attachment.
 	-- `releaseMarker` names a marker placed in the cast animations themselves, so the bolt leaves on

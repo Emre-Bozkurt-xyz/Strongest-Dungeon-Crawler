@@ -153,6 +153,40 @@ Decisions:
 Not yet: cancelling a step into the next once its hit has landed (before its animation ends), and
 client-predicted knockback on the attacker's screen (NPC pushes currently show one round trip late).
 
+## Weight and feedback (third pass, 2026-10-29)
+
+Asked for: everything that makes melee and ranged feel better without new assets, and a much quieter
+punch swing. Built and checked in Studio against the Dummy:
+
+- **Hit-cancel** (`shared/skills/ComboWindow`): the next step's window opens once the hit has landed
+  and half the follow-through has played (`combo.cancelShare`, default 0.5), and still closes when it
+  did before. Both peers use it (SkillPacer, BaseComboSkill). Mashed punches: steps 0.43 s and 0.37 s
+  apart (were ~0.48 / 0.43). The wand sets `cancelShare = 1`: its bolt leaves on an animation marker
+  that cutting the animation could skip.
+- **Heavy hits** (`MeleeHits.Hit.heavy`): a chain's last step, or any step with knockback. Every
+  reaction below is bigger on one.
+- **Melee contact** (PredictedHits): a `Punch_Hit` burst where the blow meets the body, hitstop on the
+  struck body too (`Hitstop.applyModel`, local), 0.06 s / 0.11 s light / heavy, and a camera kick
+  (`fx/CameraKick`, ~0.45° / 1.1°, down with a little sideways give) that CameraController removes
+  before its next smoothing so it never drifts the aim.
+- **Lunge** (`Movement/AttackLunge`): each melee swing steps up to 2.5 studs toward the lock or soft
+  target, stopping at 55% of reach; 0.6 studs forward with no target; never in the air or over
+  another movement.
+- **Sound**: the swing whoosh is at 0.08 (was 0.5; `castVolume` on the spec); every cast and hit sound
+  is pitched ±6% at random; a heavy hit plays louder and lower. Volume and pitch now go to other
+  players too, clamped by FXReplicator.
+- **Ranged**: a wand cast plays the whoosh high and quiet as a flick (profile `castSound`), kicks the
+  camera up 0.35° and spreads the crosshair 5 px at the release, and a small `ManaBallImpact` burst
+  marks the muzzle when the server spawns the player's shot. A shot or blast of the player's that
+  lands plays a non-spatial tick (`fx/HitConfirm`, UISound `hitConfirm`, at most every 0.09 s);
+  `HitEvent` now carries `delivery` for this.
+
+Not done: predicting knockback on the attacker's screen. The NPC is simulated by the server, so a
+client-side push would fight replication every frame (jitter) instead of hiding the delay; it needs
+a visual-only body or a server change, and Studio has no latency to see the delay in anyway.
+Sword and dagger still have no animations, so their hitstop on the caster does nothing yet (the
+target freeze, burst, kick and sound do work).
+
 ## Follow-ups (not in this pass)
 
 - **Mispredicted reach.** With lag the client can predict a hit the server misses, since each side

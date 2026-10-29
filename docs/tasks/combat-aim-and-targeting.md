@@ -26,7 +26,10 @@ refused-attack jolt.
   - the strokes close in while attacks are going to an enemy within the basic attack's reach (a
     shot's flight, or a swing's cone), and dim while it is out of reach. No colour change;
   - corners over the target in the world: short and faint for the soft target, longer and full for
-    a lock, closing in on the enemy as it is locked;
+    a lock, closing in on the enemy as it is locked. Always a square, sized to the enemy: its
+    model's larger side plus 15%, measured once when it is first marked (bounds move with every
+    animation frame). An enemy whose model measures badly sets a `TargetFrame` number attribute
+    (the side in studs) on its model; nothing else needs authoring per enemy;
   - hit markers from the server's own `HitEvent`s: a cross for a hit, longer and pale gold (theme
     `critical`) for a critical, longest and pale red for a kill. No colour by element;
   - combo dashes under it, lit up to the step just played. After the last step they empty over its

@@ -75,8 +75,13 @@ local ARC_SPAN = math.rad(42)
 local ARC_THICKNESS = 2
 local BEAD = 7
 local MAX_BEADS = 6
--- Corners over a target in the world.
-local BRACKET_STUDS = 5.5
+-- Corners over a target in the world: a square around the enemy's model, as wide as its larger
+-- side and a little more, so a slime and a giant are each framed and not one shape stretched over
+-- both. An enemy whose model measures badly (a long tail, a staff held high) sets a `TargetFrame`
+-- attribute on its model, the square's side in studs.
+local FRAME_ATTRIBUTE = "TargetFrame"
+local FRAME_PADDING = 1.15
+local FRAME_FALLBACK = 5
 local BRACKET_MIN = 28
 local LOCK_CORNER = 13
 local SOFT_CORNER = 6
@@ -386,25 +391,52 @@ local function build(root: Frame, theme: any): () -> ()
 	local lockMiddle = Vector2.zero
 	local lockHalf = Vector2.zero
 
+	-- Each target's frame, measured once when it is first marked: the square's side, and its middle
+	-- relative to the anchor. Measured once because the model's bounds move with every animation
+	-- frame, and a frame breathing with the idle would read as noise.
+	local frames: { [BasePart]: { side: number, offset: Vector3 } } = setmetatable({}, { __mode = "k" }) :: any
+	local function frameOf(anchor: BasePart): { side: number, offset: Vector3 }
+		local known = frames[anchor]
+		if known then
+			return known
+		end
+		local model = anchor:FindFirstAncestorOfClass("Model")
+		local side = FRAME_FALLBACK
+		local offset = Vector3.zero
+		if model then
+			local boxFrame, size = model:GetBoundingBox()
+			side = math.max(size.Y, math.max(size.X, size.Z)) * FRAME_PADDING
+			offset = boxFrame.Position - anchor.Position
+			local authored = model:GetAttribute(FRAME_ATTRIBUTE)
+			if type(authored) == "number" and authored > 0 then
+				side = authored
+			end
+		end
+		local made = { side = side, offset = offset }
+		frames[anchor] = made
+		return made
+	end
+
 	-- Puts `box` over `anchor`; returns the box's middle and, at `scale` 1, its size.
 	local function placeBox(box: Frame, camera: Camera, anchor: BasePart?, scale: number, shake: number): (Vector2?, Vector2?)
 		if not anchor or not anchor.Parent then
 			box.Visible = false
 			return nil, nil
 		end
-		local position = anchor.Position
-		local top, topOnScreen = camera:WorldToViewportPoint(position + Vector3.new(0, BRACKET_STUDS / 2, 0))
-		local bottom, bottomOnScreen = camera:WorldToViewportPoint(position - Vector3.new(0, BRACKET_STUDS / 2, 0))
+		local frame = frameOf(anchor)
+		local position = anchor.Position + frame.offset
+		local top, topOnScreen = camera:WorldToViewportPoint(position + Vector3.new(0, frame.side / 2, 0))
+		local bottom, bottomOnScreen = camera:WorldToViewportPoint(position - Vector3.new(0, frame.side / 2, 0))
 		if not topOnScreen and not bottomOnScreen then
 			box.Visible = false
 			return nil, nil
 		end
-		local height = math.max(math.abs(bottom.Y - top.Y), BRACKET_MIN)
+		local side = math.max(math.abs(bottom.Y - top.Y), BRACKET_MIN)
 		local middle = Vector2.new((top.X + bottom.X) / 2 + shake, (top.Y + bottom.Y) / 2)
 		box.Visible = true
 		box.Position = UDim2.fromOffset(middle.X, middle.Y)
-		box.Size = UDim2.fromOffset(height * 0.75 * scale, height * scale)
-		return middle, Vector2.new(height * 0.75, height)
+		box.Size = UDim2.fromOffset(side * scale, side * scale)
+		return middle, Vector2.new(side, side)
 	end
 
 	local connection = RunService.RenderStepped:Connect(function(dt)

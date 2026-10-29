@@ -39,11 +39,12 @@ refused-attack jolt.
     or, when the skill counts its charge in whole things (`HeldSkill:chargeShape`), beads on the
     arc that start empty and fill in the resource's colour -- Cascading Mana Balls draws six beads,
     five balls each, filling light blue;
-  - when an attack is refused for want of resources, the marks ease into red and back over half a
-    second with a light 2 px shake: polish, not an alarm.
+  - when an attack is refused for want of resources, the marks kick 5 px in a random direction, in
+    their own colour, and settle over 0.3 s.
   - Under a lock the target's corners become the crosshair: the dot and strokes fade, the corners
-    dim and redden as the strokes did, a hit kicks them in a random direction and lets them settle
-    (2 / 3.5 / 5 px for a hit, crit, kill) in place of a hit marker, and the combo dashes (below the corners) and
+    dim and kick as the strokes did, a hit eases them into red and back over 0.35 s with a sideways
+    shake (2.5 / 3.5 / 5 px for a hit, crit, kill) in place of a hit marker -- the user preferred
+    this to the reverse, which was tried first -- and the combo dashes (below the corners) and
     charge arc (right of them) glide onto the target in 0.18 s, and back when the lock ends.
 - **TargetAssist** (`client/SkillsFramework/TargetAssist`):
   - *Soft target*, always on: the enemy whose body is nearest the crosshair, within 8% of the screen's

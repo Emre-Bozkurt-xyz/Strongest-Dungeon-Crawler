@@ -14,13 +14,12 @@
 --   * a tall thin arc to its right while a held skill charges (CombatSignals): a line filling from
 --     the bottom for a smooth charge such as a draw, or one bead per thing gathered (mana balls),
 --     empty at first and filling in the charge's colour;
---   * a brief ease into red and back, with a light shake, when an attack is refused for want of
---     resources.
+--   * a kick in a random direction, settling, when an attack is refused for want of resources.
 --
 -- Under a lock the target's corners become the crosshair: the dot and strokes fade out, the corners
--- dim and redden as the strokes would, a hit shakes them instead of drawing a marker, and the combo
--- dashes and charge arc glide over to the target, standing off its corners, and back when the lock
--- ends.
+-- dim and kick as the strokes would, a hit eases them into red and back with a sideways shake
+-- instead of drawing a marker, and the combo dashes and charge arc glide over to the target,
+-- standing off its corners, and back when the lock ends.
 --
 -- Shown only while the cursor is captured for aiming. It changes every frame, so its pieces are
 -- built once and updated in place rather than re-rendered through React.
@@ -93,15 +92,17 @@ local LOCK_SNAP_SCALE = 1.45
 local LOCK_MOVE = 0.18
 -- Pixels between a locked target's corners and the charge arc beside them.
 local ARC_CLEARANCE = 12
--- Refused: the marks ease into red and back over the duration, with a light sideways shake over its
--- start. Polish, not an alarm.
-local REFUSED_DURATION = 0.5
-local REFUSED_RISE = 0.08
-local REFUSED_SHAKE = 2
-local REFUSED_SHAKE_DURATION = 0.25
--- Under a lock a hit shakes the target's corners rather than drawing a marker: a kick in a random
--- direction, settling over the hit's duration.
-local HIT_SHAKE = { hit = 2, crit = 3.5, kill = 5 }
+-- Under a lock a hit marks the target's corners rather than drawing a marker: they ease into red and
+-- back, shaking sideways over the start, harder for a critical or a kill. Short, so a run of hits
+-- reads as a run of pulses and not one long red.
+local HIT_RED_RISE = 0.05
+local HIT_RED_DURATION = 0.35
+local HIT_SHAKE = { hit = 2.5, crit = 3.5, kill = 5 }
+local HIT_SHAKE_DURATION = 0.22
+-- Refused for want of resources: the marks, in their own colour, kick in a random direction and
+-- settle. Larger than a hit's shake, since it has no colour to be noticed by.
+local REFUSED_KICK = 5
+local REFUSED_DURATION = 0.3
 -- Studs added to a melee cone's reach: it is measured to the target's centre, which sits inside it.
 local MELEE_MARGIN = 1.5
 -- How long after a hit the target is checked for having died of it.
@@ -214,7 +215,7 @@ local function build(root: Frame, theme: any): () -> ()
 		crit = lighten(colors.critical, 0.25),
 		kill = lighten(colors.danger, 0.2),
 	}
-	local refusedColor = lighten(colors.danger, 0.2)
+	local hitRed = lighten(colors.danger, 0.2)
 	local resourceColor: { [string]: Color3 } = {
 		Mana = lighten(theme.rarity.magic, 0.45),
 	}
@@ -350,15 +351,14 @@ local function build(root: Frame, theme: any): () -> ()
 	end
 
 	-- Hits from the server: only the player's own.
-	local hit: { kind: HitKind, at: number, kick: Vector2 }? = nil
+	local hit: { kind: HitKind, at: number }? = nil
 	local function markHit(kind: HitKind)
 		local current = hit
 		-- A kill outranks the hit that caused it; a later plain hit does not hide a kill or crit.
 		if current and os.clock() - current.at < HIT_DURATION[current.kind] and HIT_LENGTH[current.kind] > HIT_LENGTH[kind] then
 			return
 		end
-		local angle = math.random() * math.pi * 2
-		hit = { kind = kind, at = os.clock(), kick = Vector2.new(math.cos(angle), math.sin(angle)) }
+		hit = { kind = kind, at = os.clock() }
 	end
 	local offHit = (Networking.client() :: any):on("HitEvent", function(event)
 		if type(event) ~= "table" or event.sourceId ~= Registrar.getLocalEntityId() then
@@ -378,9 +378,12 @@ local function build(root: Frame, theme: any): () -> ()
 	end)
 
 	local refusedAt = -math.huge
+	local refusedKick = Vector2.zero
 	local offRefused = CombatSignals.onRejected(function(reason)
 		if reason == "insufficient_resources" then
 			refusedAt = os.clock()
+			local angle = math.random() * math.pi * 2
+			refusedKick = Vector2.new(math.cos(angle), math.sin(angle))
 		end
 	end)
 
@@ -459,25 +462,25 @@ local function build(root: Frame, theme: any): () -> ()
 		local now = os.clock()
 		local viewport = camera.ViewportSize
 
-		-- Refused: how red the marks are, and their sideways shake.
+		-- Refused: the kick, settling.
 		local refusedAge = now - refusedAt
-		local redness = if refusedAge < REFUSED_RISE
-			then refusedAge / REFUSED_RISE
-			elseif refusedAge < REFUSED_DURATION then 1 - (refusedAge - REFUSED_RISE) / (REFUSED_DURATION - REFUSED_RISE)
-			else 0
-		redness = redness * redness * (3 - 2 * redness)
-		local shake = if refusedAge < REFUSED_SHAKE_DURATION
-			then math.sin(refusedAge * 70) * REFUSED_SHAKE * (1 - refusedAge / REFUSED_SHAKE_DURATION)
-			else 0
+		local kick = Vector2.zero
+		if refusedAge < REFUSED_DURATION then
+			local settle = 1 - refusedAge / REFUSED_DURATION
+			kick = refusedKick * REFUSED_KICK * math.cos(refusedAge * 55) * settle * settle
+		end
 
-		-- The hit's kick, for the lock's corners.
+		-- A hit: how red the lock's corners are, and their sideways shake.
 		local current = hit
 		local hitAge = if current then now - current.at else math.huge
-		local hitShake = Vector2.zero
-		if current and hitAge < HIT_DURATION[current.kind] then
-			local settle = 1 - hitAge / HIT_DURATION[current.kind]
-			hitShake = current.kick * HIT_SHAKE[current.kind] * math.cos(hitAge * 55) * settle * settle
-		end
+		local redness = if hitAge < HIT_RED_RISE
+			then hitAge / HIT_RED_RISE
+			elseif hitAge < HIT_RED_DURATION then 1 - (hitAge - HIT_RED_RISE) / (HIT_RED_DURATION - HIT_RED_RISE)
+			else 0
+		redness = redness * redness * (3 - 2 * redness)
+		local shake = if current and hitAge < HIT_SHAKE_DURATION
+			then math.sin(hitAge * 70) * HIT_SHAKE[current.kind] * (1 - hitAge / HIT_SHAKE_DURATION)
+			else 0
 
 		local combat = CombatLoadoutMirror.get()
 		if combat ~= cachedCombat then
@@ -496,7 +499,7 @@ local function build(root: Frame, theme: any): () -> ()
 				and (target.anchor.Position - myRoot.Position).Magnitude <= reach
 		end
 
-		local tint = Color3.new(1, 1, 1):Lerp(refusedColor, redness)
+		local tint = Color3.new(1, 1, 1):Lerp(hitRed, redness)
 		local transparency = if target and not inReach then 0.45 else 0
 
 		-- The lock's corners start wide and close onto the enemy as it is taken.
@@ -512,7 +515,7 @@ local function build(root: Frame, theme: any): () -> ()
 			camera,
 			locked,
 			LOCK_SNAP_SCALE + (1 - LOCK_SNAP_SCALE) * eased,
-			Vector2.new(shake, 0) + hitShake
+			Vector2.new(shake, 0) + kick
 		)
 		-- Under a lock the soft target is not where attacks go, so it is not marked.
 		placeBox(softBox, camera, if targeting.soft and not locked then targeting.soft.anchor else nil, 1, Vector2.zero)
@@ -532,7 +535,7 @@ local function build(root: Frame, theme: any): () -> ()
 		local blendGoal = if middle then 1 else 0
 		lockBlend = math.clamp(lockBlend + math.sign(blendGoal - lockBlend) * dt / LOCK_MOVE, 0, 1)
 		local blend = lockBlend * lockBlend * (3 - 2 * lockBlend)
-		local screenMiddle = Vector2.new(viewport.X / 2 + shake, viewport.Y / 2)
+		local screenMiddle = viewport / 2 + kick
 		local point = screenMiddle:Lerp(lockMiddle, blend)
 		centre.Position = UDim2.fromOffset(math.floor(point.X), math.floor(point.Y))
 		local half = lockHalf * blend
@@ -541,14 +544,13 @@ local function build(root: Frame, theme: any): () -> ()
 
 		local goal = if target and inReach then GAP_TARGET else GAP_OPEN
 		gap += (goal - gap) * math.min(dt * CLOSE_RATE, 1)
+		-- The free crosshair keeps its own colour: its hits are told by the markers below.
 		local reticleTransparency = 1 - (1 - transparency) * (1 - blend)
-		dot.BackgroundColor3 = tint
 		setAlpha(dot, reticleTransparency)
 		for index, stroke in ipairs(strokes) do
 			local direction = directions[index]
 			local offset = gap + STROKE_LENGTH / 2
 			stroke.Position = UDim2.fromOffset(math.round(direction.X * offset), math.round(direction.Y * offset))
-			stroke.BackgroundColor3 = tint
 			setAlpha(stroke, reticleTransparency)
 		end
 

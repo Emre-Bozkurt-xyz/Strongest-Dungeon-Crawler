@@ -33,6 +33,7 @@ local DEFAULT_MIN_ZOOM = CAMERA_BASELINE.defaultMinZoom -- don't let players zoo
 local DEFAULT_MAX_ZOOM = CAMERA_BASELINE.defaultMaxZoom
 local LOOK_FORWARD_DISTANCE = CAMERA_BASELINE.lookForwardDistance
 local LOOK_UP_OFFSET_Y = CAMERA_BASELINE.lookUpOffsetY
+local LOOK_SHOULDER_SHARE = CAMERA_BASELINE.lookShoulderShare
 local _FOCUS_DISTANCE = CAMERA_BASELINE.focus.distance
 local _FOCUS_UP = CAMERA_BASELINE.focus.up
 local _FOCUS_TWEEN = CAMERA_BASELINE.focus.tween
@@ -68,6 +69,7 @@ local function applyBaselineTuning()
 	DEFAULT_MAX_ZOOM = num("Camera.baseline.defaultMaxZoom", CAMERA_BASELINE.defaultMaxZoom)
 	LOOK_FORWARD_DISTANCE = num("Camera.baseline.lookForwardDistance", CAMERA_BASELINE.lookForwardDistance)
 	LOOK_UP_OFFSET_Y = num("Camera.baseline.lookUpOffsetY", CAMERA_BASELINE.lookUpOffsetY)
+	LOOK_SHOULDER_SHARE = num("Camera.baseline.lookShoulderShare", CAMERA_BASELINE.lookShoulderShare)
 	_FOCUS_DISTANCE = num("Camera.baseline.focus.distance", CAMERA_BASELINE.focus.distance)
 	_FOCUS_UP = num("Camera.baseline.focus.up", CAMERA_BASELINE.focus.up)
 	_FOCUS_TWEEN = num("Camera.baseline.focus.tween", CAMERA_BASELINE.focus.tween)
@@ -124,9 +126,10 @@ type CameraControllerType = {
 	clearModifiers: (self: CameraControllerType) -> (),
 	setAngles: (self: CameraControllerType, yaw: number?, pitch: number?) -> (),
 	_updateCamera: (self: CameraControllerType) -> (),
+	_followTarget: (self: CameraControllerType, track: TrackTarget?) -> (),
 	_getIdealCameraPosition: (self: CameraControllerType, settings: { [string]: any }, yawOverride: number?, pitchOverride: number?) -> Vector3,
 	_checkCollision: (self: CameraControllerType, startPos: Vector3, endPos: Vector3) -> Vector3,
-	_getLookAtPosition: (self: CameraControllerType) -> Vector3,
+	_getLookAtPosition: (self: CameraControllerType, shoulderRight: number) -> Vector3,
 	_startUpdateLoop: (self: CameraControllerType) -> (),
 	_stopUpdateLoop: (self: CameraControllerType) -> (),
 	focusOn: (self: CameraControllerType, target: BasePart, tweenTime: number?) -> (),
@@ -166,6 +169,15 @@ type PoseRelease = {
 	duration: number,
 }
 
+-- Keeps a point in view without centring it (a locked target, TargetAssist): the camera's yaw is
+-- left alone while the point is within `deadzone` radians of the view's centre, and closes the excess
+-- at `rate` per second once it is not. The player's own mouse input still turns the camera.
+type TrackTarget = {
+	provider: () -> Vector3?,
+	deadzone: number,
+	rate: number,
+}
+
 local DEFAULT_POSE_DURATION = 0.3
 local DEFAULT_RELEASE_DURATION = 0.22
 local RELEASE_RENDER_STEP_NAME = "StrongestDungeonCrawler.CameraController.Release"
@@ -182,6 +194,7 @@ type CameraSettings = {
 	lockPitch: boolean,
 	shake: CameraShake?,
 	yawAssist: { maxYaw: number, deadzone: number, smoothness: number }?,
+	trackTarget: TrackTarget?,
 	lookAtProvider: (() -> Vector3?)?,
 	poseProvider: (() -> StagedPose?)?,
 }
@@ -200,6 +213,7 @@ type CameraModifierSpec = {
 	lockPitch: boolean?,
 	shake: CameraShake?,
 	yawAssist: { maxYaw: number, deadzone: number, smoothness: number }?,
+	trackTarget: TrackTarget?,
 	lookAtProvider: (() -> Vector3?)?,
 	-- Supplies the whole camera pose, bypassing shoulder offsets, look-at and collision. For a staged
 	-- view (the menu) whose owner has already solved where the camera belongs.
@@ -595,6 +609,7 @@ function CameraController:_computeOverrides(): CameraSettings
 		lockPitch = false,
 		shake = nil,
 		yawAssist = nil,
+		trackTarget = nil,
 		lookAtProvider = nil,
 		poseProvider = nil,
 	}
@@ -635,6 +650,9 @@ function CameraController:_computeOverrides(): CameraSettings
 		end
 		if spec.yawAssist ~= nil then
 			settings.yawAssist = spec.yawAssist
+		end
+		if spec.trackTarget ~= nil then
+			settings.trackTarget = spec.trackTarget
 		end
 		if spec.lookAtProvider ~= nil then
 			settings.lookAtProvider = spec.lookAtProvider
@@ -708,7 +726,7 @@ function CameraController:_checkCollision(startPos: Vector3, endPos: Vector3): V
 end
 
 -- Get the position the camera should look at
-function CameraController:_getLookAtPosition(): Vector3
+function CameraController:_getLookAtPosition(shoulderRight: number): Vector3
 	-- Use override position if set
 	if self.targetLookPosition then
 		return self.targetLookPosition
@@ -754,11 +772,42 @@ function CameraController:_getLookAtPosition(): Vector3
 	if humanoidRootPart then
 		local pos = humanoidRootPart.Position
 		-- Camera forward from yaw/pitch
-		local camForward = (CFrame.Angles(0, self._yaw, 0) * CFrame.Angles(self._pitch, 0, 0)).LookVector
-		return pos + camForward * LOOK_FORWARD_DISTANCE + Vector3.new(0, LOOK_UP_OFFSET_Y, 0)
+		local camRotation = CFrame.Angles(0, self._yaw, 0) * CFrame.Angles(self._pitch, 0, 0)
+		local camForward = camRotation.LookVector
+		-- Shifted sideways with the camera, so the crosshair passes beside the character
+		-- (CameraConfig.baseline.lookShoulderShare).
+		local beside = camRotation.RightVector * shoulderRight * LOOK_SHOULDER_SHARE
+		return pos + beside + camForward * LOOK_FORWARD_DISTANCE + Vector3.new(0, LOOK_UP_OFFSET_Y, 0)
 	end
 
 	return Vector3.new(0, 0, 0)
+end
+
+-- Turns the yaw just enough to bring a tracked point back to the edge of its deadzone (TrackTarget).
+function CameraController:_followTarget(track: TrackTarget?)
+	local s: any = self
+	local now = os.clock()
+	local last = s._trackedAt
+	s._trackedAt = if track then now else nil
+	if not track or self._lockYaw then
+		return
+	end
+	local position = track.provider()
+	if not position then
+		return
+	end
+	local toTarget = position - self.camera.CFrame.Position
+	if Vector3.new(toTarget.X, 0, toTarget.Z).Magnitude < 0.5 then
+		return
+	end
+	local bearing = math.atan2(-toTarget.X, -toTarget.Z)
+	local off = (bearing - self._yaw + math.pi) % (2 * math.pi) - math.pi
+	local excess = math.abs(off) - track.deadzone
+	if excess <= 0 then
+		return
+	end
+	local dt = if last then math.min(now - last, 0.1) else 0
+	self._yaw += math.sign(off) * excess * math.min(1, track.rate * dt)
 end
 
 -- Main camera update function
@@ -776,6 +825,8 @@ function CameraController:_updateCamera()
 	if self:_applyStagedPose(settings) then
 		return
 	end
+
+	self:_followTarget(settings.trackTarget)
 
 	local yawOffset = 0
 	if settings.yawAssist then
@@ -802,7 +853,7 @@ function CameraController:_updateCamera()
 	end
 
 	local idealPosition = self:_getIdealCameraPosition(settings, self._yaw + yawOffset, self._pitch)
-	local lookAtPosition = self:_getLookAtPosition()
+	local lookAtPosition = self:_getLookAtPosition(settings.shoulderRight)
 
 	-- Returning from a staged pose: a fixed-time move onto the exact gameplay pose, bypassing the
 	-- follow smoothing so the two do not compound into a drift.

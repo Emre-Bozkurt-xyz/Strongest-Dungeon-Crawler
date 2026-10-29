@@ -9,11 +9,17 @@
 --
 -- Cursor handling covers both camera states without branching: under MouseBehavior.LockCenter
 -- GetMouseLocation returns screen centre, and when the cursor is unlocked for UI it returns the real
--- pointer.
+-- pointer. Both are viewport coordinates, so the ray comes from ViewportPointToRay: ScreenPointToRay
+-- adds the top bar's inset again, which aimed every shot 58 pixels below the crosshair.
+--
+-- An enemy TargetAssist has picked (locked, or the soft target under the crosshair) is aimed at
+-- directly, so a shot goes to it rather than to whatever the crosshair happens to be over.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+
+local TargetAssist = require(script.Parent.TargetAssist)
 
 local AimResolver = {}
 
@@ -42,17 +48,15 @@ local function getIgnoreList(): { Instance }
 	return ignore
 end
 
--- The world point under the cursor, or a far point along the cursor ray when it hits nothing.
--- Returns nil only when there is no camera to raycast from, in which case callers should omit aim
--- entirely and let the server fall back to the caster's facing.
-function AimResolver.getAimPoint(): Vector3?
+-- The point under the crosshair, ignoring any target: where the camera itself is pointing.
+function AimResolver.getCursorPoint(): Vector3?
 	local camera = Workspace.CurrentCamera
 	if not camera then
 		return nil
 	end
 
 	local mouseLocation = UserInputService:GetMouseLocation()
-	local ray = camera:ScreenPointToRay(mouseLocation.X, mouseLocation.Y)
+	local ray = camera:ViewportPointToRay(mouseLocation.X, mouseLocation.Y)
 
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -65,6 +69,13 @@ function AimResolver.getAimPoint(): Vector3?
 	end
 
 	return ray.Origin + ray.Direction * MAX_AIM_DISTANCE
+end
+
+-- The world point to aim at: the assisted target if there is one, else the point under the cursor,
+-- else a far point along the cursor ray. Returns nil only when there is no camera to raycast from,
+-- in which case callers should omit aim entirely and let the server fall back to the caster's facing.
+function AimResolver.getAimPoint(): Vector3?
+	return TargetAssist.aimPoint() or AimResolver.getCursorPoint()
 end
 
 return AimResolver

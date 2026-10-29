@@ -11,6 +11,7 @@ local Networking = require(game:GetService("ReplicatedStorage").Shared.Networkin
 local Schema = require(game:GetService("ReplicatedStorage").Shared.Debug.Schema)
 local Clock = require(game:GetService("ReplicatedStorage").Shared.Time.Clock)
 local Registrar = require(script.Parent.Parent.Parent.Services.Registrar)
+local TargetAssist = require(script.Parent.Parent.TargetAssist)
 
 local dispatcher = Networking.client()
 
@@ -160,6 +161,13 @@ function CascadingManaBallsSkill:_startCharge()
 	end)
 end
 
+-- Full when the last orb has gathered.
+function CascadingManaBallsSkill:chargeDuration(): number?
+	local chargeCfg = self.config.charge or {}
+	local flurryCfg = self.config.flurry or {}
+	return (chargeCfg.maxCount or flurryCfg.count or 30) * (chargeCfg.interval or 0.08)
+end
+
 function CascadingManaBallsSkill:_stopCharge()
 	self._chargeActive = false
 	if self._chargeConn then
@@ -237,7 +245,9 @@ function CascadingManaBallsSkill:onRelease(_holdToken: string, attemptId: string
 	end
 
 	local targeting = self.config.targeting or {}
-	local targetPos = resolveTargetPos(targeting.maxRange)
+	-- The locked or soft target if there is one (TargetAssist), else whatever the crosshair is on.
+	local targetPos = TargetAssist.aimPoint() or resolveTargetPos(targeting.maxRange)
+	TargetAssist.faceForAttack(0.5)
 	if not targetPos then
 		self:showRejectionFeedback("unknown")
 		return

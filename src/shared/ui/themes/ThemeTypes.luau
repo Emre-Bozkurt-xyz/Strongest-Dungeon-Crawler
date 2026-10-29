@@ -56,6 +56,8 @@ export type ThemeColors = {
 	accentTo: Color3,
 	danger: Color3,
 	success: Color3,
+	-- A critical hit.
+	critical: Color3,
 }
 
 -- Pixel values, kept narrow. Layout is scale-based throughout this project; these exist only where

@@ -18,6 +18,10 @@ local CameraConfig = {
 		pitchMax = math.rad(35),
 		lookForwardDistance = 25.0,
 		lookUpOffsetY = 1.5,
+		-- How much of the shoulder's sideways offset the aim point keeps. At 1 the camera looks
+		-- parallel to the character's line, so the screen's centre -- the crosshair -- passes beside
+		-- the character; at 0 the view converges back onto it and the crosshair sits on its head.
+		lookShoulderShare = 1.0,
 		focus = {
 			distance = 6.0,
 			up = 0.5,

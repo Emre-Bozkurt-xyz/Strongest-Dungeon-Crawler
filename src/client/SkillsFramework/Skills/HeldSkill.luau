@@ -6,6 +6,7 @@ local HttpService = game:GetService("HttpService")
 
 local BaseSkill = require(script.Parent.BaseSkill)
 local SkillPacer = require(script.Parent.Parent.SkillPacer)
+local CombatSignals = require(script.Parent.Parent.CombatSignals)
 local SkillMetadataClient = require(script.Parent.Parent.SkillMetadataClient)
 local PredictionController = require(script.Parent.Parent.PredictionController)
 local Networking = require(ReplicatedStorage.Shared.Networking)
@@ -118,6 +119,12 @@ function HeldSkill:onStart(_holdToken: string): { [string]: any }?
 	return nil
 end
 
+-- Seconds from the start of a hold to a full charge, for the crosshair's ring; nil when holding
+-- longer charges nothing. Override in subclasses whose charge is not the hold's cap.
+function HeldSkill:chargeDuration(): number?
+	return self:_getMaxHoldDuration()
+end
+
 -- Override in subclasses. Return { deferCommit = true } to delay commitRelease.
 function HeldSkill:onRelease(_holdToken: string, _attemptId: string?): { [string]: any }?
 	return nil
@@ -150,6 +157,10 @@ function HeldSkill:use()
 
 	local startExtra = self:onStart(self._holdToken) or nil
 	self:requestHoldStartAsync(self._holdToken, startExtra)
+	local charge = self:chargeDuration()
+	if charge and charge > 0 then
+		CombatSignals.beginCast(charge)
+	end
 
 	local maxHold = self:_getMaxHoldDuration()
 	if type(maxHold) == "number" and maxHold > 0 then
@@ -166,6 +177,7 @@ function HeldSkill:release()
 		return
 	end
 	self._holding = false
+	CombatSignals.endCast()
 
 	local predictedDuration = self:predictDuration()
 	local attemptId = self:_predictSession(nil, predictedDuration, { holdToken = self._holdToken })
@@ -185,6 +197,9 @@ end
 
 function HeldSkill:cancelLocalPrediction(reason: string?): boolean
 	local cancelled = BaseSkill.cancelLocalPrediction(self, reason)
+	if self._holding then
+		CombatSignals.endCast()
+	end
 	self._holding = false
 	self._holdToken = nil
 	self._releaseCommitted = false

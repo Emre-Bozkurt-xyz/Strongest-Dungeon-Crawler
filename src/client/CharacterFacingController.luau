@@ -34,11 +34,22 @@ type CharacterFacingControllerType = {
 	setCameraMode: (self: CharacterFacingControllerType, mode: CameraMode) -> (),
 	applyCameraYaw: (self: CharacterFacingControllerType, yaw: number) -> (),
 	pushOverride: (self: CharacterFacingControllerType, direction: Vector3, opts: FacingOptions?) -> (() -> ()),
+	faceToward: (self: CharacterFacingControllerType, provider: () -> Vector3?, duration: number) -> (),
 	clearOverride: (self: CharacterFacingControllerType, overrideId: number?) -> (),
 	hasExternalOverride: (self: CharacterFacingControllerType) -> boolean,
 	getPresentationBasisForward: (self: CharacterFacingControllerType, rootPart: BasePart?) -> Vector3?,
 	destroy: (self: CharacterFacingControllerType) -> (),
 }
+
+-- A point the character faces for a while instead of the camera's yaw (an attack at a target), then
+-- turns back to the camera over `RETURN_TIME`.
+type Aim = {
+	provider: () -> Vector3?,
+	untilTime: number,
+	lastForward: Vector3?,
+}
+
+local RETURN_TIME = 0.12
 
 local CharacterFacingController_Instance = nil
 
@@ -91,6 +102,7 @@ function CharacterFacingController.new(): CharacterFacingControllerType
 	self._nextOverrideId = 0
 	self._override = nil
 	self._restoreTween = nil
+	self._aim = nil :: Aim?
 
 	return self :: any
 end
@@ -143,7 +155,41 @@ function CharacterFacingController:applyCameraYaw(yaw: number)
 	end
 	self:_cancelRestoreTween()
 	self:_setAutoRotate(false)
-	self:_orientRootToForward(yawToForward(yaw))
+	self:_orientRootToForward(self:_aimForward() or yawToForward(yaw))
+end
+
+-- Where an aim (faceToward) turns the character this frame, or nil once it has handed back to the
+-- camera.
+function CharacterFacingController:_aimForward(): Vector3?
+	local aim: Aim? = self._aim
+	local rootPart = getRootPart()
+	if not aim or not rootPart then
+		return nil
+	end
+	local now = os.clock()
+	if now < aim.untilTime then
+		local position = aim.provider()
+		if position then
+			aim.lastForward = flattenDirection(position - rootPart.Position, rootPart.CFrame.LookVector)
+		end
+		return aim.lastForward
+	end
+	local returned = (now - aim.untilTime) / RETURN_TIME
+	local from = aim.lastForward
+	if returned >= 1 or not from then
+		self._aim = nil
+		return nil
+	end
+	return flattenDirection(from:Lerp(yawToForward(self.cameraYaw), returned), from)
+end
+
+-- Face the point `provider` gives for `duration` seconds, e.g. the target of an attack, without
+-- moving the camera. Turns at once, so a hit resolved this frame already goes that way.
+function CharacterFacingController:faceToward(provider: () -> Vector3?, duration: number)
+	self._aim = { provider = provider, untilTime = os.clock() + duration, lastForward = nil }
+	if self.cameraMode == "OverShoulder" and not self._override then
+		self:applyCameraYaw(self.cameraYaw)
+	end
 end
 
 function CharacterFacingController:hasExternalOverride(): boolean

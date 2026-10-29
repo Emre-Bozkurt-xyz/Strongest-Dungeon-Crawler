@@ -125,6 +125,16 @@ addAction("Core", {
 	consume = true,
 })
 
+-- Lock onto the enemy under the crosshair, or let go (TargetAssist). T for a mouse without a middle
+-- button.
+addAction("Core", {
+	name = "TargetLock",
+	bindings = {
+		{ key = nil, mouse = Enum.UserInputType.MouseButton3, gamepadButton = nil, type = "press" },
+		{ key = Enum.KeyCode.T, type = "press" },
+	},
+})
+
 -- Precision Focus: temporary cursor-driven interaction with world panels.
 addAction("Interaction", {
 	name = "PrecisionFocus",

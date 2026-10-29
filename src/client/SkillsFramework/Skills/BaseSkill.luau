@@ -14,6 +14,7 @@ local ActionPermissions = require(ReplicatedStorage.Shared.ActionPermissions)
 local Schema = require(ReplicatedStorage.Shared.Debug.Schema)
 local Clock = require(ReplicatedStorage.Shared.Time.Clock)
 local SkillPacer = require(script.Parent.Parent.SkillPacer)
+local CombatSignals = require(script.Parent.Parent.CombatSignals)
 local ProjectilesClient = require(script.Parent.Parent.Parent.Services.ProjectilesClient)
 local Registrar = require(script.Parent.Parent.Parent.Services.Registrar)
 local SkillRequirementResolver = require(ReplicatedStorage.Shared.skills.SkillRequirementResolver)
@@ -453,6 +454,7 @@ function BaseSkill:showRejectionFeedback(reason: RejectionReason)
 	-- - Show floating text ("Not enough mana!", "On cooldown!", etc.)
 
 	warn("Skill rejected locally:", self.name, "Reason:", reason)
+	CombatSignals.rejected(reason)
 
 	-- Placeholder: Play error sound
 	-- local SoundService = game:GetService("SoundService")

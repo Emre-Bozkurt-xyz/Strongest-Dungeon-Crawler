@@ -7,6 +7,7 @@ local SkillMetadataClient = require(script.Parent.Parent.SkillMetadataClient)
 local BasicAttackProfileRegistry = require(ReplicatedStorage.Shared.skills.BasicAttackProfileRegistry)
 local CombatLoadoutMirror = require(script.Parent.Parent.Parent.Inventory.CombatLoadoutMirror)
 local AimResolver = require(script.Parent.Parent.AimResolver)
+local TargetAssist = require(script.Parent.Parent.TargetAssist)
 local MeleeHits = require(ReplicatedStorage.Shared.skills.MeleeHits)
 local AnimationPlayer = require(script.Parent.Parent.Parent.fx.AnimationPlayer)
 local AnimationOverrideStore = require(script.Parent.Parent.Parent.Animation.AnimationOverrideStore)
@@ -309,6 +310,10 @@ function BasicComboSkill:use()
 	local holdDuration = timing.holdDuration
 	local windowOpensAt = timing.windowOpensAt
 	local windowExpiresAt = timing.windowExpiresAt
+
+	-- Turned before the swing's hits are predicted, so a cone resolved from the character's facing
+	-- goes to the target the player is locked on or aiming near.
+	TargetAssist.faceForAttack(math.max(predictedStepDuration, 0.2))
 
 	local cooldown = comboConfig.comboCooldown or (metadata and metadata.cooldown) or nil
 	local gcd = metadata and metadata.gcd or nil

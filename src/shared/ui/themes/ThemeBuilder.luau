@@ -70,6 +70,7 @@ local function build(id: string, label: string, p: Palette): ThemeTypes.Theme
 		accentTo = p.glow,
 		danger = p.alert,
 		success = p.ok,
+		critical = p.warn,
 	}
 
 	-- Hairlines and near-square corners: light drawn as thin lines, not padded rounded boxes.

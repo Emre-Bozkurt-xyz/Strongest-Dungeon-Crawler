@@ -4,6 +4,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SkillSlots = require(script.Parent.SkillsFramework.SkillSlots)
+local TargetAssist = require(script.Parent.SkillsFramework.TargetAssist)
 local InputManager = require(script.Parent.input.InputManager)
 local InteractionStateController = require(script.Parent.input.InteractionStateController)
 local MenuOrchestrator = require(script.Parent.ui.menu.MenuOrchestrator)
@@ -51,6 +52,13 @@ function Inputs.init()
 
 	InputManager.on("MasteryCanvas", function()
 		MasteryCanvasController.toggle()
+	end)
+
+	InputManager.on("TargetLock", function()
+		if MenuOrchestrator.isGameplayBlocked() then
+			return
+		end
+		TargetAssist.toggleLock()
 	end)
 
 	InputManager.on("PrecisionFocus", function(_action, meta)

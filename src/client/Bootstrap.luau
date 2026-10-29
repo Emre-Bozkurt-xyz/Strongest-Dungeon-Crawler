@@ -147,6 +147,7 @@ function Bootstrap.startAll(): BootstrapContext
 		end)
 
 		EntityStore.start()
+		require(script.Parent.SkillsFramework.TargetAssist).start()
 	end, { "SessionMirror" })
 
 	startEntry(ctx, started, "DevHooks", function(context)

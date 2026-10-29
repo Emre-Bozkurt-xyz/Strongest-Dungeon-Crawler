@@ -1,0 +1,44 @@
+--!strict
+-- CombatSignals: moments in the player's own combat that the HUD shows, raised by the skills that
+-- cause them without those skills knowing about the HUD -- an action refused, and a charge filling.
+
+export type Cast = {
+	startedAt: number,
+	-- Seconds to a full charge.
+	duration: number,
+}
+
+local CombatSignals = {}
+
+local rejectedListeners: { [{}]: (reason: string) -> () } = {}
+local cast: Cast? = nil
+
+function CombatSignals.rejected(reason: string)
+	for _, listener in pairs(rejectedListeners) do
+		task.spawn(listener, reason)
+	end
+end
+
+function CombatSignals.onRejected(callback: (reason: string) -> ()): () -> ()
+	local key = {}
+	rejectedListeners[key] = callback
+	return function()
+		rejectedListeners[key] = nil
+	end
+end
+
+-- A held skill started charging toward a full charge in `duration` seconds.
+function CombatSignals.beginCast(duration: number)
+	cast = { startedAt = os.clock(), duration = duration }
+end
+
+function CombatSignals.endCast()
+	cast = nil
+end
+
+-- The charge in progress, read per frame by whatever draws it.
+function CombatSignals.getCast(): Cast?
+	return cast
+end
+
+return CombatSignals

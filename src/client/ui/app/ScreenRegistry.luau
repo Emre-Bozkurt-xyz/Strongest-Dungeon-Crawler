@@ -23,6 +23,7 @@ local VitalsHud = require(script.Parent.Parent.panels.VitalsHud)
 local NearbyLoot = require(script.Parent.Parent.panels.NearbyLoot)
 local Notifications = require(script.Parent.Parent.panels.Notifications)
 local EnemyBars = require(script.Parent.Parent.panels.EnemyBars)
+local Crosshair = require(script.Parent.Parent.panels.Crosshair)
 local MasteryCanvas = require(script.Parent.Parent.panels.MasteryCanvas)
 
 local entries: { ScreenEntry } = {
@@ -30,6 +31,11 @@ local entries: { ScreenEntry } = {
 	{
 		id = "EnemyBars",
 		component = EnemyBars,
+	},
+	-- Over the enemy bars, so the crosshair and target brackets are never hidden behind a bar.
+	{
+		id = "Crosshair",
+		component = Crosshair,
 	},
 	{
 		id = "SkillSlotContainer",

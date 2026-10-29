@@ -37,11 +37,14 @@ refused-attack jolt.
     arc that start empty and fill in the resource's colour -- Cascading Mana Balls draws six beads,
     five balls each, filling light blue;
   - a short shake and a red flash when an attack is refused for want of resources.
+  - Under a lock the target's corners become the crosshair: the dot and strokes fade, the corners
+    dim and flash as the strokes did, and the hit markers, combo dashes (below the corners) and
+    charge arc (right of them) glide onto the target in 0.18 s, and back when the lock ends.
 - **TargetAssist** (`client/SkillsFramework/TargetAssist`):
   - *Soft target*, always on: the enemy whose body is nearest the crosshair, within 8% of the screen's
     height, in range (60 studs) and in sight. Attacks go to it; nothing else changes.
-  - *Lock*, middle mouse or T: keeps one enemy. The camera leaves it alone within 24° of the view's
-    centre and turns just enough to hold it at that edge when it leaves (`trackTarget` camera
+  - *Lock*, middle mouse or T: keeps one enemy. The camera leaves it alone within 12° of the view's
+    centre (24° at first; the user found that too loose) and turns just enough to hold it at that edge when it leaves (`trackTarget` camera
     modifier). A sideways flick of 150 px within 0.12 s switches to the nearest enemy that way;
     dragging it past 62° releases it, as do death, 75 studs, or a second out of sight.
   - The character turns to the target only for the attack (`CharacterFacingController:faceToward`),

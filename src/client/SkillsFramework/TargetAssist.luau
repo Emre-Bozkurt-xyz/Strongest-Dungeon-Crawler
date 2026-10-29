@@ -56,8 +56,8 @@ local LOCK_RANGE = 75
 -- Seconds a locked target may be out of sight before the lock lets go.
 local SIGHT_GRACE = 1.0
 -- Radians either side of the view's centre the camera leaves a locked target alone in: about the
--- middle 40% of the screen.
-local DEADZONE = math.rad(24)
+-- middle 20% of the screen.
+local DEADZONE = math.rad(12)
 -- Past this, the player has dragged the target away, and the lock lets go.
 local BREAK_ANGLE = math.rad(62)
 -- How quickly the camera closes the gap once a locked target leaves the zone, per second.

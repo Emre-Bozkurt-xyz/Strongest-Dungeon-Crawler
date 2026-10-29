@@ -16,6 +16,10 @@
 --     empty at first and filling in the charge's colour;
 --   * a short shake and a red flash when an attack is refused for want of resources.
 --
+-- Under a lock the target's corners become the crosshair: the dot and strokes fade out, the corners
+-- dim and flash as the strokes would, and the hit markers, combo dashes and charge arc glide over to
+-- the target, standing off its corners, and back when the lock ends.
+--
 -- Shown only while the cursor is captured for aiming. It changes every frame, so its pieces are
 -- built once and updated in place rather than re-rendered through React.
 --
@@ -78,6 +82,10 @@ local LOCK_CORNER = 13
 local SOFT_CORNER = 6
 local LOCK_SNAP = 0.16
 local LOCK_SNAP_SCALE = 1.45
+-- Seconds for the crosshair's pieces to move onto a locked target, or back.
+local LOCK_MOVE = 0.18
+-- Pixels between a locked target's corners and the charge arc beside them.
+local ARC_CLEARANCE = 12
 local REFUSED_DURATION = 0.28
 local REFUSED_SHAKE = 4
 -- Studs added to a melee cone's reach: it is measured to the target's centre, which sits inside it.
@@ -224,6 +232,16 @@ local function build(root: Frame, theme: any): () -> ()
 		hitStrokes[index] = stroke
 	end
 
+	-- Under a lock these two groups stand off the target's corners instead of the centre's.
+	local dashGroup = Instance.new("Frame")
+	dashGroup.Name = "Combo"
+	dashGroup.BackgroundTransparency = 1
+	dashGroup.Size = UDim2.fromOffset(0, 0)
+	dashGroup.Parent = centre
+	local chargeGroup = dashGroup:Clone()
+	chargeGroup.Name = "ChargeGroup"
+	chargeGroup.Parent = centre
+
 	local dashes: { Frame } = {}
 
 	-- The charge arc, cropped from two rings: a faint track, and the fill over it.
@@ -236,7 +254,7 @@ local function build(root: Frame, theme: any): () -> ()
 	arc.Position = UDim2.fromOffset(arcLeft, -arcHalf)
 	arc.Size = UDim2.fromOffset(ARC_RADIUS + ARC_THICKNESS * 2 + 2 - arcLeft, arcHalf * 2)
 	arc.Visible = false
-	arc.Parent = centre
+	arc.Parent = chargeGroup
 	local origin = Vector2.new(-arcLeft, arcHalf)
 	local shadeStroke, shadeGradient = ring(arc, origin, ARC_RADIUS - 1, ARC_THICKNESS + 2, SHADE)
 	local trackStroke, trackGradient = ring(arc, origin, ARC_RADIUS, ARC_THICKNESS, Color3.new(1, 1, 1))
@@ -272,7 +290,7 @@ local function build(root: Frame, theme: any): () -> ()
 		fillCorner.CornerRadius = UDim.new(1, 0)
 		fillCorner.Parent = fill
 		fill.Parent = holder
-		holder.Parent = centre
+		holder.Parent = chargeGroup
 		local made = { ring = holder, outline = outline, fill = fill }
 		beads[index] = made
 		return made
@@ -362,22 +380,31 @@ local function build(root: Frame, theme: any): () -> ()
 	local chainEnded: number? = nil
 	local lastTotal = 0
 
-	local function placeBox(box: Frame, camera: Camera, anchor: BasePart?, scale: number)
+	-- Where a lock moved the crosshair's pieces to, and how far along that move they are: 0 at the
+	-- centre of the screen, 1 on the target. Kept after the lock ends, to move back from.
+	local lockBlend = 0
+	local lockMiddle = Vector2.zero
+	local lockHalf = Vector2.zero
+
+	-- Puts `box` over `anchor`; returns the box's middle and, at `scale` 1, its size.
+	local function placeBox(box: Frame, camera: Camera, anchor: BasePart?, scale: number, shake: number): (Vector2?, Vector2?)
 		if not anchor or not anchor.Parent then
 			box.Visible = false
-			return
+			return nil, nil
 		end
 		local position = anchor.Position
 		local top, topOnScreen = camera:WorldToViewportPoint(position + Vector3.new(0, BRACKET_STUDS / 2, 0))
 		local bottom, bottomOnScreen = camera:WorldToViewportPoint(position - Vector3.new(0, BRACKET_STUDS / 2, 0))
 		if not topOnScreen and not bottomOnScreen then
 			box.Visible = false
-			return
+			return nil, nil
 		end
-		local height = math.max(math.abs(bottom.Y - top.Y), BRACKET_MIN) * scale
+		local height = math.max(math.abs(bottom.Y - top.Y), BRACKET_MIN)
+		local middle = Vector2.new((top.X + bottom.X) / 2 + shake, (top.Y + bottom.Y) / 2)
 		box.Visible = true
-		box.Position = UDim2.fromOffset((top.X + bottom.X) / 2, (top.Y + bottom.Y) / 2)
-		box.Size = UDim2.fromOffset(height * 0.75, height)
+		box.Position = UDim2.fromOffset(middle.X, middle.Y)
+		box.Size = UDim2.fromOffset(height * 0.75 * scale, height * scale)
+		return middle, Vector2.new(height * 0.75, height)
 	end
 
 	local connection = RunService.RenderStepped:Connect(function(dt)
@@ -396,7 +423,6 @@ local function build(root: Frame, theme: any): () -> ()
 		local shake = if refused
 			then math.sin(refusedAge * 70) * REFUSED_SHAKE * (1 - refusedAge / REFUSED_DURATION)
 			else 0
-		centre.Position = UDim2.fromOffset(math.floor(viewport.X / 2 + shake), math.floor(viewport.Y / 2))
 
 		local combat = CombatLoadoutMirror.get()
 		if combat ~= cachedCombat then
@@ -416,18 +442,7 @@ local function build(root: Frame, theme: any): () -> ()
 		end
 
 		local tint = if refused then refusedColor else Color3.new(1, 1, 1)
-		local goal = if target and inReach then GAP_TARGET else GAP_OPEN
-		gap += (goal - gap) * math.min(dt * CLOSE_RATE, 1)
 		local transparency = if target and not inReach then 0.45 else 0
-		dot.BackgroundColor3 = tint
-		setAlpha(dot, transparency)
-		for index, stroke in ipairs(strokes) do
-			local direction = directions[index]
-			local offset = gap + STROKE_LENGTH / 2
-			stroke.Position = UDim2.fromOffset(math.round(direction.X * offset), math.round(direction.Y * offset))
-			stroke.BackgroundColor3 = tint
-			setAlpha(stroke, transparency)
-		end
 
 		-- The lock's corners start wide and close onto the enemy as it is taken.
 		local locked = if targeting.locked then targeting.locked.anchor else nil
@@ -437,8 +452,44 @@ local function build(root: Frame, theme: any): () -> ()
 		end
 		local snap = math.clamp((now - lockedAt) / LOCK_SNAP, 0, 1)
 		local eased = 1 - (1 - snap) * (1 - snap)
-		placeBox(lockBox, camera, locked, LOCK_SNAP_SCALE + (1 - LOCK_SNAP_SCALE) * eased)
-		placeBox(softBox, camera, if targeting.soft then targeting.soft.anchor else nil, 1)
+		local middle, size = placeBox(lockBox, camera, locked, LOCK_SNAP_SCALE + (1 - LOCK_SNAP_SCALE) * eased, shake)
+		-- Under a lock the soft target is not where attacks go, so it is not marked.
+		placeBox(softBox, camera, if targeting.soft and not locked then targeting.soft.anchor else nil, 1, 0)
+		for _, piece in ipairs(lockBox:GetChildren()) do
+			if piece:IsA("Frame") then
+				piece.BackgroundColor3 = tint
+				setAlpha(piece, transparency)
+			end
+		end
+
+		-- Under a lock the corners are the crosshair: the dot and strokes fade, and everything else
+		-- the crosshair shows moves to the target, standing off its corners.
+		if middle and size then
+			lockMiddle = middle
+			lockHalf = size / 2
+		end
+		local blendGoal = if middle then 1 else 0
+		lockBlend = math.clamp(lockBlend + math.sign(blendGoal - lockBlend) * dt / LOCK_MOVE, 0, 1)
+		local blend = lockBlend * lockBlend * (3 - 2 * lockBlend)
+		local screenMiddle = Vector2.new(viewport.X / 2 + shake, viewport.Y / 2)
+		local point = screenMiddle:Lerp(lockMiddle, blend)
+		centre.Position = UDim2.fromOffset(math.floor(point.X), math.floor(point.Y))
+		local half = lockHalf * blend
+		dashGroup.Position = UDim2.fromOffset(0, math.round(half.Y))
+		chargeGroup.Position = UDim2.fromOffset(math.round(math.max(half.X + ARC_CLEARANCE - arcLeft, 0)), 0)
+
+		local goal = if target and inReach then GAP_TARGET else GAP_OPEN
+		gap += (goal - gap) * math.min(dt * CLOSE_RATE, 1)
+		local reticleTransparency = 1 - (1 - transparency) * (1 - blend)
+		dot.BackgroundColor3 = tint
+		setAlpha(dot, reticleTransparency)
+		for index, stroke in ipairs(strokes) do
+			local direction = directions[index]
+			local offset = gap + STROKE_LENGTH / 2
+			stroke.Position = UDim2.fromOffset(math.round(direction.X * offset), math.round(direction.Y * offset))
+			stroke.BackgroundColor3 = tint
+			setAlpha(stroke, reticleTransparency)
+		end
 
 		-- Hit marker, fading out over its duration.
 		local current = hit
@@ -497,7 +548,7 @@ local function build(root: Frame, theme: any): () -> ()
 			local dash = dashes[index]
 			if index <= total then
 				if not dash then
-					dash = mark(centre, DASH_LENGTH, STROKE_THICKNESS)
+					dash = mark(dashGroup, DASH_LENGTH, STROKE_THICKNESS)
 					dashes[index] = dash
 				end
 				dash.Visible = true

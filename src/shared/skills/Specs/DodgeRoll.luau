@@ -7,10 +7,13 @@ local spec: Types.SkillSpec = {
 	class = "DodgeRollSkill",
 	icon = "rbxassetid://13050670424",
 	label = "Dodge Roll",
+	animations = {
+		roll = "rbxassetid://135171437814582",
+	},
 	directional = {
 		forward = {
 			anim = {
-				start = { key = "DodgeRoll" },
+				start = { key = "DodgeRoll/roll" },
 			},
 			camera = {
 				priority = 10,
@@ -20,7 +23,7 @@ local spec: Types.SkillSpec = {
 		},
 		back = {
 			anim = {
-				start = { key = "DodgeRoll" },
+				start = { key = "DodgeRoll/roll" },
 			},
 			camera = {
 				priority = 10,
@@ -33,7 +36,7 @@ local spec: Types.SkillSpec = {
 		},
 		left = {
 			anim = {
-				start = { key = "DodgeRoll" },
+				start = { key = "DodgeRoll/roll" },
 			},
 			camera = {
 				priority = 10,
@@ -44,7 +47,7 @@ local spec: Types.SkillSpec = {
 		},
 		right = {
 			anim = {
-				start = { key = "DodgeRoll" },
+				start = { key = "DodgeRoll/roll" },
 			},
 			camera = {
 				priority = 10,
@@ -55,7 +58,7 @@ local spec: Types.SkillSpec = {
 		},
 	},
 	anim = {
-		start = { key = "DodgeRoll" },
+		start = { key = "DodgeRoll/roll" },
 	},
 }
 

@@ -7,10 +7,13 @@ local spec: Types.SkillSpec = {
 	class = "DashSkill",
 	icon = "rbxassetid://13050670424",
 	label = "Dash",
+	animations = {
+		dash = "rbxassetid://103284756573498",
+	},
 	directional = {
 		forward = {
 			anim = {
-				start = { key = "Dash" },
+				start = { key = "Dash/dash" },
 			},
 			fx = {
 				anchor = { name = "FX_Waist", fallback = "HumanoidRootPart" },
@@ -28,7 +31,7 @@ local spec: Types.SkillSpec = {
 		},
 		back = {
 			anim = {
-				start = { key = "Dash" },
+				start = { key = "Dash/dash" },
 			},
 			fx = {
 				anchor = { name = "FX_Waist", fallback = "HumanoidRootPart" },
@@ -48,7 +51,7 @@ local spec: Types.SkillSpec = {
 		},
 		left = {
 			anim = {
-				start = { key = "Dash" },
+				start = { key = "Dash/dash" },
 			},
 			fx = {
 				anchor = { name = "FX_Waist", fallback = "HumanoidRootPart" },
@@ -66,7 +69,7 @@ local spec: Types.SkillSpec = {
 		},
 		right = {
 			anim = {
-				start = { key = "Dash" },
+				start = { key = "Dash/dash" },
 			},
 			fx = {
 				anchor = { name = "FX_Waist", fallback = "HumanoidRootPart" },
@@ -85,7 +88,7 @@ local spec: Types.SkillSpec = {
 	},
 	-- Default visuals (fallback)
 	anim = {
-		start = { key = "Dash" },
+		start = { key = "Dash/dash" },
 	},
 	fx = {
 		anchor = { name = "FX_Waist", fallback = "HumanoidRootPart" },

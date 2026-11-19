@@ -8,6 +8,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ItemTypes = require(ReplicatedStorage.Shared.items.ItemTypes)
+local AnimationTypes = require(ReplicatedStorage.Shared.Animation.AnimationTypes)
 
 local Types = {}
 
@@ -133,6 +134,9 @@ export type BasicAttackProfile = {
 	-- settles into its own stance instead of snapping back to the default idle mid-combo. The
 	-- adaptive equivalent of a static spec's `anim.comboIdle`.
 	idleAnimation: string?,
+	-- The moveset's clips, reachable as "<id>/<clip>" (AnimationRegistry). They belong to the
+	-- profile rather than to a weapon item: every sword sharing this shape swings the same way.
+	animations: AnimationTypes.ClipSet?,
 	-- Unset plays the skill spec's cast sounds.
 	castSound: BasicAttackCastSound?,
 	unarmedBase: BasicAttackUnarmedBase?,

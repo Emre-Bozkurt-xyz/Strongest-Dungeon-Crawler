@@ -8,6 +8,7 @@ local DebugConfig = require(ReplicatedStorage.Shared.Debug.DebugConfig)
 local AttributeTypes = require(ReplicatedStorage.Shared.AttributeTypes)
 local PercentOfStatModifier = require(ReplicatedStorage.Shared.Modifiers.PercentOfStatModifier)
 local StatTypes = require(ReplicatedStorage.Shared.StatTypes)
+local AnimationDrafts = require(script.Parent.AnimationDrafts)
 
 local Dev = {}
 local devTuneRemote: RemoteEvent? = nil
@@ -80,6 +81,8 @@ function Dev.start(ctx)
 		session = true,
 		projectiles = true,
 	})
+
+	AnimationDrafts.start()
 
 	local remote = ensureDevTuneRemote()
 	if not devTuneConn then

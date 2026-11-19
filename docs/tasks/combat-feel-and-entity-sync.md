@@ -195,8 +195,8 @@ target freeze, burst, kick and sound do work).
   testing with real players.
 - **TripleStrike completion** is still timed from request arrival (hits are not), so its lock ends
   one-way latency after the client expects.
-- Weapon animations (`Sword_1H_*`, `Dagger_1H_*`, `TripleStrike_*`) are not in `Assets/Animations`;
-  those attacks play no animation, so they get flash/sound but no hitstop until they exist.
+- `TripleStrike/start`/`finish` have no clips, so TripleStrike plays no animation and gets
+  flash/sound but no hitstop (see docs/animation/overview.md). Sword and dagger have placeholders.
 - Legacy Punch/SinglePunch have no shared hit definitions and so no prediction; Punch is ungranted,
   SinglePunch is NPC-only.
 - NPCs have no death handling at 0 health; `EntityStore.isAlive` stops predicted reactions on a

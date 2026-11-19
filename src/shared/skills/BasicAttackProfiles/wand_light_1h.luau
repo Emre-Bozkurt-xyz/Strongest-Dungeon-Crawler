@@ -39,19 +39,24 @@ local profile: Types.BasicAttackProfile = {
 	-- from a step and that step falls back to the hit delay.
 	steps = {
 		{
-			animation = "Wand_Cast_1",
+			animation = "wand_light_1h/cast_1",
 			damageMultiplier = 1.0,
 			delivery = "projectile",
 			releaseMarker = "Release",
 		},
 		{
-			animation = "Wand_Cast_2",
+			animation = "wand_light_1h/cast_2",
 			damageMultiplier = 1.15,
 			delivery = "projectile",
 			releaseMarker = "Release",
 		},
 	},
-	idleAnimation = "Wand_Idle",
+	idleAnimation = "wand_light_1h/idle",
+	animations = {
+		cast_1 = "rbxassetid://72087500666741",
+		cast_2 = "rbxassetid://97827472713728",
+		idle = "rbxassetid://83099314493376",
+	},
 	-- Unused while a real wand is equipped; it is the fallback geometry for a weapon that resolves
 	-- here by class but declares no projectile. Kept short so a caster flailing a wand cannot
 	-- out-range a sword.

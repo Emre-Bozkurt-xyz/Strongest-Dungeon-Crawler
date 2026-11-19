@@ -24,11 +24,11 @@ local profile: Types.BasicAttackProfile = {
 		recovery = 0.15,
 	},
 	steps = {
-		{ hand = "main", animation = "Punch_Combo_1", damageMultiplier = 0.6, coneRange = 4.5 },
-		{ hand = "main", animation = "Punch_Combo_2", damageMultiplier = 0.65, coneRange = 4.5 },
+		{ hand = "main", animation = "unarmed_basic/punch_1", damageMultiplier = 0.6, coneRange = 4.5 },
+		{ hand = "main", animation = "unarmed_basic/punch_2", damageMultiplier = 0.65, coneRange = 4.5 },
 	},
 	hitCone = { angle = 65, range = 4.5 },
-	idleAnimation = "Punch_Idle",
+	idleAnimation = "unarmed_basic/idle",
 }
 
 return profile

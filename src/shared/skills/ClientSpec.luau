@@ -1,6 +1,6 @@
 --!strict
 -- Client-facing visual spec per skill (animations/FX/SFX keys)
--- Keys must match assets under ReplicatedStorage/Assets
+-- Animation keys are full clip names declared by an owner (see Shared.Animation.AnimationRegistry)
 
 local SpecFolder = script.Parent.Specs
 local Types = require(script.Parent.SkillSpecTypes)

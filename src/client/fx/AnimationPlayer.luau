@@ -1,13 +1,10 @@
 -- Thin wrapper over Animator with key registry
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AssetLoader = require(script.Parent.Parent.AssetLoader)
 
 local AnimationPlayer = {}
 
-local AnimationsFolder = ReplicatedStorage:FindFirstChild("Assets")
-	and ReplicatedStorage.Assets:FindFirstChild("Animations")
 local cache: { [string]: AnimationTrack } = {}
 -- local cachedLengths: { [string]: number } = {}
 
@@ -27,28 +24,10 @@ local function loadTrack(key: string): AnimationTrack?
 	if cache[key] then
 		return cache[key]
 	end
-	if not AnimationsFolder then
-		warn(`[AnimationPlayer] AnimationsFolder not found`)
+	local anim = AssetLoader.getAnimation(key)
+	if not anim then
 		return nil
 	end
-	local animInstance = AssetLoader.getAnimation(key)
-	if not animInstance then
-		warn(`[AnimationPlayer] AssetLoader didn't find animation: {key}`)
-		local fallback = AnimationsFolder and AnimationsFolder:FindFirstChild(key)
-		if fallback and fallback:IsA("Animation") then
-			warn(`[AnimationPlayer] Found fallback animation: {key}`)
-			animInstance = fallback :: Animation
-		else
-			warn(`[AnimationPlayer] No fallback found for: {key}. Available:`)
-			if AnimationsFolder then
-				for _, child in AnimationsFolder:GetChildren() do
-					warn(`  - {child.Name}`)
-				end
-			end
-			return nil
-		end
-	end
-	local anim = animInstance :: Animation
 	local animator = getAnimator()
 	if not animator then
 		return nil

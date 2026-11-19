@@ -23,18 +23,25 @@ local profile: Types.BasicAttackProfile = {
 		recovery = 0.3,
 	},
 	steps = {
-		{ hand = "main", animation = "Punch_Combo_1", damageMultiplier = 0.8, coneRange = 4.5 },
-		{ hand = "main", animation = "Punch_Combo_2", damageMultiplier = 0.9, coneRange = 4.5 },
+		{ hand = "main", animation = "unarmed_basic/punch_1", damageMultiplier = 0.8, coneRange = 4.5 },
+		{ hand = "main", animation = "unarmed_basic/punch_2", damageMultiplier = 0.9, coneRange = 4.5 },
 		{
 			hand = "main",
-			animation = "Punch_Combo_3",
+			animation = "unarmed_basic/punch_3",
 			damageMultiplier = 1.25,
 			coneRange = 6,
 			knockback = { distance = 6, duration = 0.25 },
 		},
 	},
 	hitCone = { angle = 65, range = 6 },
-	idleAnimation = "Punch_Idle",
+	idleAnimation = "unarmed_basic/idle",
+	animations = {
+		punch_1 = "rbxassetid://122752973149294",
+		punch_2 = "rbxassetid://133788075368604",
+		-- The opening jab again until the heavy has a clip of its own.
+		punch_3 = "rbxassetid://122752973149294",
+		idle = "rbxassetid://77028377379164",
+	},
 	unarmedBase = {
 		damage = { { type = "Physical", min = 2, max = 4 } },
 		attackSpeed = 1.0,

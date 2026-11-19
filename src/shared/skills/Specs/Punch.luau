@@ -16,12 +16,12 @@ local spec: Types.SkillSpec = {
 	anim = {
 		-- Body animations for each combo step in order
 		comboSteps = {
-			{ key = "Punch_Combo_1" },
-			{ key = "Punch_Combo_2" },
-			{ key = "Punch_Combo_3" },
+			{ key = "unarmed_basic/punch_1" },
+			{ key = "unarmed_basic/punch_2" },
+			{ key = "unarmed_basic/punch_3" },
 		},
 		-- Note: FX/SFX per impact are still configured under fx/sfx.impact below.
-		comboIdle = "Punch_Idle", -- optional idle during combo wait
+		comboIdle = "unarmed_basic/idle", -- optional idle during combo wait
 	},
 	fx = {
 		-- Default anchor for step/marker FX (optional)

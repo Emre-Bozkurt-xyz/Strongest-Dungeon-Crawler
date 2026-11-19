@@ -23,12 +23,18 @@ local profile: Types.BasicAttackProfile = {
 	-- `hand` omitted so HandResolver alternates when dual-wielding (D9).
 	-- The closing slash only nudges: no heavy finisher, so it should not open as much space as one.
 	steps = {
-		{ animation = "Dagger_1H_Stab_1", damageMultiplier = 0.85 },
-		{ animation = "Dagger_1H_Stab_2", damageMultiplier = 0.85 },
-		{ animation = "Dagger_1H_Slash_3", damageMultiplier = 1.1, knockback = { distance = 3.5, duration = 0.2 } },
+		{ animation = "dagger_light_1h/stab_1", damageMultiplier = 0.85 },
+		{ animation = "dagger_light_1h/stab_2", damageMultiplier = 0.85 },
+		{ animation = "dagger_light_1h/slash_3", damageMultiplier = 1.1, knockback = { distance = 3.5, duration = 0.2 } },
 	},
 	hitCone = { angle = 45, range = 4.5 },
-	idleAnimation = "Dagger_1H_Idle",
+	idleAnimation = "dagger_light_1h/idle",
+	animations = {
+		stab_1 = "rbxassetid://96530518071381",
+		stab_2 = "rbxassetid://95812797764330",
+		slash_3 = "rbxassetid://76690804415849",
+		idle = "rbxassetid://139214182968891",
+	},
 }
 
 return profile

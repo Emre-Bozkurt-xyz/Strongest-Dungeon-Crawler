@@ -2,6 +2,7 @@
 -- Shared type definitions for client-facing skill specs.
 
 local SkillRequirementTypes = require(script.Parent.SkillRequirementTypes)
+local AnimationTypes = require(script.Parent.Parent.Animation.AnimationTypes)
 
 local Types = {}
 
@@ -171,6 +172,9 @@ export type SkillSpec = {
 	icon: string?,
 	label: string?,
 	tags: { string }?,
+	-- The skill's own clips, reachable as "<skill name>/<clip>" (AnimationRegistry). `anim` refers
+	-- to clips by that full name, so a skill can also play clips another owner declares.
+	animations: AnimationTypes.ClipSet?,
 	anim: AnimSpec?,
 	fx: FXSpec?,
 	sfx: SFXSpec?,

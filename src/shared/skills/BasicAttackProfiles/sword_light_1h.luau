@@ -23,16 +23,22 @@ local profile: Types.BasicAttackProfile = {
 	-- actually holds the sword. See "Dual Wield Resolution" in
 	-- docs/tasks/equipment-item-architecture.md.
 	steps = {
-		{ animation = "Sword_1H_Slash_1", damageMultiplier = 1.0 },
-		{ animation = "Sword_1H_Slash_2", damageMultiplier = 1.0 },
+		{ animation = "sword_light_1h/slash_1", damageMultiplier = 1.0 },
+		{ animation = "sword_light_1h/slash_2", damageMultiplier = 1.0 },
 		{
-			animation = "Sword_1H_Heavy_3",
+			animation = "sword_light_1h/heavy_3",
 			damageMultiplier = 1.35,
 			knockback = { distance = 6, duration = 0.25 },
 		},
 	},
 	hitCone = { angle = 65, range = 6 },
-	idleAnimation = "Sword_1H_Idle",
+	idleAnimation = "sword_light_1h/idle",
+	animations = {
+		slash_1 = "rbxassetid://129125203503425",
+		slash_2 = "rbxassetid://136656347876691",
+		heavy_3 = "rbxassetid://89593224638983",
+		idle = "rbxassetid://133308871975281",
+	},
 }
 
 return profile

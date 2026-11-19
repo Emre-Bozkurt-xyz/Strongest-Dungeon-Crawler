@@ -9,9 +9,13 @@ local spec: Types.SkillSpec = {
 	label = "Triple Strike",
 	-- Three heavy sword cuts: the Weight branch.
 	mastery = { track = "Blade", branch = "a" },
+	animations = {
+		start = false,
+		finish = false,
+	},
 	anim = {
-		start = { key = "TripleStrike_Start" },
-		finish = { key = "TripleStrike_End" },
+		start = { key = "TripleStrike/start" },
+		finish = { key = "TripleStrike/finish" },
 	},
 	fx = {
 		-- impact list aligns by step index: 1,2,3

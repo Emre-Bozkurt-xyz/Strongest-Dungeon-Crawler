@@ -217,4 +217,56 @@ clips["dagger_light_1h/slash_3"] = {
 	},
 }
 
+-- Three cuts aimed where TripleStrike's hits are (straight, 25 deg right, 25 deg left). The client
+-- stretches the clip to the last hit's time, so the contacts sit at the hits' share of it (25%,
+-- 62.5%, ~92%) and only a sliver of follow-through fits after the third.
+clips["TripleStrike/start"] = {
+	parts = UPPER,
+	keys = {
+		{ t = 0, ease = "out", poses = SWORD_GUARD },
+		{ t = 0.07, ease = "inn", poses = {
+			Torso = { 6, -4, 0 },
+			Head = { -6, 4, 0 },
+			["Right Arm"] = { 172, 0, 8 },
+			["Left Arm"] = { 160, 0, -12 },
+		} },
+		{ t = 0.15, ease = "out", marker = "Hit", poses = {
+			Torso = { -10, 0, 0, offset = Vector3.new(0, 0, -0.3) },
+			Head = { 8, 0, 0 },
+			["Right Arm"] = { 25, 0, 6 },
+			["Left Arm"] = { 35, 0, -20 },
+		} },
+		{ t = 0.25, ease = "inn", poses = {
+			Torso = { 0, 26, 0 },
+			Head = { 0, -18, 0 },
+			["Right Arm"] = { 0, 100, 75 },
+			["Left Arm"] = { -20, 0, -22 },
+		} },
+		{ t = 0.375, ease = "out", marker = "Hit", poses = {
+			Torso = { -4, -10, 0 },
+			Head = { 0, 8, 0 },
+			["Right Arm"] = { 0, -15, 88 },
+			["Left Arm"] = { 20, 0, -18 },
+		} },
+		{ t = 0.45, ease = "inn", poses = {
+			Torso = { 2, -26, 0 },
+			Head = { 0, 20, 0 },
+			["Right Arm"] = { 0, -55, 100 },
+			["Left Arm"] = { 35, 0, -20 },
+		} },
+		{ t = 0.55, ease = "out", marker = "Hit", poses = {
+			Torso = { -6, 10, 0, offset = Vector3.new(0, 0, -0.3) },
+			Head = { 0, -8, 0 },
+			["Right Arm"] = { 0, 15, 85 },
+			["Left Arm"] = { -15, 0, -18 },
+		} },
+		{ t = 0.6, ease = "inout", poses = {
+			Torso = { -6, 18, 0, offset = Vector3.new(0, 0, -0.3) },
+			Head = { 0, -12, 0 },
+			["Right Arm"] = { 0, 40, 78 },
+			["Left Arm"] = { -22, 0, -20 },
+		} },
+	},
+}
+
 return clips

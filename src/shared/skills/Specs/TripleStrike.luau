@@ -10,12 +10,11 @@ local spec: Types.SkillSpec = {
 	-- Three heavy sword cuts: the Weight branch.
 	mastery = { track = "Blade", branch = "a" },
 	animations = {
-		start = false,
-		finish = false,
+		start = "rbxassetid://106444107452977",
 	},
+	-- One clip carries all three cuts: BasicSkill plays only `start`, stretched to the last hit.
 	anim = {
 		start = { key = "TripleStrike/start" },
-		finish = { key = "TripleStrike/finish" },
 	},
 	fx = {
 		-- impact list aligns by step index: 1,2,3

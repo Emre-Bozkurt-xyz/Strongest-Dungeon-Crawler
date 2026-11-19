@@ -22,6 +22,7 @@ local globalTickCount = 0 -- Track ticks globally for debug logging
 -- Configuration
 local TICK_RATE = 30 -- 30 ticks per second for smooth regeneration
 local TICK_INTERVAL = 1 / TICK_RATE -- ~0.033 seconds per tick
+local MAX_STEP = 1 -- Longest stretch of time one tick may regenerate for, in seconds
 local UPDATE_RATE = 2 -- Send updates to client only 2 times per second
 local UPDATE_INTERVAL = 1 / UPDATE_RATE -- 0.5 seconds between client updates
 
@@ -91,9 +92,12 @@ end
 local entitiesProcessed = 0
 local poolsRegenerated = 0
 
-local function onRegenerationTick()
+local function onRegenerationTick(elapsed: number)
 	local currentTime = tick()
-	local deltaTime = TICK_INTERVAL -- Fixed delta time for consistent regeneration
+	-- The time that really passed since the last tick. Heartbeat does not land exactly on the tick
+	-- interval, so a fixed step would hand out less than the configured rate per second. Capped so a
+	-- long server stall does not arrive as one large burst.
+	local deltaTime = math.min(elapsed, MAX_STEP)
 	globalTickCount = globalTickCount + 1
 	local tickCount = globalTickCount
 	local tickEntitiesProcessed = 0
@@ -192,7 +196,7 @@ function RegenerationService.start()
 
 		-- Only tick if enough time has passed (maintains consistent 30 FPS)
 		if timeSinceLastTick >= TICK_INTERVAL then
-			onRegenerationTick()
+			onRegenerationTick(timeSinceLastTick)
 			lastTick = currentTime
 		end
 	end)

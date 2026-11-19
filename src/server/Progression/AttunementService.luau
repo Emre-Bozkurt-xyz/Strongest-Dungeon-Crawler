@@ -140,6 +140,20 @@ function AttunementService.swap(player: Player, release: any, trackId: any): (bo
 	return true, nil
 end
 
+-- Attune exactly `tracks`, anywhere. For tooling; players attune at a shrine through `set`. The
+-- caller checks the level's slots.
+function AttunementService.assign(player: Player, tracks: { string })
+	local data = PlayerDataService.get(player)
+	if not data then
+		return
+	end
+	data.progression.attunement = table.clone(tracks)
+	for _, listener in ipairs(changedListeners) do
+		task.spawn(listener, player)
+	end
+	ProgressionSync.schedule(player, nil)
+end
+
 local function addPrompt(shrine: Instance)
 	local host: BasePart? = if shrine:IsA("BasePart")
 		then shrine

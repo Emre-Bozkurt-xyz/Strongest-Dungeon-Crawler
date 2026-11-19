@@ -69,6 +69,24 @@ function CharacterService.grant(player: Player, amount: number)
 	end
 end
 
+-- Set total XP outright, up or down. For tooling; play earns XP through `grant`. No attribute
+-- points are granted or taken: tooling sets those itself.
+function CharacterService.setXp(player: Player, xp: number)
+	local data = PlayerDataService.get(player)
+	if not data then
+		return
+	end
+	local before = CharacterXP.levelOf(data.character.xp)
+	data.character.xp = math.max(0, xp)
+	local after = CharacterXP.levelOf(data.character.xp)
+	ProgressionSync.schedule(player, nil)
+	if after ~= before then
+		for _, listener in ipairs(levelListeners) do
+			task.spawn(listener, player, after)
+		end
+	end
+end
+
 local function onHit(sourceEntityId: string, targetEntityId: string, result: any, _metadata: any)
 	local removed = result.healthRemoved
 	if type(removed) ~= "number" or removed <= 0 or Registrar.isPlayerEntity(targetEntityId) then

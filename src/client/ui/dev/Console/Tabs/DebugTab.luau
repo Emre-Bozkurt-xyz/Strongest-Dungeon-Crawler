@@ -1,27 +1,32 @@
 --!strict
--- Debug: server and client debug flags as switches, and client tuning overrides.
+-- Debug: server and client debug flags as two columns of switches, the client tuning overrides, and
+-- a line to set any tuning value.
 --
--- Flags are read with `flags` / `cflags` and flipped with `flag` / `cflag`. Tuning is changed only
--- through `tune set` / `tune reset`; the override list and the path suggestions are read from
--- DevTuningService directly, since asking `tune` for them would print every path to the output.
+-- Flags are read with `flags` / `cflags` and flipped with `flag` / `cflag`; they are the selectable
+-- rows, so Enter flips the selected one. Tuning is changed only through `tune set` / `tune reset`;
+-- the override list and the path suggestions are read from DevTuningService directly, since asking
+-- `tune` for them would print every path to the output.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 local Console = script.Parent.Parent
 local ui = Console.Parent.Parent
-local ThemeContext = require(ui.hooks.ThemeContext)
 local ConsoleStore = require(Console.ConsoleStore)
 local Controls = require(Console.Controls)
+local Selection = require(Console.Selection)
+local Theme = require(Console.Theme)
 local DevTuningService = require(ui.Parent.dev.DevTuningService)
 
 local e = React.createElement
+local size = Theme.size
 
+local TAB = "debug"
 local MAX_PATH_SUGGESTIONS = 8
 
-local function sortedKeys(map: { [string]: any }): { string }
+local function sortedKeys(map: { [string]: any }?): { string }
 	local keys: { string } = {}
-	for key in pairs(map) do
+	for key in pairs(map or {}) do
 		table.insert(keys, key)
 	end
 	table.sort(keys)
@@ -70,117 +75,143 @@ local function useTuningRevision(): number
 	return revision
 end
 
-local function FlagList(props: {
+local function flagCommand(command: string, name: string, on: boolean): string
+	return `{command} {name} {if on then "false" else "true"}`
+end
+
+local function FlagColumn(props: {
+	title: string,
 	flags: { [string]: boolean }?,
 	error: string?,
 	command: string,
 	refresh: ConsoleStore.ListName,
+	selectedKey: string?,
 	snapshot: ConsoleStore.State,
+	layoutOrder: number,
 })
-	local theme = ThemeContext.useTheme()
-	local rows: { [string]: any } = {}
-	local flags = props.flags
-	if not flags then
-		rows.Empty = e(Controls.Label, {
-			text = props.error or "Reading flags…",
-			size = Controls.SMALL,
-			color = if props.error then theme.color.danger else theme.color.textMuted,
-		})
+	local children: { [string]: any } = {
+		Layout = Controls.list(Enum.FillDirection.Vertical, 0),
+		Label = e(Controls.SectionLabel, { text = props.title, first = true, layoutOrder = 0 }),
+	}
+	if not props.flags then
+		children.Empty = e(Controls.Empty, { text = props.error or "Reading flags…", bad = props.error ~= nil, layoutOrder = 1 })
 	else
-		for index, name in ipairs(sortedKeys(flags)) do
-			local on = flags[name] == true
+		for index, name in ipairs(sortedKeys(props.flags)) do
+			local on = props.flags[name] == true
 			local key = `{props.command}:{name}`
-			rows[`f{index}`] = e(Controls.Row, { layoutOrder = index, height = Controls.ROW }, {
-				Toggle = e(Controls.Toggle, {
-					value = on,
-					busy = props.snapshot.busy[key],
-					layoutOrder = 1,
-					onToggle = function()
-						ConsoleStore.run(`{props.command} {name} {if on then "false" else "true"}`, {
-							key = key,
-							refresh = { props.refresh },
-						})
-					end,
-				}),
-				Name = e(Controls.Label, {
-					text = name,
-					mono = true,
-					size = Controls.MONO,
-					height = Controls.ROW,
-					autoWidth = true,
-					color = if on then theme.color.textPrimary else theme.color.textMuted,
-					layoutOrder = 2,
-				}),
+			children[`f{index}`] = e(Controls.Row, {
+				title = name,
+				mono = true,
+				titleTone = if on then "text" else "secondary",
+				selected = key == props.selectedKey,
+				onSelect = function()
+					ConsoleStore.pick(TAB, key)
+				end,
+				right = {
+					Switch = e(Controls.Switch, {
+						value = on,
+						busy = props.snapshot.busy[key],
+						onToggle = function()
+							ConsoleStore.run(flagCommand(props.command, name, on), { key = key, refresh = { props.refresh } })
+						end,
+					}),
+				},
+				layoutOrder = index,
 			})
 		end
 	end
-	if not flags then
-		return e(Controls.Stack, { gap = 2 }, rows)
-	end
-	-- Two columns: flag names are short, and one long column pushed tuning far down the tab.
-	rows.Grid = e("UIGridLayout", {
-		CellSize = UDim2.new(0.5, -4, 0, Controls.ROW),
-		CellPadding = UDim2.fromOffset(8, 2),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	})
 	return e("Frame", {
-		Size = UDim2.new(1, 0, 0, 0),
+		Size = UDim2.new(0.5, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundTransparency = 1,
-	}, rows)
+		LayoutOrder = props.layoutOrder,
+	}, children)
 end
 
 local function DebugTab(props: { snapshot: ConsoleStore.State })
-	local theme = ThemeContext.useTheme()
 	local snapshot = props.snapshot
 	useTuningRevision()
 	local path, setPath = React.useState("")
 	local value, setValue = React.useState("")
 
+	local serverFlags: { [string]: boolean }? = snapshot.lists.flags
+	local clientFlags: { [string]: boolean }? = snapshot.lists.cflags
+
+	local keys: { string } = {}
+	for _, name in ipairs(sortedKeys(serverFlags)) do
+		table.insert(keys, "flag:" .. name)
+	end
+	for _, name in ipairs(sortedKeys(clientFlags)) do
+		table.insert(keys, "cflag:" .. name)
+	end
+	local selectedKey = Selection.resolve(snapshot, TAB, keys)
+
+	local primary: ConsoleStore.Primary? = nil
+	if selectedKey then
+		local command, name = string.match(selectedKey, "^(%w+):(.+)$")
+		if command and name then
+			local flags = if command == "flag" then serverFlags else clientFlags
+			local on = flags ~= nil and flags[name] == true
+			primary = {
+				label = if on then "Turn off" else "Turn on",
+				command = flagCommand(command, name, on),
+				options = { key = selectedKey, refresh = { if command == "flag" then "flags" else "cflags" } },
+			}
+		end
+	end
+	Selection.usePublish(TAB, { keys = keys, selected = selectedKey, primary = primary })
+
 	local children: { [string]: any } = {}
 
-	children.Server = e(Controls.Section, { title = "Server flags", layoutOrder = 1 }, {
-		List = e(FlagList, {
-			flags = snapshot.lists.flags,
+	children.Flags = e("Frame", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = 1,
+	}, {
+		Layout = Controls.list(Enum.FillDirection.Horizontal, 0, { VerticalAlignment = Enum.VerticalAlignment.Top }),
+		Server = e(FlagColumn, {
+			title = "Server flags",
+			flags = serverFlags,
 			error = snapshot.listErrors.flags,
 			command = "flag",
 			refresh = "flags",
+			selectedKey = selectedKey,
 			snapshot = snapshot,
+			layoutOrder = 1,
 		}),
-	})
-	children.Client = e(Controls.Section, { title = "Client flags", layoutOrder = 2 }, {
-		List = e(FlagList, {
-			flags = snapshot.lists.cflags,
+		Client = e(FlagColumn, {
+			title = "Client flags",
+			flags = clientFlags,
 			error = snapshot.listErrors.cflags,
 			command = "cflag",
 			refresh = "cflags",
+			selectedKey = selectedKey,
 			snapshot = snapshot,
+			layoutOrder = 2,
 		}),
 	})
 
 	-- Tuning overrides.
 	local leaves = overrideLeaves()
-	local overrideRows: { [string]: any } = {}
+	children.TuningLabel = e(Controls.SectionLabel, {
+		text = `Tuning overrides · {#leaves}`,
+		layoutOrder = 10,
+		right = {
+			Reset = e(Controls.Button, {
+				text = "Reset all",
+				enabled = #leaves > 0,
+				busy = snapshot.busy["tune:all"],
+				onActivated = function()
+					ConsoleStore.run("tune reset", { key = "tune:all" })
+				end,
+			}),
+		},
+	})
 	for index, leaf in ipairs(leaves) do
-		overrideRows[`o{index}`] = e(Controls.Row, { layoutOrder = index, height = Controls.ROW }, {
-			Path = e(Controls.Label, {
-				text = leaf.path,
-				mono = true,
-				size = Controls.MONO,
-				height = Controls.ROW,
-				width = UDim.new(0, 0),
-				fill = true,
-				layoutOrder = 1,
-			}),
-			Value = e(Controls.Label, {
-				text = display(leaf.value),
-				mono = true,
-				size = Controls.MONO,
-				height = Controls.ROW,
-				autoWidth = true,
-				color = theme.color.accent,
-				layoutOrder = 2,
-			}),
+		children[`o{index}`] = e(Controls.Line, { layoutOrder = 10 + index, gap = 8 }, {
+			Path = e(Controls.Text, { text = leaf.path, mono = true, size = size.monoSmall, height = 28, fill = true, layoutOrder = 1 }),
+			Value = e(Controls.Text, { text = display(leaf.value), mono = true, size = size.monoSmall, height = 28, autoWidth = true, layoutOrder = 2 }),
 			Edit = e(Controls.Button, {
 				text = "Edit",
 				layoutOrder = 3,
@@ -200,134 +231,89 @@ local function DebugTab(props: { snapshot: ConsoleStore.State })
 		})
 	end
 	if #leaves == 0 then
-		overrideRows.Empty = e(Controls.Label, {
-			text = "No overrides: every Config value is at its default.",
-			size = Controls.SMALL,
-			color = theme.color.textMuted,
-			layoutOrder = 0,
-		})
+		children.TuningEmpty = e(Controls.Empty, { text = "None: every Config value is at its default.", layoutOrder = 11 })
 	end
 
-	-- Paths matching what is typed, with their current values.
-	local suggestions: { [string]: any } = {}
+	-- Set a value: the path, matching paths with their current values, the value.
 	local exact = false
+	local matches: { string } = {}
 	if path ~= "" then
 		local needle = string.lower(path)
-		local shown = 0
 		for _, candidate in ipairs(DevTuningService.listPaths()) do
 			local lower = string.lower(candidate)
 			if lower == needle then
 				exact = true
-			end
-			if shown < MAX_PATH_SUGGESTIONS and lower ~= needle and string.find(lower, needle, 1, true) then
-				shown += 1
-				suggestions[`p{shown}`] = e("TextButton", {
-					Text = "",
-					Size = UDim2.new(1, 0, 0, 28),
-					LayoutOrder = shown,
-					BackgroundTransparency = 1,
-					AutoButtonColor = false,
-					[React.Event.Activated] = function()
-						setPath(candidate)
-						setValue(display(DevTuningService.get(candidate)))
-					end,
-					[React.Event.MouseEnter] = function(button: TextButton)
-						button.BackgroundTransparency = 0.9
-					end,
-					[React.Event.MouseLeave] = function(button: TextButton)
-						button.BackgroundTransparency = 1
-					end,
-					BackgroundColor3 = theme.color.accent,
-				}, {
-					Padding = Controls.padding(8),
-					Path = e(Controls.Label, {
-						text = candidate,
-						mono = true,
-						size = Controls.MONO,
-						height = 28,
-						width = UDim.new(0.7, 0),
-					}),
-					Value = e("Frame", { Size = UDim2.fromScale(0.3, 1), Position = UDim2.fromScale(0.7, 0), BackgroundTransparency = 1 }, {
-						Text = e(Controls.Label, {
-							text = display(DevTuningService.get(candidate)),
-							mono = true,
-							size = Controls.MONO,
-							height = 28,
-							alignX = Enum.TextXAlignment.Right,
-							color = theme.color.textMuted,
-						}),
-					}),
-				})
+			elseif #matches < MAX_PATH_SUGGESTIONS and string.find(lower, needle, 1, true) then
+				table.insert(matches, candidate)
 			end
 		end
 	end
-
-	local tuneResult = snapshot.results.tune
-	children.Tuning = e(Controls.Section, {
-		title = "Tuning overrides",
-		layoutOrder = 3,
-		right = e(Controls.Button, {
-			text = "Reset all",
-			tone = "danger",
-			enabled = #leaves > 0,
-			busy = snapshot.busy["tune:all"],
-			onActivated = function()
-				ConsoleStore.run("tune reset", { key = "tune:all" })
-			end,
-		}),
-	}, {
-		List = e(Controls.Stack, { gap = 2, layoutOrder = 1 }, overrideRows),
-		Path = e(Controls.LabelledRow, { label = "Path", labelWidth = 70, layoutOrder = 2 }, {
-			Field = e(Controls.Field, {
-				text = path,
-				placeholder = "Camera.baseline.shoulderBack",
-				mono = true,
-				invalid = path ~= "" and not exact and next(suggestions) == nil,
-				onChange = setPath,
-				layoutOrder = 1,
-			}),
-		}),
-		Suggestions = if next(suggestions)
-			then e(Controls.Stack, { gap = 0, layoutOrder = 3 }, suggestions)
-			else nil,
-		Current = if exact
-			then e(Controls.Label, {
-				text = `now {display(DevTuningService.get(path))}`,
-				mono = true,
-				size = Controls.MONO,
-				color = theme.color.textMuted,
-				layoutOrder = 4,
-			})
-			else nil,
-		Value = e(Controls.LabelledRow, { label = "Value", labelWidth = 70, layoutOrder = 5 }, {
-			Field = e(Controls.Field, {
-				text = value,
-				placeholder = "number, true/false, or x, y, z",
-				mono = true,
-				fill = true,
-				onChange = setValue,
-				onSubmit = function()
-					if path ~= "" and value ~= "" then
-						ConsoleStore.run(`tune set {path} {value}`, { key = "tune" })
-					end
-				end,
-				layoutOrder = 1,
-			}),
-			Set = e(Controls.Button, {
-				text = "Set",
-				tone = "primary",
-				enabled = path ~= "" and value ~= "",
-				busy = snapshot.busy.tune,
-				layoutOrder = 2,
-				onActivated = function()
-					ConsoleStore.run(`tune set {path} {value}`, { key = "tune" })
-				end,
-			}),
-		}),
-		Result = e(Controls.ResultLine, { result = tuneResult, layoutOrder = 6 }),
+	local function set()
+		if path ~= "" and value ~= "" then
+			ConsoleStore.run(`tune set {path} {value}`, { key = "tune" })
+		end
+	end
+	children.SetLabel = e(Controls.SectionLabel, {
+		text = if exact then `Set a value · now {display(DevTuningService.get(path))}` else "Set a value",
+		layoutOrder = 200,
 	})
+	children.Set = e(Controls.Line, { layoutOrder = 201, gap = 6 }, {
+		Path = e(Controls.Input, {
+			text = path,
+			placeholder = "Camera.baseline.fov",
+			fill = true,
+			invalid = path ~= "" and not exact and #matches == 0,
+			onChange = setPath,
+			layoutOrder = 1,
+		}),
+		Value = e(Controls.Input, {
+			text = value,
+			placeholder = "value",
+			width = 90,
+			onChange = setValue,
+			onSubmit = set,
+			layoutOrder = 2,
+		}),
+		Set = e(Controls.Button, {
+			text = "Set",
+			enabled = path ~= "" and value ~= "",
+			busy = snapshot.busy.tune,
+			layoutOrder = 3,
+			onActivated = set,
+		}),
+	})
+	for index, candidate in ipairs(matches) do
+		children[`p{index}`] = e(Controls.Row, {
+			title = candidate,
+			mono = true,
+			titleTone = "secondary",
+			onSelect = function()
+				setPath(candidate)
+				setValue(display(DevTuningService.get(candidate)))
+			end,
+			right = {
+				Value = e(Controls.Text, {
+					text = display(DevTuningService.get(candidate)),
+					mono = true,
+					size = size.monoSmall,
+					tone = "dim",
+					height = 34,
+					autoWidth = true,
+				}),
+			},
+			layoutOrder = 201 + index,
+		})
+	end
+	if path == "" then
+		children.SetHint = e(Controls.Empty, { text = "Number, true/false, or x, y, z. Type part of a path to find it.", layoutOrder = 220 })
+	end
+	if snapshot.results.tune then
+		children.Result = e(Controls.Stack, { pad = true, layoutOrder = 230 }, {
+			Line = e(Controls.Result, { result = snapshot.results.tune }),
+		})
+	end
 
-	return e(Controls.Stack, { gap = 14 }, children)
+	return e(Controls.TabLayout, {}, children)
 end
 
 return DebugTab

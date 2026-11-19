@@ -12,6 +12,12 @@
 -- `restore` goes back to the real save, untouched since the first apply, and to the skills and base
 -- stat values the player had before it. Anything earned while sandboxed is discarded, on restore or
 -- on leaving the game; items dropped in the world are kept to the save they came from (Drops).
+--
+-- Editing (`edit`): a patch is laid over the live build (Editor) and applied to the player at once.
+-- Each player on a preset has a session: the base it came from (a preset, or the real save when the
+-- first edit was made there) and the build right after that base was applied, which is what "edited"
+-- is measured against. The first edit on the real save captures the real build and moves the player
+-- onto a sandbox copy of it before anything changes, so an edit never reaches the real profile.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -43,6 +49,10 @@ local Types = require(script.Types)
 local Specs = require(script.Specs)
 local Serialize = require(script.Serialize)
 local Drops = require(script.Drops)
+local Saved = require(script.Saved)
+local Holds = require(script.Holds)
+local Schema = require(script.Schema)
+local Editor = require(script.Editor)
 
 export type Spec = Types.Spec
 
@@ -50,7 +60,24 @@ local Characters = {}
 
 local REFILLED_POOLS = { "Health", "Mana", "Stamina" }
 local CUSTOM = "custom"
+-- The base name of a sandbox copy of the real save. Not a valid preset name, so it can never be
+-- mistaken for one.
+local REAL_COPY = "real save copy"
 local DEFAULT_CAPACITY = PlayerDataSchema.template().inventory.capacity
+-- Seconds `apply` waits for the preset store's first read before deciding a name does not exist.
+local LOAD_WAIT = 5
+local NAME_PATTERN = "^[%w_%-]+$"
+
+-- What an edited build is measured against. `base` is the preset it came from (nil for a copy of
+-- the real save), `baseSpec` the resolved spec applied for an inline spec, `baseCapture` the build
+-- right after the base was applied, `edited` the paths changed since (Editor.pathsOf).
+type Session = {
+	base: string?,
+	baseSpec: Spec?,
+	baseCapture: Spec,
+	edited: { [string]: boolean },
+}
+local sessions: { [Player]: Session } = {}
 
 -- Preset name (or "custom") applied to each sandboxed player.
 local currentName: { [Player]: string } = {}
@@ -77,31 +104,24 @@ function Characters.dropOrigin(drop: Instance): Drops.Origin?
 	return Drops.origin(drop)
 end
 
--- Characters captured with `save` this session, by name, as specs and as the Luau source to paste
--- into Presets. The game cannot write repository files, so these last until the server stops; a
--- session preset hides a preset file of the same name, being the newer of the two.
-type SessionPreset = { spec: Spec, source: string }
-local sessionPresets: { [string]: SessionPreset } = {}
-
+-- Presets come from two places: modules in Presets (files, committed with the game) and captures
+-- saved in play (Saved: a dev DataStore, or this session only without one). A saved preset never
+-- takes a file preset's name, so a name always means one thing.
 local function presetModule(name: string): ModuleScript?
 	local module = script.Presets:FindFirstChild(name)
 	return if module and module:IsA("ModuleScript") then module else nil
 end
 
 local function rawPreset(name: string): any?
-	local session = sessionPresets[name]
-	if session then
-		return session.spec
-	end
 	local module = presetModule(name)
 	if not module then
-		return nil
+		return Saved.get(name)
 	end
 	local ok, value = pcall(require, module)
 	return if ok then value else nil
 end
 
--- Preset names, files and session captures together, sorted.
+-- Preset names, files and saved captures together, sorted.
 function Characters.list(): { string }
 	local names: { string } = {}
 	for _, child in ipairs(script.Presets:GetChildren()) do
@@ -109,7 +129,7 @@ function Characters.list(): { string }
 			table.insert(names, child.Name)
 		end
 	end
-	for name in pairs(sessionPresets) do
+	for _, name in ipairs(Saved.names()) do
 		if not table.find(names, name) then
 			table.insert(names, name)
 		end
@@ -118,22 +138,20 @@ function Characters.list(): { string }
 	return names
 end
 
--- "session" for a capture saved this session, "file" for a module in Presets, nil for neither.
+-- "file" for a module in Presets, "saved" for a capture in the preset store, "session" for one kept
+-- for this session only; nil for none of them.
 function Characters.presetSource(name: string): string?
-	if sessionPresets[name] then
-		return "session"
+	if presetModule(name) then
+		return "file"
 	end
-	return if presetModule(name) then "file" else nil
+	return Saved.source(name)
 end
 
--- The Luau source of a session capture, for reading it back.
-function Characters.savedSource(name: string): string?
-	local session = sessionPresets[name]
-	return session and session.source
-end
-
-local function setCharacterAttribute(player: Player, name: string?)
+-- The player attribute names the base the player is on ("" on the real save); the edited flag says
+-- whether the editor has changed the build since.
+local function setCharacterAttribute(player: Player, name: string?, edited: boolean?)
 	player:SetAttribute("DevCharacter", name or "")
+	player:SetAttribute("DevCharacterEdited", edited == true)
 end
 
 -- The preset with `extends` resolved, or nil when there is none by that name (or it does not
@@ -150,19 +168,22 @@ end
 local function resolveInput(specOrName: any): (Spec?, string, string?)
 	if type(specOrName) == "string" then
 		local raw: any
-		local session = sessionPresets[specOrName]
-		if session then
-			raw = session.spec
-		else
-			local module = presetModule(specOrName)
-			if not module then
-				return nil, specOrName, `no preset named '{specOrName}' ({table.concat(Characters.list(), ", ")})`
-			end
+		local module = presetModule(specOrName)
+		if module then
 			local ok, value = pcall(require, module)
 			if not ok then
 				return nil, specOrName, `preset '{specOrName}' failed to load: {value}`
 			end
 			raw = value
+		else
+			-- A scenario booting on a saved preset can ask before the store has been read.
+			if Saved.get(specOrName) == nil then
+				Saved.awaitLoaded(LOAD_WAIT)
+			end
+			raw = Saved.get(specOrName)
+			if raw == nil then
+				return nil, specOrName, `no preset named '{specOrName}' ({table.concat(Characters.list(), ", ")})`
+			end
 		end
 		local spec, err = Specs.resolve(raw, rawPreset, { specOrName })
 		return spec, specOrName, err
@@ -232,11 +253,10 @@ local function setPool(entityId: string, pool: string, value: number)
 	if not max or not current then
 		return
 	end
-	local target = if value <= 1 then max * value else math.min(value, max)
-	if target > current then
+	-- Signed through addToPool: removeFromPool runs the cost pipeline, and setting a pool is no cost.
+	local target = Holds.resolve(value, max)
+	if math.abs(target - current) > 1e-3 then
 		StatsManager.addToPool(entityId, pool :: any, target - current)
-	elseif target < current then
-		StatsManager.removeFromPool(entityId, pool :: any, current - target)
 	end
 end
 
@@ -299,6 +319,15 @@ function Characters.apply(player: Player, specOrName: any): (boolean, string?)
 	end
 	busy[player] = true
 	local ok, applied, message = pcall(applyResolved, player, entityId, spec, name)
+	if ok and applied then
+		sessions[player] = {
+			base = name,
+			baseSpec = if name == CUSTOM then spec else nil,
+			baseCapture = Characters.capture(player),
+			edited = {},
+		}
+		Holds.reapply(player)
+	end
 	busy[player] = nil
 	if not ok then
 		return false, `applying '{name}' failed: {applied}`
@@ -308,8 +337,10 @@ end
 
 -- Back to the player's real save and their own skills and base stats. Already there: nothing to do.
 function Characters.restore(player: Player): (boolean, string?)
+	Holds.releaseAll(player)
 	if not PlayerDataService.isSandboxed(player) then
 		currentName[player] = nil
+		sessions[player] = nil
 		setCharacterAttribute(player, nil)
 		return true, nil
 	end
@@ -339,6 +370,7 @@ function Characters.restore(player: Player): (boolean, string?)
 	if not PlayerDataService.isSandboxed(player) then
 		skillsBefore[player] = nil
 		currentName[player] = nil
+		sessions[player] = nil
 		setCharacterAttribute(player, nil)
 	end
 	if not ok then
@@ -530,11 +562,14 @@ function Characters.capture(player: Player): Spec
 		spec.pools = pools
 	end
 
+	-- A stat counts as overridden when its base differs from a new character's, or when a spec set it
+	-- (even to that same value), so an override added in the editor stays listed and saved.
 	local stats: { [string]: number } = {}
+	local overridden = baseBefore[player] or {}
 	for stat, default in pairs(StatsConfig.createDefaultStats() :: any) do
 		local base = baseValueOf(entityId, stat)
 		local defaultBase = if type(default) == "table" and default.getBaseValue then default:getBaseValue() else nil
-		if base and defaultBase and base ~= defaultBase then
+		if base and defaultBase and (base ~= defaultBase or overridden[stat] ~= nil) then
 			stats[stat] = base
 		end
 	end
@@ -549,16 +584,289 @@ function Characters.toLuau(spec: Spec): string
 	return Serialize.toLuau(spec :: any)
 end
 
--- Captures the player's character as a session preset named `name` (see sessionPresets) and returns
--- its Luau source. Applying `name` later this session gives this character back.
-function Characters.save(player: Player, name: string): string
+export type SaveResult = {
+	ok: boolean,
+	message: string,
+	source: string?,
+	-- "saved" when it went into the preset store, "session" when it is kept for this session only.
+	storage: string?,
+}
+
+-- Captures the player's live build as a preset named `name`, in the preset store (Saved) or, without
+-- one, for this session. A file preset's name is refused. On a preset, the saved preset becomes the
+-- base the build is edited against.
+function Characters.save(player: Player, name: string): SaveResult
+	if not string.match(name, NAME_PATTERN) then
+		return { ok = false, message = "a preset name is letters, digits, '-' and '_'" }
+	end
+	if presetModule(name) then
+		return { ok = false, message = `'{name}' is a file preset (Presets/{name}.luau); pick another name` }
+	end
 	local spec = Characters.capture(player)
 	local source = Characters.toLuau(spec)
-	sessionPresets[name] = { spec = Specs.deepCopy(spec), source = source }
-	return source
+	local persisted, why = Saved.put(name, Specs.deepCopy(spec))
+	if PlayerDataService.isSandboxed(player) then
+		sessions[player] = { base = name, baseCapture = spec, edited = {} }
+		currentName[player] = name
+		setCharacterAttribute(player, name, false)
+	end
+	return {
+		ok = true,
+		message = if persisted
+			then `saved '{name}' to the preset store`
+			else `saved '{name}' for this session only: the preset store is unavailable ({why})`,
+		source = source,
+		storage = if persisted then "saved" else "session",
+	}
+end
+
+-- Removes a saved preset. File presets are refused: delete the module instead.
+function Characters.delete(name: string): (boolean, string)
+	if presetModule(name) then
+		return false, `'{name}' is a file preset; remove Presets/{name}.luau to delete it`
+	end
+	local removed, why = Saved.remove(name)
+	if not removed then
+		return false, `no saved preset named '{name}'`
+	end
+	if why then
+		return true, `deleted '{name}' here, but the preset store could not be updated ({why})`
+	end
+	return true, `deleted '{name}'`
+end
+
+export type EditResult = {
+	ok: boolean,
+	message: string,
+	-- Validator problems keyed by spec path, when the edit was refused for them.
+	problems: { Editor.Problem }?,
+	-- Whether the edit was set on the live player (true) or applied by a rebuild (false).
+	inPlace: boolean?,
+}
+
+local function editLocked(player: Player, entityId: string, rawPatch: any): EditResult
+	local patch = Serialize.fromData(rawPatch)
+	if type(patch) ~= "table" or next(patch) == nil then
+		return { ok = false, message = "a patch is a non-empty JSON object of spec fields" }
+	end
+	local current = Characters.capture(player)
+	local expanded, expandError = Editor.expand(patch, current)
+	if not expanded then
+		return { ok = false, message = expandError or "bad patch", problems = { { field = "bag", message = expandError or "" } } }
+	end
+	local merged = Editor.merge(current, expanded)
+	local problems = Specs.validate(merged)
+	if #problems > 0 then
+		return {
+			ok = false,
+			message = `refused: {table.concat(problems, "; ")}`,
+			problems = Editor.keyProblems(problems),
+		}
+	end
+
+	local sandboxed = PlayerDataService.isSandboxed(player)
+	local session = sessions[player]
+	if not sandboxed or not session then
+		-- The first edit on the real save: the build as it is now becomes the base of a sandbox copy.
+		session = {
+			base = if sandboxed then currentName[player] else nil,
+			baseCapture = current,
+			edited = {},
+		}
+	end
+	local name = if session.base then session.base else REAL_COPY
+	local inPlace = sandboxed and Editor.isCheap(expanded)
+	if inPlace then
+		Editor.applyInPlace(player, expanded, merged)
+	else
+		local applied, applyError = applyResolved(player, entityId, merged, name)
+		if not applied then
+			return { ok = false, message = `could not apply the edit: {applyError}` }
+		end
+		Holds.reapply(player)
+		-- A pool set by this edit moves its hold along with it, rather than being put back.
+		for pool, value in pairs(if type(expanded.pools) == "table" then expanded.pools else {}) do
+			Holds.setPool(player, pool, if value == false then 1 else value)
+		end
+	end
+	sessions[player] = session
+
+	local after = Characters.capture(player)
+	local touched = Editor.pathsOf(expanded, current, after)
+	for _, path in ipairs(touched) do
+		session.edited[path] = if Editor.differs(path, after, session.baseCapture) then true else nil
+	end
+	setCharacterAttribute(player, name, next(session.edited) ~= nil)
+	local words = Editor.describe(touched)
+	return {
+		ok = true,
+		message = `{if inPlace then "set" else "rebuilt with"} {if words ~= "" then words else "the edit"}`
+			.. (if sandboxed then "" else " (now on a sandbox copy of your real save)"),
+		inPlace = inPlace,
+	}
+end
+
+-- Lays `patch` (a partial spec, Editor's rules) over the player's live build and applies it. Refused
+-- whole, with problems keyed by field, when the result would not validate. On the real save it first
+-- moves the player onto a sandbox copy of their build, so the real profile is never written.
+function Characters.edit(player: Player, patch: any): EditResult
+	local entityId = Registrar.getPlayerId(player)
+	if not entityId or not PlayerDataService.get(player) then
+		return { ok = false, message = "the player's save has not loaded" }
+	end
+	if busy[player] then
+		return { ok = false, message = "a character change is already in progress" }
+	end
+	busy[player] = true
+	local ok, result = pcall(editLocked, player, entityId, patch)
+	busy[player] = nil
+	if not ok then
+		return { ok = false, message = `editing failed: {result}` }
+	end
+	return result
+end
+
+-- Back to the base as it is defined: the preset re-applied (an inline spec re-applied as it was),
+-- or, for a copy of the real save, the real save itself.
+function Characters.revert(player: Player): (boolean, string)
+	if not PlayerDataService.isSandboxed(player) then
+		return true, "already on your real save"
+	end
+	local session = sessions[player]
+	local base = session and session.base
+	if not base then
+		local ok, err = Characters.restore(player)
+		return ok, if ok then "back on your real save" else err or "could not restore"
+	end
+	local ok, err = Characters.apply(player, if base == CUSTOM and session and session.baseSpec then session.baseSpec else base)
+	return ok, if ok then `reverted to {base}` else err or "could not revert"
+end
+
+-- Opens a mastery node (by id or display name): every branch below what opens it is raised to that
+-- (never lowered). Says what else it needs to be in effect: attunement, a passive slot.
+function Characters.unlock(player: Player, ref: string): EditResult
+	local node, tree = Schema.findNode(ref)
+	if not node or not tree then
+		return { ok = false, message = `no mastery node '{ref}'` }
+	end
+	local data = PlayerDataService.get(player)
+	if not data then
+		return { ok = false, message = "the player's save has not loaded" }
+	end
+	local track = tree.track
+	local requirement, needsAttunement = Schema.requirement(node, track)
+	local entry = data.progression.masteries[track]
+	local branches = if type(entry) == "table" and type(entry.branches) == "table" then entry.branches else {}
+	local raise: { [string]: number } = {}
+	for branch, need in pairs(requirement :: any) do
+		if (branches[branch] or 0) < need then
+			raise[branch] = need
+		end
+	end
+	local notes: { string } = {}
+	local level = CharacterXP.levelOf(data.character.xp)
+	local attuned = Attunement.effective(data.progression.attunement, level)
+	if needsAttunement and not table.find(attuned, track) then
+		table.insert(notes, `needs {track} attuned ({#attuned} of {Attunement.slotsFor(level)} slots used)`)
+	end
+	if node.kind == "select" then
+		local slots = PassivePool.slotsFor(level)
+		table.insert(notes, `choose it in passives ({#data.progression.passives} of {slots} slots used)`)
+	end
+	if node.kind == "form" and not (node.shapes and #node.shapes > 0) then
+		table.insert(notes, "designed but not built: no shape implements it yet")
+	end
+	local suffix = if #notes > 0 then `; {table.concat(notes, "; ")}` else ""
+	if next(raise) == nil then
+		return { ok = true, message = `{node.displayName} is already unlocked{suffix}` }
+	end
+	local result = Characters.edit(player, { mastery = { [track] = raise } })
+	if result.ok then
+		result.message = `unlocked {node.displayName} ({track}){suffix}`
+	end
+	return result
+end
+
+-- Sets a pool from text: "81" (an amount), "60%", "full" or "empty". Goes through `edit`, so on
+-- the real save it moves onto a sandbox copy first.
+function Characters.setPool(player: Player, pool: string, text: string): EditResult
+	local value: number?
+	local lowered = string.lower(text)
+	if lowered == "full" or lowered == "max" then
+		value = 1
+	elseif lowered == "empty" then
+		value = 0
+	else
+		local percent = string.match(text, "^%s*([%d%.]+)%s*%%%s*$")
+		if percent and tonumber(percent) then
+			value = math.clamp((tonumber(percent) :: number) / 100, 0, 1)
+		else
+			value = tonumber(text)
+		end
+	end
+	if value == nil or value < 0 then
+		return { ok = false, message = `'{text}' is not a pool value (81, 60%, full, empty)` }
+	end
+	return Characters.edit(player, { pools = { [pool] = value } })
+end
+
+-- Holds a pool at its current value (Holds), or releases it. Session tooling, not an edit: it
+-- changes nothing by itself, so it never moves the player off the real save.
+function Characters.hold(player: Player, pool: string, on: boolean): (boolean, string)
+	if not table.find(Schema.build().pools, pool) then
+		return false, `unknown pool '{pool}'`
+	end
+	local value = Holds.hold(player, pool, on)
+	if on and not value then
+		return false, `you have no {pool} pool`
+	end
+	return true, if value then `holding {pool} at {math.floor(value + 0.5)}` else `released {pool}`
+end
+
+-- The live build and what the editor shows about it (Editor.readouts), with where it came from.
+function Characters.state(player: Player): { [string]: any }?
+	local entityId = Registrar.getPlayerId(player)
+	if not entityId or not PlayerDataService.get(player) then
+		return nil
+	end
+	local spec = Characters.capture(player)
+	local out = Editor.readouts(player, entityId, spec)
+	local sandboxed = PlayerDataService.isSandboxed(player)
+	local session = sessions[player]
+	local edited: { string } = {}
+	for path in pairs(session and session.edited or {}) do
+		table.insert(edited, path)
+	end
+	table.sort(edited)
+	local base = if sandboxed then (if session then session.base else currentName[player]) else nil
+	out.sandboxed = sandboxed
+	out.base = base or ""
+	out.name = if sandboxed then (base or REAL_COPY) else ""
+	out.baseSource = if not sandboxed
+		then "real"
+		elseif base == nil then "real copy"
+		elseif base == CUSTOM then "custom"
+		else Characters.presetSource(base) or "missing"
+	out.edited = edited
+	out.editedSummary = Editor.describe(edited)
+	out.spec = Serialize.toData(spec)
+	return out
+end
+
+-- Every choice and limit the editor offers (Schema).
+function Characters.schema(): any
+	return Schema.build()
+end
+
+-- Whether saved presets persist between sessions, and why not.
+function Characters.storeStatus(): (boolean, string?)
+	local why = Saved.unavailableReason()
+	return why == nil, why
 end
 
 function Characters.start()
+	Saved.load()
+	Holds.start()
 	local function track(player: Player)
 		if player:GetAttribute("DevCharacter") == nil then
 			setCharacterAttribute(player, nil)
@@ -576,6 +884,7 @@ function Characters.start()
 		skillsBefore[player] = nil
 		baseBefore[player] = nil
 		busy[player] = nil
+		sessions[player] = nil
 	end)
 end
 

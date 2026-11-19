@@ -1,24 +1,30 @@
 --!strict
--- Inspect: one entity's live combat state from the `inspect` command -- stats with the modifiers
--- that move them and where each came from, status effects, the skill session. The player by default;
--- an NPC when picked here or with Inspect on its row in the World tab.
+-- Inspect: one entity's live combat state from the `inspect` command -- stats as base -> final with
+-- the modifiers that move them indented under each, status effects, the skill session. The player by
+-- default; an NPC when picked here or with Inspect in the World tab.
 --
--- Read about once a second while the tab is showing, without logging (a read, not an action), so
--- modifiers can be watched coming and going during a fight.
+-- The targets are chips pinned above the list (Up/Down walks them); the stats scroll; statuses and
+-- the skill session sit in the pinned pane at the foot, so they stay in view while watching a fight
+-- however far the stats are scrolled. Read about once a second while the tab is showing, without
+-- logging (a read, not an action); Enter runs `inspect` for real, which logs the whole result.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 local Console = script.Parent.Parent
-local ThemeContext = require(Console.Parent.Parent.hooks.ThemeContext)
 local ConsoleStore = require(Console.ConsoleStore)
 local Controls = require(Console.Controls)
+local Selection = require(Console.Selection)
+local Theme = require(Console.Theme)
 
 local client = script:FindFirstAncestor("Client") :: Instance
 local DevCommandsClient = require((client :: any).dev.Commands)
 
 local e = React.createElement
+local size = Theme.size
+local space = Theme.space
 
+local TAB = "inspect"
 local POLL_SECONDS = 1
 local SELF = "me"
 
@@ -40,81 +46,72 @@ local function signed(value: any): string
 end
 
 local function StatRow(props: { stat: any, layoutOrder: number })
-	local theme = ThemeContext.useTheme()
 	local stat = props.stat
 	local modified = #stat.modifiers > 0
-	local value = if stat.current ~= nil then `{fmt(stat.current)} / {fmt(stat.max)}` else fmt(stat.final)
+	local final = if stat.current ~= nil then `{fmt(stat.current)} / {fmt(stat.max)}` else fmt(stat.final)
 	local children: { [string]: any } = {
-		Line = e(Controls.Row, { layoutOrder = 1, height = 26 }, {
-			Name = e(Controls.Label, {
+		Layout = Controls.list(Enum.FillDirection.Vertical, 0),
+		Line = e(Controls.Line, { layoutOrder = 0, vertical = 3 }, {
+			Name = e(Controls.Text, {
 				text = stat.name,
-				bold = true,
-				height = 26,
-				width = UDim.new(0, 0),
+				tone = if modified then "text" else "secondary",
+				height = 24,
 				fill = true,
-				color = if modified then theme.color.textPrimary else theme.color.textMuted,
 				layoutOrder = 1,
 			}),
-			Base = e(Controls.Label, {
-				text = `base {fmt(stat.base)}`,
+			Base = e(Controls.Text, {
+				text = fmt(stat.base),
 				mono = true,
-				size = Controls.MONO,
-				height = 26,
-				width = UDim.new(0, 120),
-				alignX = Enum.TextXAlignment.Right,
-				color = theme.color.textMuted,
+				size = size.monoSmall,
+				tone = "dim",
+				height = 24,
+				autoWidth = true,
 				layoutOrder = 2,
 			}),
-			Final = e(Controls.Label, {
-				text = value,
+			Arrow = e(Controls.Text, { text = "→", tone = "dim", size = size.secondary, height = 24, autoWidth = true, layoutOrder = 3 }),
+			Final = e(Controls.Text, {
+				text = final,
 				mono = true,
-				size = Controls.MONO,
-				height = 26,
-				width = UDim.new(0, 130),
+				size = size.monoSmall,
+				tone = if modified then "text" else "secondary",
+				height = 24,
+				width = UDim.new(0, 92),
 				alignX = Enum.TextXAlignment.Right,
-				color = if modified then theme.color.accent else theme.color.textPrimary,
-				layoutOrder = 3,
+				layoutOrder = 4,
 			}),
 		}),
 	}
 	for index, modifier in ipairs(stat.modifiers) do
-		local label = if modifier.name ~= modifier.source then `{modifier.name}  ({modifier.source})` else modifier.source
-		children[`m{index}`] = e(Controls.Row, { layoutOrder = 1 + index, height = 24 }, {
-			Indent = e("Frame", { Size = UDim2.fromOffset(14, 1), BackgroundTransparency = 1, LayoutOrder = 0 }),
-			Source = e(Controls.Label, {
-				text = label,
-				size = Controls.SMALL,
-				height = 24,
-				width = UDim.new(0, 0),
-				fill = true,
-				color = theme.color.textMuted,
-				layoutOrder = 1,
+		local source = if modifier.name ~= modifier.source then `{modifier.name} ({modifier.source})` else modifier.source
+		children[`m{index}`] = e("Frame", {
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			LayoutOrder = index,
+		}, {
+			Padding = e("UIPadding", {
+				PaddingLeft = UDim.new(0, space.pad + 14),
+				PaddingRight = UDim.new(0, space.pad),
+				PaddingBottom = UDim.new(0, 1),
 			}),
-			Type = e(Controls.Label, {
-				text = modifier.type,
+			Text = e(Controls.Text, {
+				text = `{signed(modifier.value)} {modifier.type} · {source}`,
 				mono = true,
-				size = Controls.MONO,
-				height = 24,
-				autoWidth = true,
-				color = theme.color.textMuted,
-				layoutOrder = 2,
-			}),
-			Value = e(Controls.Label, {
-				text = signed(modifier.value),
-				mono = true,
-				size = Controls.MONO,
-				height = 24,
-				width = UDim.new(0, 90),
-				alignX = Enum.TextXAlignment.Right,
-				layoutOrder = 3,
+				size = size.small,
+				tone = "secondary",
+				wrap = true,
 			}),
 		})
 	end
-	return e(Controls.Stack, { gap = 0, layoutOrder = props.layoutOrder }, children)
+	return e("Frame", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = props.layoutOrder,
+	}, children)
 end
 
 local function InspectTab(props: { snapshot: ConsoleStore.State, active: boolean })
-	local theme = ThemeContext.useTheme()
 	local snapshot = props.snapshot
 	local target = snapshot.inspectTarget or SELF
 	local data, setData = React.useState(nil :: any)
@@ -149,135 +146,119 @@ local function InspectTab(props: { snapshot: ConsoleStore.State, active: boolean
 		end
 	end, { props.active, snapshot.open, target } :: { any })
 
+	-- Targets: you, then every NPC with an id. Names that repeat are numbered in list order (entity ids
+	-- are GUIDs, far too long for a chip); the selected NPC's id is in the pane below.
 	local npcData = snapshot.lists.npcs
-	local npcChoices: { string } = {}
-	local labelToId: { [string]: string } = {}
-	for _, npc in ipairs(if npcData and npcData.npcs then npcData.npcs else {}) do
+	local npcs: { any } = if npcData and npcData.npcs then npcData.npcs else {}
+	local nameCount: { [string]: number } = {}
+	for _, npc in ipairs(npcs) do
+		nameCount[npc.name] = (nameCount[npc.name] or 0) + 1
+	end
+	local nameSeen: { [string]: number } = {}
+	local keys: { string } = { SELF }
+	local chips: { [string]: any } = {}
+	local function addChip(key: string, label: string, mono: boolean?)
+		chips[`t{#keys}`] = e(Controls.Chip, {
+			text = label,
+			mono = mono,
+			selected = key == target,
+			layoutOrder = #keys,
+			onActivated = function()
+				ConsoleStore.setInspectTarget(if key == SELF then nil else key)
+			end,
+		})
+	end
+	addChip(SELF, "Me")
+	for _, npc in ipairs(npcs) do
 		if npc.entityId then
-			local label = `{npc.name}  {npc.entityId}`
-			table.insert(npcChoices, label)
-			labelToId[label] = npc.entityId
+			table.insert(keys, npc.entityId)
+			nameSeen[npc.name] = (nameSeen[npc.name] or 0) + 1
+			addChip(npc.entityId, if nameCount[npc.name] > 1 then `{npc.name} {nameSeen[npc.name]}` else npc.name)
 		end
 	end
-	local currentLabel: string? = nil
-	for label, id in pairs(labelToId) do
-		if id == target then
-			currentLabel = label
-		end
+	if not table.find(keys, target) then
+		table.insert(keys, target)
+		addChip(target, target, true)
 	end
 
-	local children: { [string]: any } = {}
-	children.Target = e(Controls.Section, { title = "Target", layoutOrder = 1 }, {
-		Row = e(Controls.Row, { layoutOrder = 1 }, {
-			Me = e(Controls.Button, {
-				text = "Me",
-				selected = target == SELF,
-				layoutOrder = 1,
-				onActivated = function()
-					ConsoleStore.setInspectTarget(nil)
-				end,
-			}),
-			Npc = e(Controls.Choice, {
-				value = currentLabel,
-				choices = npcChoices,
-				placeholder = if target ~= SELF then target else "an NPC",
-				onPick = function(label: string?)
-					ConsoleStore.setInspectTarget(if label then labelToId[label] else nil)
-				end,
-				fill = true,
-				layoutOrder = 2,
-			}),
-		}),
+	Selection.usePublish(TAB, {
+		keys = keys,
+		selected = target,
+		primary = { label = "Log it", command = `inspect {Controls.quote(target)}` },
+		onSelect = function(key: string)
+			ConsoleStore.setInspectTarget(if key == SELF then nil else key)
+		end,
 	})
 
+	local top = e(Controls.Stack, {}, {
+		Label = e(Controls.SectionLabel, { text = "Target", first = true, layoutOrder = 1 }),
+		Chips = e(Controls.Line, { wrap = true, gap = 6, vertical = 0, layoutOrder = 2 }, chips),
+		Gap = e("Frame", { Size = UDim2.new(1, 0, 0, 6), BackgroundTransparency = 1, LayoutOrder = 3 }),
+	})
+
+	local children: { [string]: any } = {}
 	if problem then
-		children.Problem = e(Controls.ResultLine, { result = { ok = false, message = problem }, layoutOrder = 2 })
+		children.Problem = e(Controls.Empty, { text = problem, bad = true, layoutOrder = 1 })
 	end
 
+	local detail: any = nil
 	if data then
-		children.Who = e(Controls.Row, { layoutOrder = 3, gap = 8 }, {
-			Name = e(Controls.Label, { text = data.name, bold = true, size = 19, height = 28, autoWidth = true, layoutOrder = 1 }),
-			Kind = e(Controls.Chip, { text = if data.isPlayer then "player" else "npc", layoutOrder = 2 }),
-			Id = e(Controls.Label, {
-				text = data.entityId,
-				mono = true,
-				size = Controls.MONO,
-				height = 28,
-				width = UDim.new(0, 0),
-				fill = true,
-				alignX = Enum.TextXAlignment.Right,
-				color = theme.color.textMuted,
-				layoutOrder = 3,
-			}),
-		})
-
-		local session = data.session
-		children.Session = e(Controls.Section, { title = "Skill session", layoutOrder = 4 }, {
-			Text = e(Controls.Label, {
-				text = if session
-					then `{session.skillId}  ·  {session.state}{if session.combo
-						then `  ·  combo {session.combo.currentStep}/{session.combo.totalSteps}`
-						else ""}  ·  {fmt(session.stateAge)}s in state`
-					else "No active session.",
-				mono = session ~= nil,
-				size = if session then Controls.MONO else Controls.TEXT,
-				color = if session then theme.color.accent else theme.color.textMuted,
-				wrap = true,
-				layoutOrder = 1,
-			}),
-		})
-
-		local statusRows: { [string]: any } = {}
-		for index, status in ipairs(data.statuses or {}) do
-			statusRows[`s{index}`] = e(Controls.Row, { layoutOrder = index, height = 26 }, {
-				Id = e(Controls.Label, { text = status.id, bold = true, height = 26, width = UDim.new(0, 0), fill = true, layoutOrder = 1 }),
-				Stacks = e(Controls.Label, { text = `x{status.stacks}`, mono = true, size = Controls.MONO, height = 26, width = UDim.new(0, 60), alignX = Enum.TextXAlignment.Right, layoutOrder = 2 }),
-				Left = e(Controls.Label, {
-					text = `{fmt(status.remaining)}s`,
-					mono = true,
-					size = Controls.MONO,
-					height = 26,
-					width = UDim.new(0, 80),
-					alignX = Enum.TextXAlignment.Right,
-					color = theme.color.textMuted,
-					layoutOrder = 3,
-				}),
-			})
+		local needle = string.lower(filter)
+		local shown = 0
+		local rows: { [string]: any } = {}
+		for _, stat in ipairs(data.stats or {}) do
+			local passes = (needle == "" or string.find(string.lower(stat.name), needle, 1, true) ~= nil)
+				and (not modifiedOnly or #stat.modifiers > 0)
+			if passes then
+				shown += 1
+				rows[stat.name] = e(StatRow, { stat = stat, layoutOrder = 10 + shown })
+			end
 		end
-		if #(data.statuses or {}) == 0 then
-			statusRows.None = e(Controls.Label, { text = "No status effects.", color = theme.color.textMuted, layoutOrder = 0 })
-		end
-		children.Statuses = e(Controls.Section, { title = "Status effects", layoutOrder = 5 }, statusRows)
-
-		local statRows: { [string]: any } = {
-			Tools = e(Controls.Row, { layoutOrder = 0 }, {
-				Filter = e(Controls.Field, { text = filter, placeholder = "filter stats", fill = true, onChange = setFilter, layoutOrder = 1 }),
-				Modified = e(Controls.Button, {
-					text = "Modified only",
+		children.StatsLabel = e(Controls.SectionLabel, {
+			text = `Stats · base → final · {shown}`,
+			first = true,
+			layoutOrder = 2,
+			right = {
+				Filter = e(Controls.Input, { text = filter, placeholder = "filter", mono = false, width = 110, onChange = setFilter, layoutOrder = 1 }),
+				Modified = e(Controls.Chip, {
+					text = "Modified",
 					selected = modifiedOnly,
 					layoutOrder = 2,
 					onActivated = function()
 						setModifiedOnly(not modifiedOnly)
 					end,
 				}),
-			}),
-		}
-		local needle = string.lower(filter)
-		local shown = 0
-		for _, stat in ipairs(data.stats or {}) do
-			local passes = (needle == "" or string.find(string.lower(stat.name), needle, 1, true) ~= nil)
-				and (not modifiedOnly or #stat.modifiers > 0)
-			if passes then
-				shown += 1
-				statRows[stat.name] = e(StatRow, { stat = stat, layoutOrder = shown })
-			end
+			},
+		})
+		Controls.mergeInto(children, rows)
+		if shown == 0 then
+			children.NoStats = e(Controls.Empty, { text = "No stat matches.", layoutOrder = 3 })
 		end
-		children.Stats = e(Controls.Section, { title = `Stats  ({shown})`, layoutOrder = 6 }, statRows)
+
+		local statuses: { string } = {}
+		for _, status in ipairs(data.statuses or {}) do
+			table.insert(statuses, `{status.id}{if status.stacks > 1 then ` ×{status.stacks}` else ""}  {fmt(status.remaining)}s`)
+		end
+		local session = data.session
+		local sessionText = if session
+			then `{session.skillId} · {session.state}{if session.combo
+				then ` · step {session.combo.currentStep} / {session.combo.totalSteps}`
+				else ""} · {fmt(session.stateAge)}s`
+			else "none"
+		detail = e(Controls.DetailPane, {
+			title = data.name,
+			id = data.entityId,
+			rows = {
+				{ "Kind", if data.isPlayer then "player" else "NPC" },
+				{ "Statuses", if #statuses > 0 then table.concat(statuses, "\n") else "none", #statuses > 0 },
+				{ "Skill", sessionText, session ~= nil },
+			},
+		})
 	elseif not problem then
-		children.Loading = e(Controls.Label, { text = "Reading…", color = theme.color.textMuted, layoutOrder = 3 })
+		children.Loading = e(Controls.Empty, { text = "Reading…", layoutOrder = 1 })
 	end
 
-	return e(Controls.Stack, { gap = 14 }, children)
+	return e(Controls.TabLayout, { top = top, detail = detail }, children)
 end
 
 return InspectTab

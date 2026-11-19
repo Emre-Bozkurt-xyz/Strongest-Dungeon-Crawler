@@ -50,6 +50,8 @@ export type State = {
 	last: LastResult?,
 	devState: DevState,
 	devCharacter: string,
+	-- Whether the character editor has changed the build since its preset was applied.
+	devCharacterEdited: boolean,
 	-- The NPC picked in the World tab, for Inspect.
 	inspectTarget: string?,
 	-- Client errors and warnings logged while the console was closed.
@@ -58,6 +60,34 @@ export type State = {
 	output: { OutputEntry },
 	-- Which list the Log tab shows: "commands" or "output".
 	logView: string,
+	-- The row picked in each tab, by the key the tab gave it. A tab falls back to a default of its
+	-- own when this is unset or names a row that is gone.
+	selection: { [string]: string },
+	-- What Enter on an empty command line would do in each tab, shown there as ghost text.
+	ghosts: { [string]: Ghost },
+}
+
+export type Ghost = { label: string, command: string }
+
+-- What a tab offers the command line: its selectable rows in order, which is picked, and the picked
+-- row's primary action. `command` is run as is; `run` replaces that when the action is not a single
+-- command; `fill` is put on the line for completing by hand when the action cannot run yet.
+export type Primary = {
+	label: string,
+	command: string?,
+	options: RunOptions?,
+	run: (() -> ())?,
+	enabled: boolean?,
+	fill: string?,
+}
+
+export type View = {
+	keys: { string },
+	selected: string?,
+	primary: Primary?,
+	-- Replaces the plain selection change, for a tab whose selection lives elsewhere (Inspect's
+	-- target).
+	onSelect: ((string) -> ())?,
 }
 
 export type OutputEntry = {
@@ -94,11 +124,19 @@ local state: State = {
 	last = nil,
 	devState = { scenarioId = "", scenarioTitle = "", stageName = "", revision = 0 },
 	devCharacter = "",
+	devCharacterEdited = false,
 	inspectTarget = nil,
 	unread = 0,
 	output = {},
 	logView = "commands",
+	selection = {},
+	ghosts = {},
 }
+
+-- Each tab's last published view. Read only on a key press, so it is kept out of the state and
+-- publishing it re-renders nothing unless the ghost text changes.
+local views: { [string]: View } = {}
+local focusInput: (() -> ())? = nil
 
 local OUTPUT_LIMIT = 100
 
@@ -287,6 +325,81 @@ function ConsoleStore.setInspectTarget(target: string?)
 	set({ inspectTarget = target })
 end
 
+function ConsoleStore.select(tab: string, key: string?)
+	if state.selection[tab] ~= key then
+		setIn("selection", tab, key)
+	end
+end
+
+-- Called by a tab on every render with what it shows. Only a change of the ghost text is state.
+function ConsoleStore.publishView(tab: string, view: View)
+	views[tab] = view
+	local primary = view.primary
+	local text = if primary then primary.command or primary.fill else nil
+	local ghost: Ghost? = if primary and text then { label = primary.label, command = text } else nil
+	local current = state.ghosts[tab]
+	local same = if ghost and current then ghost.label == current.label and ghost.command == current.command else ghost == current
+	if not same then
+		setIn("ghosts", tab, ghost)
+	end
+end
+
+-- Moves the active tab's selection by `delta` rows, stopping at either end. False when the tab has
+-- no rows to move through.
+function ConsoleStore.moveSelection(delta: number): boolean
+	local tab = state.tab
+	local view = views[tab]
+	if not view or #view.keys == 0 then
+		return false
+	end
+	local index = if view.selected then table.find(view.keys, view.selected) else nil
+	local nextIndex = if index then math.clamp(index + delta, 1, #view.keys) else (if delta > 0 then 1 else #view.keys)
+	local key = view.keys[nextIndex]
+	if view.onSelect then
+		view.onSelect(key)
+	else
+		ConsoleStore.select(tab, key)
+	end
+	return true
+end
+
+-- Runs the active tab's primary action for its selected row. When there is one but it cannot run
+-- yet, returns the text to put on the command line instead, so it can be finished by hand.
+function ConsoleStore.runPrimary(): (boolean, string?)
+	local view = views[state.tab]
+	local primary = view and view.primary
+	if not primary then
+		return false, nil
+	end
+	if primary.enabled == false or not (primary.run or primary.command) then
+		return false, primary.fill
+	end
+	if primary.run then
+		primary.run()
+	elseif primary.command then
+		ConsoleStore.run(primary.command, primary.options)
+	end
+	return true, nil
+end
+
+-- The command line registers how to take focus, so clicking a row can hand the keyboard back to it
+-- (Up/Down and Enter act on the selection from there).
+function ConsoleStore.setFocuser(callback: (() -> ())?)
+	focusInput = callback
+end
+
+function ConsoleStore.focusInput()
+	if focusInput then
+		focusInput()
+	end
+end
+
+-- Picks a row from a click: selects it and gives the keyboard to the command line.
+function ConsoleStore.pick(tab: string, key: string)
+	ConsoleStore.select(tab, key)
+	ConsoleStore.focusInput()
+end
+
 local pendingOutput: { OutputEntry } = {}
 local outputFlushScheduled = false
 
@@ -406,12 +519,16 @@ function ConsoleStore.start()
 	local player = Players.LocalPlayer
 	local function syncCharacter()
 		local value = player:GetAttribute("DevCharacter")
-		set({ devCharacter = if type(value) == "string" then value else "" })
+		set({
+			devCharacter = if type(value) == "string" then value else "",
+			devCharacterEdited = player:GetAttribute("DevCharacterEdited") == true,
+		})
 		if state.open then
 			ConsoleStore.fetch("presets")
 		end
 	end
 	player:GetAttributeChangedSignal("DevCharacter"):Connect(syncCharacter)
+	player:GetAttributeChangedSignal("DevCharacterEdited"):Connect(syncCharacter)
 	syncCharacter()
 end
 

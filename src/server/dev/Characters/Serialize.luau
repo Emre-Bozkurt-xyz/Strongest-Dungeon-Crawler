@@ -116,4 +116,42 @@ function Serialize.toLuau(spec: { [string]: any }): string
 	return `return {valueText(spec, 0, FIELD_ORDER, true)}\n`
 end
 
+-- A spec in a shape JSON (a DataStore, a remote) carries intact: a table with both positional and
+-- named entries, such as the item `{ "iron_sword", rarity = "magic" }`, becomes an object whose
+-- positional keys are strings ("1"). `fromData` turns those back. No spec field is keyed by a
+-- number-like string, so the round trip is exact.
+function Serialize.toData(value: any): any
+	if type(value) ~= "table" then
+		return value
+	end
+	local count = #value
+	local total = 0
+	for _ in pairs(value) do
+		total += 1
+	end
+	local out: { [any]: any } = {}
+	if total == count then
+		for index = 1, count do
+			out[index] = Serialize.toData(value[index])
+		end
+		return out
+	end
+	for key, child in pairs(value) do
+		out[tostring(key)] = Serialize.toData(child)
+	end
+	return out
+end
+
+function Serialize.fromData(value: any): any
+	if type(value) ~= "table" then
+		return value
+	end
+	local out: { [any]: any } = {}
+	for key, child in pairs(value) do
+		local index = if type(key) == "string" and string.match(key, "^[1-9]%d*$") then tonumber(key) else nil
+		out[index or key] = Serialize.fromData(child)
+	end
+	return out
+end
+
 return Serialize

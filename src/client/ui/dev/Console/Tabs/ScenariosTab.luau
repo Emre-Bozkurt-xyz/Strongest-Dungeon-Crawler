@@ -1,20 +1,22 @@
 --!strict
--- Scenarios: every scenario from `scenario list`, grouped by the first part of its id
--- ("combat/...", "arena/..."), with what pressing Play loads.
+-- Scenarios: every scenario from `scenario list` as a row, grouped by the first part of its id
+-- ("combat/...", "arena/..."), with the selected one's details, load / pin / exit, and what pressing
+-- Play loads, in the detail pane.
 --
 -- Loading, reloading and leaving all change the one server-wide world, so while any of them is out
--- every scenario button waits.
+-- every load waits.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 local Console = script.Parent.Parent
-local ThemeContext = require(Console.Parent.Parent.hooks.ThemeContext)
 local ConsoleStore = require(Console.ConsoleStore)
 local Controls = require(Console.Controls)
+local Selection = require(Console.Selection)
 
 local e = React.createElement
 
+local TAB = "scenarios"
 local BUSY = "scenario:"
 -- Ids without a path go here; scenarios built entirely from a Studio stage carry their own group.
 local GENERAL = "general"
@@ -28,88 +30,29 @@ local function groupOf(info: any): string
 	return if info.source == "stage" then STAGES else GENERAL
 end
 
-local function ScenarioRow(props: { info: any, snapshot: ConsoleStore.State, boot: string?, layoutOrder: number })
-	local theme = ThemeContext.useTheme()
-	local info = props.info
-	local busy = ConsoleStore.anyBusy(props.snapshot, BUSY)
-	local key = BUSY .. info.id
-	local pinned = props.boot == info.id
+local function capitalized(text: string): string
+	return string.upper(string.sub(text, 1, 1)) .. string.sub(text, 2)
+end
 
-	local meta: { string } = {}
-	table.insert(meta, if info.stage then `stage {info.stage}` else "baseplate world")
-	table.insert(meta, if info.character == "keep" then "keeps your character" else `character {info.character}`)
+local function bootLabel(pin: string?): string
+	if pin == nil then
+		return "…"
+	elseif pin == "last" then
+		return "last loaded"
+	elseif pin == "default" then
+		return "always default"
+	end
+	return pin
+end
 
-	return e(Controls.Card, { layoutOrder = props.layoutOrder, current = info.current }, {
-		Top = e(Controls.Row, { layoutOrder = 1, gap = 8 }, {
-			Title = e(Controls.Label, {
-				text = info.title,
-				bold = true,
-				size = 19,
-				height = 28,
-				autoWidth = true,
-				color = if info.current then theme.color.accent else theme.color.textPrimary,
-				layoutOrder = 1,
-			}),
-			Current = if info.current then e(Controls.Chip, { text = "loaded", color = theme.color.accent, layoutOrder = 2 }) else nil,
-			Source = e(Controls.Chip, {
-				text = if info.source == "stage" then "studio stage" else "code",
-				color = if info.source == "stage" then theme.color.critical else theme.color.textMuted,
-				layoutOrder = 3,
-			}),
-			Pinned = if pinned then e(Controls.Chip, { text = "boots", color = theme.color.textPrimary, layoutOrder = 4 }) else nil,
-		}),
-		Id = e(Controls.Label, {
-			text = info.id,
-			mono = true,
-			size = Controls.MONO,
-			color = theme.color.textMuted,
-			layoutOrder = 2,
-		}),
-		Description = if info.description ~= ""
-			then e(Controls.Label, {
-				text = info.description,
-				size = Controls.SMALL,
-				wrap = true,
-				layoutOrder = 3,
-			})
-			else nil,
-		Meta = e(Controls.Label, {
-			text = table.concat(meta, "  ·  "),
-			size = Controls.SMALL,
-			color = theme.color.textMuted,
-			wrap = true,
-			layoutOrder = 4,
-		}),
-		Actions = e(Controls.Row, { layoutOrder = 5, gap = 6, wrap = true }, {
-			Load = e(Controls.Button, {
-				text = if info.current then "Reload" else "Load",
-				tone = "primary",
-				busy = props.snapshot.busy[key],
-				enabled = not busy,
-				layoutOrder = 1,
-				onActivated = function()
-					ConsoleStore.run(if info.current then "scenario reload" else `scenario load {info.id}`, {
-						key = key,
-						refresh = ConsoleStore.ALL_LISTS,
-					})
-				end,
-			}),
-			Pin = e(Controls.Button, {
-				text = if pinned then "Pinned for Play" else "Pin for Play",
-				selected = pinned,
-				busy = props.snapshot.busy["boot"],
-				enabled = not pinned,
-				layoutOrder = 2,
-				onActivated = function()
-					ConsoleStore.run(`scenario boot {info.id}`, { key = "boot", refresh = { "boot" } })
-				end,
-			}),
-		}),
-	})
+local function loadAction(info: any): (string, string)
+	if info.current then
+		return "Reload", "scenario reload"
+	end
+	return "Load", `scenario load {info.id}`
 end
 
 local function ScenariosTab(props: { snapshot: ConsoleStore.State })
-	local theme = ThemeContext.useTheme()
 	local snapshot = props.snapshot
 	local list = snapshot.lists.scenarios
 	local scenarios: { any } = if list and list.scenarios then list.scenarios else {}
@@ -117,100 +60,10 @@ local function ScenariosTab(props: { snapshot: ConsoleStore.State })
 	local pin: string? = bootData and bootData.boot
 	local busy = ConsoleStore.anyBusy(snapshot, BUSY)
 
-	local current: any? = nil
-	for _, info in ipairs(scenarios) do
-		if info.current then
-			current = info
-		end
-	end
-
-	local children: { [string]: any } = {}
-
-	children.Loaded = e(Controls.Section, { title = "Loaded", layoutOrder = 1 }, {
-		Now = e(Controls.Label, {
-			text = if current then `{current.title}  ({current.id})` else "No scenario is loaded.",
-			bold = current ~= nil,
-			color = if current then theme.color.textPrimary else theme.color.textMuted,
-			layoutOrder = 1,
-		}),
-		Actions = e(Controls.Row, { layoutOrder = 2, wrap = true }, {
-			Reload = e(Controls.Button, {
-				text = "Reload",
-				enabled = current ~= nil and not busy,
-				busy = snapshot.busy[BUSY .. "reload"],
-				layoutOrder = 1,
-				onActivated = function()
-					ConsoleStore.run("scenario reload", { key = BUSY .. "reload", refresh = ConsoleStore.ALL_LISTS })
-				end,
-			}),
-			Default = e(Controls.Button, {
-				text = "Load default",
-				enabled = not busy,
-				busy = snapshot.busy[BUSY .. "default"],
-				layoutOrder = 2,
-				onActivated = function()
-					ConsoleStore.run("scenario load default", { key = BUSY .. "default", refresh = ConsoleStore.ALL_LISTS })
-				end,
-			}),
-			Exit = e(Controls.Button, {
-				text = "Exit scenario",
-				tone = "danger",
-				enabled = current ~= nil and not busy,
-				busy = snapshot.busy[BUSY .. "exit"],
-				layoutOrder = 3,
-				onActivated = function()
-					ConsoleStore.run("scenario exit", { key = BUSY .. "exit", refresh = ConsoleStore.ALL_LISTS })
-				end,
-			}),
-		}),
-		Note = e(Controls.Label, {
-			text = "Exit tears the scenario down, unloads its stage and puts everyone back on their real save at the world spawn.",
-			size = Controls.SMALL,
-			wrap = true,
-			color = theme.color.textMuted,
-			layoutOrder = 3,
-		}),
-	})
-
-	local pinLabel = if pin == nil
-		then "…"
-		elseif pin == "last" then "the last scenario you loaded"
-		elseif pin == "default" then "the default scenario"
-		else pin
-	children.Boot = e(Controls.Section, { title = "Pressing Play loads", layoutOrder = 2 }, {
-		Now = e(Controls.Label, {
-			text = if bootData and bootData.target then `{pinLabel}  →  {bootData.target}` else pinLabel,
-			mono = pin ~= nil and pin ~= "last" and pin ~= "default",
-			layoutOrder = 1,
-		}),
-		Choices = e(Controls.Row, { layoutOrder = 2 }, {
-			Last = e(Controls.Button, {
-				text = "Last loaded",
-				selected = pin == "last",
-				busy = snapshot.busy.boot,
-				layoutOrder = 1,
-				onActivated = function()
-					ConsoleStore.run("scenario boot last", { key = "boot", refresh = { "boot" } })
-				end,
-			}),
-			Default = e(Controls.Button, {
-				text = "Always default",
-				selected = pin == "default",
-				busy = snapshot.busy.boot,
-				layoutOrder = 2,
-				onActivated = function()
-					ConsoleStore.run("scenario boot default", { key = "boot", refresh = { "boot" } })
-				end,
-			}),
-		}),
-		Error = if snapshot.listErrors.boot
-			then e(Controls.ResultLine, { result = { ok = false, message = snapshot.listErrors.boot }, layoutOrder = 3 })
-			else nil,
-	})
-
 	-- Groups in first-seen order, so "general" (where default sorts) leads.
 	local groups: { string } = {}
 	local members: { [string]: { any } } = {}
+	local current: any? = nil
 	for _, info in ipairs(scenarios) do
 		local group = groupOf(info)
 		if not members[group] then
@@ -218,34 +71,157 @@ local function ScenariosTab(props: { snapshot: ConsoleStore.State })
 			table.insert(groups, group)
 		end
 		table.insert(members[group], info)
+		if info.current then
+			current = info
+		end
 	end
 
-	for groupIndex, group in ipairs(groups) do
-		local rows: { [string]: any } = {}
-		for index, info in ipairs(members[group]) do
-			rows[`s{index}`] = e(ScenarioRow, {
-				info = info,
-				snapshot = snapshot,
-				boot = pin,
-				layoutOrder = index,
+	local keys: { string } = {}
+	local byId: { [string]: any } = {}
+	for _, group in ipairs(groups) do
+		for _, info in ipairs(members[group]) do
+			table.insert(keys, info.id)
+			byId[info.id] = info
+		end
+	end
+	local selectedId = Selection.resolve(snapshot, TAB, keys, current and current.id)
+	local selected = selectedId and byId[selectedId]
+
+	local primary: ConsoleStore.Primary? = nil
+	if selected then
+		local label, command = loadAction(selected)
+		primary = {
+			label = label,
+			command = command,
+			options = { key = BUSY .. selected.id, refresh = ConsoleStore.ALL_LISTS },
+			enabled = not busy,
+		}
+	end
+	Selection.usePublish(TAB, { keys = keys, selected = selectedId, primary = primary })
+
+	local children: { [string]: any } = {}
+	local order = 0
+	for _, group in ipairs(groups) do
+		order += 1
+		children[`g{order}`] = e(Controls.SectionLabel, {
+			text = `{capitalized(group)} · {#members[group]}`,
+			first = order == 1,
+			layoutOrder = order,
+		})
+		for _, info in ipairs(members[group]) do
+			order += 1
+			local chips = { if info.stage then info.stage else "baseplate" }
+			if info.source == "stage" then
+				table.insert(chips, "studio stage")
+			elseif info.character ~= "keep" then
+				table.insert(chips, info.character)
+			end
+			if pin == info.id then
+				table.insert(chips, "boots")
+			end
+			children[info.id] = e(Controls.Row, {
+				title = info.title,
+				dot = if info.current then "on" else nil,
+				chips = chips,
+				selected = info.id == selectedId,
+				onSelect = function()
+					ConsoleStore.pick(TAB, info.id)
+				end,
+				layoutOrder = order,
 			})
 		end
-		children[`g{groupIndex}`] = e(Controls.Section, {
-			title = `{group}  ({#members[group]})`,
-			layoutOrder = 10 + groupIndex,
-		}, rows)
 	end
-
 	if #scenarios == 0 then
-		children.Empty = e(Controls.Label, {
+		children.Empty = e(Controls.Empty, {
 			text = snapshot.listErrors.scenarios or "Reading the scenario list…",
-			color = if snapshot.listErrors.scenarios then theme.color.danger else theme.color.textMuted,
-			wrap = true,
-			layoutOrder = 10,
+			bad = snapshot.listErrors.scenarios ~= nil,
+			layoutOrder = 1,
 		})
 	end
 
-	return e(Controls.Stack, { gap = 14 }, children)
+	local detail: any = nil
+	if selected then
+		local label = loadAction(selected)
+		local pinned = pin == selected.id
+		local function boot(choice: string)
+			ConsoleStore.run(`scenario boot {choice}`, { key = "boot", refresh = { "boot" } })
+		end
+		detail = e(Controls.DetailPane, {
+			title = selected.title,
+			id = selected.id,
+			description = selected.description,
+			rows = {
+				{ "Stage", selected.stage or "baseplate world" },
+				{ "Character", if selected.character == "keep" then "keeps yours" else selected.character },
+				{ "Source", if selected.source == "stage" then "Studio stage" else "code" },
+				{
+					"Play loads",
+					if bootData and bootData.target then `{bootData.target}  ({bootLabel(pin)})` else bootLabel(pin),
+				},
+			},
+			actions = {
+				Load = e(Controls.Button, {
+					text = label,
+					primary = true,
+					kbd = true,
+					busy = snapshot.busy[BUSY .. selected.id] or (selected.current and snapshot.busy[BUSY .. "reload"]),
+					enabled = not busy,
+					layoutOrder = 1,
+					onActivated = function()
+						local _, command = loadAction(selected)
+						ConsoleStore.run(command, { key = BUSY .. selected.id, refresh = ConsoleStore.ALL_LISTS })
+					end,
+				}),
+				Pin = e(Controls.Button, {
+					text = if pinned then "Pinned for play" else "Pin for play",
+					selected = pinned,
+					enabled = not pinned,
+					busy = snapshot.busy.boot,
+					layoutOrder = 2,
+					onActivated = function()
+						boot(selected.id)
+					end,
+				}),
+				Exit = e(Controls.Button, {
+					text = "Exit scenario",
+					enabled = current ~= nil and not busy,
+					busy = snapshot.busy[BUSY .. "exit"],
+					layoutOrder = 3,
+					onActivated = function()
+						ConsoleStore.run("scenario exit", { key = BUSY .. "exit", refresh = ConsoleStore.ALL_LISTS })
+					end,
+				}),
+			},
+		}, {
+			OnPlay = e(Controls.Line, { inset = false, vertical = 0, wrap = true, layoutOrder = 1 }, {
+				Label = e(Controls.Text, { text = "On play", tone = "dim", size = 14, width = UDim.new(0, 92), height = 26, layoutOrder = 1 }),
+				Last = e(Controls.Chip, {
+					text = "Last loaded",
+					selected = pin == "last",
+					onActivated = function()
+						boot("last")
+					end,
+					layoutOrder = 2,
+				}),
+				Default = e(Controls.Chip, {
+					text = "Always default",
+					selected = pin == "default",
+					onActivated = function()
+						boot("default")
+					end,
+					layoutOrder = 3,
+				}),
+				Pinned = if pin and pin ~= "last" and pin ~= "default"
+					then e(Controls.Chip, { text = pin, mono = true, selected = true, layoutOrder = 4 })
+					else nil,
+			}),
+			Error = if snapshot.listErrors.boot
+				then e(Controls.Result, { result = { ok = false, message = snapshot.listErrors.boot }, layoutOrder = 2 })
+				else nil,
+		})
+	end
+
+	return e(Controls.TabLayout, { detail = detail }, children)
 end
 
 return ScenariosTab

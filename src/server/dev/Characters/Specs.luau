@@ -64,6 +64,7 @@ local BRANCHES = { "trunk", "a", "b" }
 local RARITIES: { [string]: boolean } = { normal = true, magic = true, rare = true, unique = true }
 local DEFAULT_CAPACITY = PlayerDataSchema.template().inventory.capacity
 local MAX_CAPACITY = 200
+Specs.MAX_CAPACITY = MAX_CAPACITY
 
 local POOLS: { [string]: boolean } = {}
 for _, pool in pairs(StatTypes.PoolStats) do
@@ -176,7 +177,7 @@ local function contains(list: { any }?, value: any): boolean
 end
 
 -- Whether the item may go in `slot`, by the same rules the equip validator applies to slots.
-local function slotAllowed(def: any, slot: string): boolean
+function Specs.slotAllowed(def: any, slot: string): boolean
 	if not contains(EquipmentDefUtils.getEquipSlots(def), slot) then
 		return false
 	end
@@ -257,7 +258,7 @@ local function checkItem(path: string, item: any, inBag: boolean, problems: { st
 end
 
 -- Branch XP for a BranchSpec, or nil with the reason.
-local function branchXp(branch: string, value: any): (number?, string?)
+function Specs.branchXp(branch: string, value: any): (number?, string?)
 	local cap = MasteryXP.capOf(branch)
 	if type(value) == "number" then
 		if value < 0 or value ~= value then
@@ -286,7 +287,7 @@ local function branchXp(branch: string, value: any): (number?, string?)
 	return nil, `expected XP, "mastered" or \{ rank = n }, got {typeof(value)}`
 end
 
-local function resolveXp(spec: Spec): number
+function Specs.resolveXp(spec: Spec): number
 	if type(spec.level) == "number" then
 		return CharacterXP.totalFor(spec.level)
 	end
@@ -327,7 +328,7 @@ local function resolveMasteries(spec: Spec, problems: { string }?): { [string]: 
 				end
 				continue
 			end
-			local xp, err = branchXp(branch, value)
+			local xp, err = Specs.branchXp(branch, value)
 			if xp then
 				resolved[branch] = xp
 			elseif problems then
@@ -396,7 +397,7 @@ function Specs.validate(spec: Spec): { string }
 	if raw.xp ~= nil and (type(raw.xp) ~= "number" or raw.xp < 0) then
 		table.insert(problems, "xp must be a number >= 0")
 	end
-	local level = CharacterXP.levelOf(resolveXp(spec))
+	local level = CharacterXP.levelOf(Specs.resolveXp(spec))
 
 	-- Attributes.
 	if raw.attributes ~= nil then
@@ -492,7 +493,7 @@ function Specs.validate(spec: Spec): { string }
 				end
 				if not EquipmentDefUtils.isEquipment(def) then
 					table.insert(problems, `{path}: '{def.id}' is not equipment`)
-				elseif not slotAllowed(def, slot) then
+				elseif not Specs.slotAllowed(def, slot) then
 					table.insert(problems, `{path}: '{def.id}' cannot be equipped in {slot}`)
 				else
 					defs[slot] = def
@@ -739,7 +740,7 @@ function Specs.buildSave(spec: Spec): PlayerSaveData
 	local data = PlayerDataSchema.template()
 	-- The starting kit is the dev session's business; a built save never asks for it.
 	data.starterKitGranted = true
-	data.character.xp = resolveXp(spec)
+	data.character.xp = Specs.resolveXp(spec)
 
 	if spec.attributes then
 		local base: { [string]: number } = {}

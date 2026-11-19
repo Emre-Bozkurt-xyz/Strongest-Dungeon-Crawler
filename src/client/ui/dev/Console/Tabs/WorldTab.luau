@@ -1,182 +1,66 @@
 --!strict
--- World: stages, markers and teleports, a spawn palette, and the NPCs in the world.
+-- World: the stages, the markers (chips that teleport), a one-line spawn form, and the NPCs in the
+-- world. Stages and NPCs are the selectable rows; the detail pane acts on the selected one (load a
+-- map; hit, apply a status, inspect or despawn an NPC).
 --
 -- The NPC list is read again every second or so while this tab is showing, so health and deaths
--- follow what happens in front of the developer. Per-row actions address an NPC by its entity id,
--- which `hit` and `status` accept as well as a name, so the row acted on is the one clicked even
--- among several of the same kind.
+-- follow what happens in front of the developer. NPC actions address an NPC by its entity id, which
+-- `hit` and `status` accept as well as a name, so the NPC acted on is the one selected even among
+-- several of the same kind. `despawn` takes a kind (or all), so the pane offers that kind.
 
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local React = require(ReplicatedStorage.Packages.React)
 local Console = script.Parent.Parent
-local ThemeContext = require(Console.Parent.Parent.hooks.ThemeContext)
 local ConsoleStore = require(Console.ConsoleStore)
 local Controls = require(Console.Controls)
+local Selection = require(Console.Selection)
+local Theme = require(Console.Theme)
 
 local e = React.createElement
+local color = Theme.color
+local size = Theme.size
 
+local TAB = "world"
 local NPC_POLL_SECONDS = 1.2
 
-local function MarkerRow(props: { name: string, scope: string, snapshot: ConsoleStore.State, layoutOrder: number })
-	local theme = ThemeContext.useTheme()
-	return e(Controls.Row, { layoutOrder = props.layoutOrder, height = Controls.ROW }, {
-		Name = e(Controls.Label, {
-			text = props.name,
-			mono = true,
-			size = Controls.MONO,
-			height = Controls.ROW,
-			width = UDim.new(0, 0),
-			fill = true,
-			layoutOrder = 1,
-		}),
-		Scope = e(Controls.Label, {
-			text = props.scope,
-			size = Controls.SMALL,
-			height = Controls.ROW,
-			autoWidth = true,
-			color = theme.color.textMuted,
-			layoutOrder = 2,
-		}),
-		Tp = e(Controls.Button, {
-			text = "Teleport",
-			busy = props.snapshot.busy["tp:" .. props.name],
-			layoutOrder = 3,
-			onActivated = function()
-				ConsoleStore.run(`tp {Controls.quote(props.name)}`, { key = "tp:" .. props.name })
-			end,
-		}),
-	})
+local function round(value: number): number
+	return math.floor(value + 0.5)
 end
 
-local function NpcRow(props: {
-	npc: any,
-	snapshot: ConsoleStore.State,
-	hitAmount: string,
-	effect: string?,
-	layoutOrder: number,
-})
-	local theme = ThemeContext.useTheme()
-	local npc = props.npc
-	local target = npc.entityId or npc.name
-	local health = if npc.health and npc.maxHealth
-		then `{math.floor(npc.health + 0.5)} / {math.floor(npc.maxHealth + 0.5)}`
-		else "no health"
-	local ratio = if npc.health and npc.maxHealth and npc.maxHealth > 0 then math.clamp(npc.health / npc.maxHealth, 0, 1) else 0
-	local inspecting = props.snapshot.inspectTarget == target
+-- Repeated marker names become one chip with a count, in first-seen order.
+local function grouped(names: { string }, skip: { string }?): { { name: string, count: number } }
+	local out: { { name: string, count: number } } = {}
+	local index: { [string]: number } = {}
+	for _, name in ipairs(names) do
+		if not (skip and table.find(skip, name)) then
+			if index[name] then
+				out[index[name]].count += 1
+			else
+				table.insert(out, { name = name, count = 1 })
+				index[name] = #out
+			end
+		end
+	end
+	return out
+end
 
-	return e(Controls.Card, { layoutOrder = props.layoutOrder, current = inspecting }, {
-		Top = e(Controls.Row, { layoutOrder = 1, gap = 8 }, {
-			Name = e(Controls.Label, {
-				text = npc.name,
-				bold = true,
-				height = 26,
-				autoWidth = true,
-				color = if npc.dead then theme.color.textMuted else theme.color.textPrimary,
-				layoutOrder = 1,
-			}),
-			Kind = if npc.kind ~= npc.name
-				then e(Controls.Label, {
-					text = npc.kind,
-					size = Controls.SMALL,
-					height = 26,
-					autoWidth = true,
-					color = theme.color.textMuted,
-					layoutOrder = 2,
-				})
-				else nil,
-			Dead = if npc.dead then e(Controls.Chip, { text = "dying", color = theme.color.danger, layoutOrder = 3 }) else nil,
-			Id = e(Controls.Label, {
-				text = tostring(npc.entityId or "?"),
-				mono = true,
-				size = Controls.MONO,
-				height = 26,
-				width = UDim.new(0, 0),
-				fill = true,
-				alignX = Enum.TextXAlignment.Right,
-				color = theme.color.textMuted,
-				layoutOrder = 4,
-			}),
-		}),
-		Health = e(Controls.Row, { layoutOrder = 2, gap = 8, height = 22 }, {
-			Bar = e("Frame", {
-				Size = UDim2.new(0, 0, 0, 8),
-				BackgroundColor3 = theme.color.gaugeTrack,
-				BorderSizePixel = 0,
-				LayoutOrder = 1,
-			}, {
-				Flex = e("UIFlexItem", { FlexMode = Enum.UIFlexMode.Fill }),
-				Stroke = e("UIStroke", { Color = theme.color.stroke, Transparency = 0.7, Thickness = 1 }),
-				Fill = e("Frame", {
-					Size = UDim2.fromScale(ratio, 1),
-					BackgroundColor3 = theme.color.danger,
-					BorderSizePixel = 0,
-				}),
-			}),
-			Value = e(Controls.Label, {
-				text = health,
-				mono = true,
-				size = Controls.MONO,
-				height = 22,
-				width = UDim.new(0, 120),
-				alignX = Enum.TextXAlignment.Right,
-				layoutOrder = 2,
-			}),
-		}),
-		Meta = e(Controls.Label, {
-			text = `at {npc.position[1]}, {npc.position[2]}, {npc.position[3]}{if npc.tag then "  ·  tag " .. npc.tag else ""}`,
-			size = Controls.SMALL,
-			color = theme.color.textMuted,
-			layoutOrder = 3,
-		}),
-		Actions = e(Controls.Row, { layoutOrder = 4, wrap = true }, {
-			Hit = e(Controls.Button, {
-				text = `Hit {props.hitAmount}`,
-				enabled = not npc.dead and tonumber(props.hitAmount) ~= nil,
-				busy = props.snapshot.busy["hit:" .. target],
-				layoutOrder = 1,
-				onActivated = function()
-					ConsoleStore.run(`hit {Controls.quote(target)} {props.hitAmount}`, {
-						key = "hit:" .. target,
-						refresh = { "npcs" },
-					})
-				end,
-			}),
-			Status = e(Controls.Button, {
-				text = if props.effect then `Apply {props.effect}` else "Apply status",
-				enabled = not npc.dead and props.effect ~= nil,
-				busy = props.snapshot.busy["status:" .. target],
-				layoutOrder = 2,
-				onActivated = function()
-					ConsoleStore.run(`status {Controls.quote(target)} {props.effect}`, {
-						key = "status:" .. target,
-						refresh = { "npcs" },
-					})
-				end,
-			}),
-			Inspect = e(Controls.Button, {
-				text = "Inspect",
-				selected = inspecting,
-				layoutOrder = 3,
-				onActivated = function()
-					ConsoleStore.setInspectTarget(target)
-					ConsoleStore.setTab("inspect")
-				end,
-			}),
-		}),
-	})
+local function npcTarget(npc: any): string
+	return npc.entityId or npc.name
 end
 
 local function WorldTab(props: { snapshot: ConsoleStore.State, active: boolean })
-	local theme = ThemeContext.useTheme()
 	local snapshot = props.snapshot
 	local stagesData = snapshot.lists.stages
 	local stages: { any } = if stagesData and stagesData.stages then stagesData.stages else {}
 	local markers = snapshot.lists.markers or {}
 	local npcData = snapshot.lists.npcs
 	local npcs: { any } = if npcData and npcData.npcs then npcData.npcs else {}
+	local kinds = ConsoleStore.choices("spawn", "kind")
+	local stageBusy = ConsoleStore.anyBusy(snapshot, "stage:")
 
+	local spawnKind, setSpawnKind = React.useState(nil :: string?)
 	local spawnCount, setSpawnCount = React.useState("1")
 	local areaLevel, setAreaLevel = React.useState("")
 	local rank, setRank = React.useState("")
@@ -199,102 +83,101 @@ local function WorldTab(props: { snapshot: ConsoleStore.State, active: boolean }
 		end
 	end, { props.active, snapshot.open } :: { any })
 
+	-- Selectable rows: stages, then NPCs.
+	local keys: { string } = {}
+	local currentStageKey: string? = nil
+	for _, stage in ipairs(stages) do
+		table.insert(keys, "stage:" .. stage.name)
+		if stage.current then
+			currentStageKey = "stage:" .. stage.name
+		end
+	end
+	for _, npc in ipairs(npcs) do
+		table.insert(keys, "npc:" .. npcTarget(npc))
+	end
+	local firstNpc = if npcs[1] then "npc:" .. npcTarget(npcs[1]) else nil
+	local selectedKey = Selection.resolve(snapshot, TAB, keys, firstNpc or currentStageKey)
+
+	local selectedStage: any? = nil
+	local selectedNpc: any? = nil
+	if selectedKey then
+		for _, stage in ipairs(stages) do
+			if "stage:" .. stage.name == selectedKey then
+				selectedStage = stage
+			end
+		end
+		for _, npc in ipairs(npcs) do
+			if "npc:" .. npcTarget(npc) == selectedKey then
+				selectedNpc = npc
+			end
+		end
+	end
+
+	local markerCount = #(markers.stageMarkers or {})
+
+	local function stageLoad(stage: any): (string, string)
+		local label = if stage.current then "Reload map" else "Load map"
+		return label, `stage load {Controls.quote(stage.name)}`
+	end
+	local stageRefresh: { ConsoleStore.ListName } = { "stages", "markers", "scenarios" }
+
+	local primary: ConsoleStore.Primary? = nil
+	if selectedStage then
+		local label, command = stageLoad(selectedStage)
+		primary = {
+			label = label,
+			command = command,
+			options = { key = "stage:" .. selectedStage.name, refresh = stageRefresh },
+			enabled = not stageBusy,
+		}
+	elseif selectedNpc then
+		local target = npcTarget(selectedNpc)
+		local amountOk = tonumber(hitAmount) ~= nil
+		primary = {
+			label = "Hit",
+			command = if amountOk then `hit {Controls.quote(target)} {hitAmount}` else nil,
+			fill = `hit {Controls.quote(target)} `,
+			options = { key = "hit:" .. target, refresh = { "npcs" } },
+			enabled = not selectedNpc.dead and amountOk,
+		}
+	end
+	Selection.usePublish(TAB, { keys = keys, selected = selectedKey, primary = primary })
+
 	local children: { [string]: any } = {}
 
 	-- Stages.
-	local stageRows: { [string]: any } = {}
+	children.StageLabel = e(Controls.SectionLabel, { text = "Stage", first = true, layoutOrder = 1 })
 	for index, stage in ipairs(stages) do
-		stageRows[`s{index}`] = e(Controls.Row, { layoutOrder = index, height = Controls.ROW }, {
-			Name = e(Controls.Label, {
-				text = stage.name,
-				mono = true,
-				size = Controls.MONO,
-				height = Controls.ROW,
-				width = UDim.new(0, 0),
-				fill = true,
-				color = if stage.current then theme.color.accent else theme.color.textPrimary,
-				layoutOrder = 1,
-			}),
-			Current = if stage.current then e(Controls.Chip, { text = "loaded", color = theme.color.accent, layoutOrder = 2 }) else nil,
-			Load = e(Controls.Button, {
-				text = if stage.current then "Reload map" else "Load map",
-				busy = snapshot.busy["stage:" .. stage.name],
-				enabled = not ConsoleStore.anyBusy(snapshot, "stage:"),
-				layoutOrder = 3,
-				onActivated = function()
-					ConsoleStore.run(`stage load {Controls.quote(stage.name)}`, {
-						key = "stage:" .. stage.name,
-						refresh = { "stages", "markers", "scenarios" },
-					})
-				end,
-			}),
+		local key = "stage:" .. stage.name
+		children[`s{index}`] = e(Controls.Row, {
+			title = stage.name,
+			dot = if stage.current then "on" else nil,
+			chips = if stage.current then { `{markerCount} markers` } else nil,
+			selected = key == selectedKey,
+			onSelect = function()
+				ConsoleStore.pick(TAB, key)
+			end,
+			layoutOrder = 1 + index,
 		})
 	end
 	if #stages == 0 then
-		stageRows.Empty = e(Controls.Label, {
+		children.StageEmpty = e(Controls.Empty, {
 			text = snapshot.listErrors.stages or "No stages in ServerStorage.Scenarios.",
-			size = Controls.SMALL,
-			color = theme.color.textMuted,
-			layoutOrder = 0,
+			bad = snapshot.listErrors.stages ~= nil,
+			layoutOrder = 2,
 		})
 	end
-	stageRows.Note = e(Controls.Label, {
-		text = "Loads the map only. Load the scenario of the same name for its spawns and character.",
-		size = Controls.SMALL,
-		wrap = true,
-		color = theme.color.textMuted,
-		layoutOrder = 999,
-	})
-	children.Stages = e(Controls.Section, {
-		title = "Stages",
-		layoutOrder = 1,
-		right = e(Controls.Button, {
-			text = "Unload",
-			enabled = snapshot.devState.stageName ~= "" and not ConsoleStore.anyBusy(snapshot, "stage:"),
-			busy = snapshot.busy["stage:unload"],
-			onActivated = function()
-				ConsoleStore.run("stage unload", { key = "stage:unload", refresh = { "stages", "markers", "scenarios" } })
-			end,
-		}),
-	}, stageRows)
 
 	-- Markers.
-	local markerRows: { [string]: any } = {}
-	local order = 0
-	for _, name in ipairs(markers.stageMarkers or {}) do
-		order += 1
-		markerRows[`m{order}`] = e(MarkerRow, { name = name, scope = "stage", snapshot = snapshot, layoutOrder = order })
-	end
-	for _, name in ipairs(markers.worldMarkers or {}) do
-		if not table.find(markers.stageMarkers or {}, name) then
-			order += 1
-			markerRows[`m{order}`] = e(MarkerRow, { name = name, scope = "world", snapshot = snapshot, layoutOrder = order })
-		end
-	end
-	if order == 0 then
-		markerRows.Empty = e(Controls.Label, {
-			text = snapshot.listErrors.markers or "No markers on the stage or in the world.",
-			size = Controls.SMALL,
-			color = theme.color.textMuted,
-			layoutOrder = 0,
-		})
-	end
-	children.Markers = e(Controls.Section, {
-		title = "Markers",
-		layoutOrder = 2,
-		right = e(Controls.Button, {
-			text = "Teleport to start",
-			busy = snapshot.busy["tp:start"],
-			onActivated = function()
-				ConsoleStore.run("tp start", { key = "tp:start" })
-			end,
-		}),
-	}, {
-		Show = e(Controls.Row, { layoutOrder = 0, height = Controls.ROW }, {
-			Toggle = e(Controls.Toggle, {
+	children.MarkerLabel = e(Controls.SectionLabel, {
+		text = "Markers · click to teleport",
+		layoutOrder = 100,
+		right = {
+			Show = e(Controls.Text, { text = "show", tone = "dim", size = size.secondary, height = 24, autoWidth = true, layoutOrder = 1 }),
+			Switch = e(Controls.Switch, {
 				value = markers.visible == true,
 				busy = snapshot.busy.markers,
-				layoutOrder = 1,
+				layoutOrder = 2,
 				onToggle = function()
 					ConsoleStore.run(if markers.visible then "markers hide" else "markers show", {
 						key = "markers",
@@ -302,18 +185,46 @@ local function WorldTab(props: { snapshot: ConsoleStore.State, active: boolean }
 					})
 				end,
 			}),
-			Label = e(Controls.Label, {
-				text = "Show markers in the world",
-				height = Controls.ROW,
-				autoWidth = true,
-				layoutOrder = 2,
-			}),
-		}),
-		List = e(Controls.Stack, { gap = 2, layoutOrder = 1 }, markerRows),
+		},
 	})
+	local function markerChips(groups: { { name: string, count: number } }, prefix: string, into: { [string]: any })
+		for index, group in ipairs(groups) do
+			into[`{prefix}{index}`] = e(Controls.Chip, {
+				text = if group.count > 1 then `{group.name} ×{group.count}` else group.name,
+				busy = snapshot.busy["tp:" .. group.name],
+				layoutOrder = 10 + index,
+				onActivated = function()
+					ConsoleStore.run(`tp {Controls.quote(group.name)}`, { key = "tp:" .. group.name })
+				end,
+			})
+		end
+	end
+	local stageChips: { [string]: any } = {
+		Start = e(Controls.Chip, {
+			text = "Start",
+			busy = snapshot.busy["tp:start"],
+			layoutOrder = 1,
+			onActivated = function()
+				ConsoleStore.run("tp start", { key = "tp:start" })
+			end,
+		}),
+	}
+	markerChips(grouped(markers.stageMarkers or {}), "m", stageChips)
+	children.Markers = e(Controls.Line, { wrap = true, gap = 6, layoutOrder = 101 }, stageChips)
+	local worldGroups = grouped(markers.worldMarkers or {}, markers.stageMarkers)
+	if #worldGroups > 0 then
+		local worldChips: { [string]: any } = {
+			Label = e(Controls.Text, { text = "World", tone = "dim", size = size.secondary, height = 26, autoWidth = true, layoutOrder = 1 }),
+		}
+		markerChips(worldGroups, "w", worldChips)
+		children.WorldMarkers = e(Controls.Line, { wrap = true, gap = 6, layoutOrder = 102 }, worldChips)
+	end
+	if snapshot.listErrors.markers then
+		children.MarkerError = e(Controls.Empty, { text = snapshot.listErrors.markers, bad = true, layoutOrder = 103 })
+	end
 
-	-- Spawn palette.
-	local kinds = ConsoleStore.choices("spawn", "kind")
+	-- Spawn.
+	local kind = spawnKind or kinds[1]
 	local options: { [string]: any } = {}
 	if tonumber(areaLevel) then
 		options.areaLevel = tonumber(areaLevel)
@@ -323,88 +234,202 @@ local function WorldTab(props: { snapshot: ConsoleStore.State, active: boolean }
 	end
 	local optionsText = if next(options) then " " .. HttpService:JSONEncode(options) else ""
 	local countOk = tonumber(spawnCount) ~= nil
-	local palette: { [string]: any } = {}
-	for index, kind in ipairs(kinds) do
-		palette[`k{index}`] = e(Controls.Button, {
-			text = kind,
-			tone = "primary",
-			enabled = countOk,
-			busy = snapshot.busy["spawn:" .. kind],
-			layoutOrder = index,
-			onActivated = function()
-				ConsoleStore.run(`spawn {kind} {spawnCount}{optionsText}`, { key = "spawn:" .. kind, refresh = { "npcs" } })
+	children.SpawnLabel = e(Controls.SectionLabel, {
+		text = "Spawn · in front of you",
+		layoutOrder = 200,
+		right = {
+			Despawn = e(Controls.Button, {
+				text = "Despawn all",
+				busy = snapshot.busy.despawn,
+				onActivated = function()
+					ConsoleStore.run("despawn all", { key = "despawn", refresh = { "npcs" } })
+				end,
+			}),
+		},
+	})
+	children.Spawn = e(Controls.Line, { wrap = true, gap = 6, layoutOrder = 201 }, {
+		Kind = e(Controls.Select, {
+			value = kind,
+			choices = kinds,
+			placeholder = "kind",
+			onPick = function(picked: string?)
+				setSpawnKind(picked)
 			end,
-		})
-	end
-	children.Spawn = e(Controls.Section, {
-		title = "Spawn",
-		layoutOrder = 3,
-		right = e(Controls.Button, {
-			text = "Despawn all",
-			tone = "danger",
-			busy = snapshot.busy.despawn,
+			width = 116,
+			layoutOrder = 1,
+		}),
+		Count = e(Controls.Input, { text = spawnCount, width = 44, invalid = not countOk, onChange = setSpawnCount, layoutOrder = 2 }),
+		LevelLabel = e(Controls.Text, { text = "level", tone = "secondary", size = size.secondary, height = 28, autoWidth = true, layoutOrder = 3 }),
+		Level = e(Controls.Input, { text = areaLevel, placeholder = "–", width = 44, onChange = setAreaLevel, layoutOrder = 4 }),
+		Rank = e(Controls.Input, { text = rank, placeholder = "rank", width = 76, onChange = setRank, layoutOrder = 5 }),
+		Go = e(Controls.Button, {
+			text = "Spawn",
+			enabled = countOk and kind ~= nil,
+			busy = kind ~= nil and snapshot.busy["spawn:" .. kind],
+			layoutOrder = 6,
 			onActivated = function()
-				ConsoleStore.run("despawn all", { key = "despawn", refresh = { "npcs" } })
+				if kind then
+					ConsoleStore.run(`spawn {kind} {spawnCount}{optionsText}`, { key = "spawn:" .. kind, refresh = { "npcs" } })
+				end
 			end,
-		}),
-	}, {
-		Options = e(Controls.Row, { layoutOrder = 1, wrap = true }, {
-			CountLabel = e(Controls.Label, { text = "Count", bold = true, height = Controls.ROW, autoWidth = true, layoutOrder = 1 }),
-			Count = e(Controls.Field, { text = spawnCount, mono = true, width = 56, onChange = setSpawnCount, invalid = not countOk, layoutOrder = 2 }),
-			LevelLabel = e(Controls.Label, { text = "Area level", bold = true, height = Controls.ROW, autoWidth = true, layoutOrder = 3 }),
-			Level = e(Controls.Field, { text = areaLevel, placeholder = "—", mono = true, width = 56, onChange = setAreaLevel, layoutOrder = 4 }),
-			RankLabel = e(Controls.Label, { text = "Rank", bold = true, height = Controls.ROW, autoWidth = true, layoutOrder = 5 }),
-			Rank = e(Controls.Field, { text = rank, placeholder = "—", mono = true, width = 90, onChange = setRank, layoutOrder = 6 }),
-		}),
-		Palette = e(Controls.Row, { layoutOrder = 2, wrap = true }, palette),
-		Empty = if #kinds == 0
-			then e(Controls.Label, { text = "No NPC kinds (ReplicatedStorage.Assets.NPCPrefabs).", size = Controls.SMALL, color = theme.color.textMuted, layoutOrder = 3 })
-			else nil,
-		Note = e(Controls.Label, {
-			text = "Spawns in front of you, on the ground.",
-			size = Controls.SMALL,
-			color = theme.color.textMuted,
-			layoutOrder = 4,
 		}),
 	})
+	if #kinds == 0 then
+		children.SpawnEmpty = e(Controls.Empty, { text = "No NPC kinds (ReplicatedStorage.Assets.NPCPrefabs).", layoutOrder = 202 })
+	end
 
 	-- NPCs.
-	local npcRows: { [string]: any } = {}
+	children.NpcLabel = e(Controls.SectionLabel, { text = `NPCs · {#npcs}`, layoutOrder = 300 })
 	for index, npc in ipairs(npcs) do
-		npcRows[`n{index}`] = e(NpcRow, {
-			npc = npc,
-			snapshot = snapshot,
-			hitAmount = hitAmount,
-			effect = effect,
-			layoutOrder = index,
+		local key = "npc:" .. npcTarget(npc)
+		local hasHealth = npc.health ~= nil and npc.maxHealth ~= nil
+		local ratio = if hasHealth and npc.maxHealth > 0 then npc.health / npc.maxHealth else 0
+		children[`n{index}`] = e(Controls.Row, {
+			title = npc.name,
+			titleWidth = 96,
+			titleTone = if npc.dead then "dim" else nil,
+			dot = if npc.dead then "bad" else nil,
+			selected = key == selectedKey,
+			onSelect = function()
+				ConsoleStore.pick(TAB, key)
+			end,
+			body = {
+				Bar = e(Controls.Bar, { ratio = ratio, color = if npc.dead then color.dim else color.ok, layoutOrder = 1 }),
+				Value = e(Controls.Text, {
+					text = if npc.dead then "dying" elseif hasHealth then `{round(npc.health)}/{round(npc.maxHealth)}` else "–",
+					mono = true,
+					size = size.monoSmall,
+					tone = if npc.dead then "bad" else "secondary",
+					height = Theme.space.row,
+					width = UDim.new(0, 72),
+					alignX = Enum.TextXAlignment.Right,
+					layoutOrder = 2,
+				}),
+			},
+			layoutOrder = 300 + index,
 		})
 	end
 	if #npcs == 0 then
-		npcRows.Empty = e(Controls.Label, {
+		children.NpcEmpty = e(Controls.Empty, {
 			text = snapshot.listErrors.npcs or "No NPCs in the world.",
-			size = Controls.SMALL,
-			color = theme.color.textMuted,
-			layoutOrder = 0,
+			bad = snapshot.listErrors.npcs ~= nil,
+			layoutOrder = 301,
 		})
 	end
-	children.Npcs = e(Controls.Section, { title = `NPCs  ({#npcs})`, layoutOrder = 4 }, {
-		Settings = e(Controls.Row, { layoutOrder = 0, wrap = true, alignY = Enum.VerticalAlignment.Top }, {
-			HitLabel = e(Controls.Label, { text = "Hit for", bold = true, height = Controls.ROW, autoWidth = true, layoutOrder = 1 }),
-			Hit = e(Controls.Field, { text = hitAmount, mono = true, width = 70, onChange = setHitAmount, invalid = tonumber(hitAmount) == nil, layoutOrder = 2 }),
-			EffectLabel = e(Controls.Label, { text = "Status", bold = true, height = Controls.ROW, autoWidth = true, layoutOrder = 3 }),
-			Effect = e(Controls.Choice, {
-				value = effect,
-				choices = ConsoleStore.choices("status", "effect"),
-				placeholder = "effect",
-				onPick = setEffect,
-				width = 190,
-				layoutOrder = 4,
-			}),
-		}),
-		List = e(Controls.Stack, { gap = 6, layoutOrder = 1 }, npcRows),
-	})
 
-	return e(Controls.Stack, { gap = 14 }, children)
+	-- The detail pane.
+	local detail: any = nil
+	if selectedStage then
+		local stage = selectedStage
+		local label = stageLoad(stage)
+		detail = e(Controls.DetailPane, {
+			title = stage.name,
+			id = "stage",
+			description = "Loads the map only. Load the scenario of the same name for its spawns and character.",
+			rows = {
+				{ "State", if stage.current then "loaded" else "not loaded" },
+				if stage.current then { "Markers", tostring(markerCount) } else nil,
+			} :: any,
+			actions = {
+				Load = e(Controls.Button, {
+					text = label,
+					primary = true,
+					kbd = true,
+					busy = snapshot.busy["stage:" .. stage.name],
+					enabled = not stageBusy,
+					layoutOrder = 1,
+					onActivated = function()
+						local _, command = stageLoad(stage)
+						ConsoleStore.run(command, { key = "stage:" .. stage.name, refresh = stageRefresh })
+					end,
+				}),
+				Unload = e(Controls.Button, {
+					text = "Unload",
+					enabled = snapshot.devState.stageName ~= "" and not stageBusy,
+					busy = snapshot.busy["stage:unload"],
+					layoutOrder = 2,
+					onActivated = function()
+						ConsoleStore.run("stage unload", { key = "stage:unload", refresh = stageRefresh })
+					end,
+				}),
+			},
+		})
+	elseif selectedNpc then
+		local npc = selectedNpc
+		local target = npcTarget(npc)
+		local amountOk = tonumber(hitAmount) ~= nil
+		local rows: { { any } } = {
+			{ "Health", if npc.health and npc.maxHealth then `{round(npc.health)} / {round(npc.maxHealth)}` else "none", true },
+		}
+		if npc.kind ~= npc.name then
+			table.insert(rows, { "Kind", npc.kind })
+		end
+		if npc.position then
+			table.insert(rows, { "Position", `{npc.position[1]}, {npc.position[2]}, {npc.position[3]}`, true })
+		end
+		if npc.tag then
+			table.insert(rows, { "Tag", npc.tag, true })
+		end
+		detail = e(Controls.DetailPane, {
+			title = npc.name,
+			id = tostring(npc.entityId or "?"),
+			rows = rows,
+			actions = {
+				Hit = e(Controls.Button, {
+					text = `Hit {hitAmount}`,
+					primary = true,
+					kbd = true,
+					enabled = not npc.dead and amountOk,
+					busy = snapshot.busy["hit:" .. target],
+					layoutOrder = 1,
+					onActivated = function()
+						ConsoleStore.run(`hit {Controls.quote(target)} {hitAmount}`, { key = "hit:" .. target, refresh = { "npcs" } })
+					end,
+				}),
+				Status = e(Controls.Button, {
+					text = if effect then `Apply {effect}` else "Apply status",
+					enabled = not npc.dead and effect ~= nil,
+					busy = snapshot.busy["status:" .. target],
+					layoutOrder = 2,
+					onActivated = function()
+						ConsoleStore.run(`status {Controls.quote(target)} {effect}`, { key = "status:" .. target, refresh = { "npcs" } })
+					end,
+				}),
+				Inspect = e(Controls.Button, {
+					text = "Inspect",
+					layoutOrder = 3,
+					onActivated = function()
+						ConsoleStore.setInspectTarget(target)
+						ConsoleStore.setTab("inspect")
+					end,
+				}),
+				Despawn = e(Controls.Button, {
+					text = `Despawn every {npc.kind}`,
+					busy = snapshot.busy.despawn,
+					layoutOrder = 4,
+					onActivated = function()
+						ConsoleStore.run(`despawn {Controls.quote(npc.kind)}`, { key = "despawn", refresh = { "npcs" } })
+					end,
+				}),
+			},
+		}, {
+			Settings = e(Controls.Line, { inset = false, vertical = 0, gap = 6, wrap = true, layoutOrder = 1 }, {
+				HitLabel = e(Controls.Text, { text = "Hit for", tone = "dim", size = size.secondary, height = 28, width = UDim.new(0, 100 - 6), layoutOrder = 1 }),
+				Hit = e(Controls.Input, { text = hitAmount, width = 60, invalid = not amountOk, onChange = setHitAmount, layoutOrder = 2 }),
+				EffectLabel = e(Controls.Text, { text = "status", tone = "dim", size = size.secondary, height = 28, autoWidth = true, layoutOrder = 3 }),
+				Effect = e(Controls.Select, {
+					value = effect,
+					choices = ConsoleStore.choices("status", "effect"),
+					placeholder = "effect",
+					onPick = setEffect,
+					width = 150,
+					layoutOrder = 4,
+				}),
+			}),
+		})
+	end
+
+	return e(Controls.TabLayout, { detail = detail }, children)
 end
 
 return WorldTab

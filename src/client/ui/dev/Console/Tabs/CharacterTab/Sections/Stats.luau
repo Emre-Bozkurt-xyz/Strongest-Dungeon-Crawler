@@ -1,6 +1,7 @@
 --!strict
--- Base stat overrides: each overridden stat with its value and remove, and a search to add one
--- (starting from the stat's default base).
+-- Base stat overrides: each overridden stat with its value, the default it stands in front of, and
+-- remove (back to that default); a search to add one, starting from the stat's default. Defaults are
+-- the live ones from the state, so a game default retuned this session shows its new value.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -18,9 +19,10 @@ local LABEL = 150
 local function Stats(props: Parts.SectionProps)
 	local editor, schema, state = props.editor, props.schema, props.state
 	local served = if type(state.stats) == "table" then state.stats else {}
+	local live = if type(state.statDefaults) == "table" then state.statDefaults else {}
 	local defaults: { [string]: number } = {}
 	for _, stat in ipairs(schema.stats) do
-		defaults[stat.name] = stat.default
+		defaults[stat.name] = if type(live[stat.name]) == "number" then live[stat.name] else stat.default
 	end
 
 	local names: { string } = {}
@@ -64,7 +66,7 @@ local function Stats(props: Parts.SectionProps)
 	local options: { Controls.SearchItem } = {}
 	for _, stat in ipairs(schema.stats) do
 		if values[stat.name] == nil then
-			table.insert(options, { key = stat.name, label = stat.name, detail = `default {Parts.number(stat.default)}` })
+			table.insert(options, { key = stat.name, label = stat.name, detail = `default {Parts.number(defaults[stat.name] or 0)}` })
 		end
 	end
 	children.Add = e(Parts.Line, { layoutOrder = 1000 }, {

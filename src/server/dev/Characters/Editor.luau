@@ -31,6 +31,7 @@ local EquipmentDefUtils = require(ReplicatedStorage.Shared.items.EquipmentDefUti
 
 local Server = ServerScriptService.Server
 local PlayerDataService = require(Server.PlayerData.PlayerDataService)
+local Registrar = require(Server.Services.Registrar)
 local StatsManager = require(Server.Stats.StatsManager)
 local AttributesManager = require(Server.Stats.AttributesManager)
 local AttributesConfig = require(Server.Stats.Config.AttributesConfig)
@@ -52,6 +53,7 @@ local CHEAP: { [string]: boolean } = {
 	mastery = true,
 	attuned = true,
 	pools = true,
+	stats = true,
 }
 
 -- Fields whose edits are tracked per key ("attributes.Strength") rather than whole.
@@ -173,6 +175,24 @@ function Editor.applyInPlace(player: Player, patch: { [string]: any }, merged: S
 				)
 			else
 				AttributesManager.setAttribute(player, name :: any, if value == false then 0 else value)
+			end
+		end
+	end
+	if patch.stats ~= nil then
+		local entityId = Registrar.getPlayerId(player)
+		if entityId then
+			local overrides = if type(patch.stats) == "table" then patch.stats else {}
+			if patch.stats == false then
+				for stat in pairs(StatsManager.getBaseOverrides(entityId)) do
+					overrides[stat] = false
+				end
+			end
+			for stat, value in pairs(overrides) do
+				if value == false then
+					StatsManager.clearBaseOverride(entityId, stat :: any)
+				else
+					StatsManager.setBaseOverride(entityId, stat :: any, value)
+				end
 			end
 		end
 	end
@@ -480,7 +500,17 @@ function Editor.readouts(player: Player, entityId: string, spec: Spec): { [strin
 		},
 	}
 
+	-- The overrides, and the default each stat would be on without one (live: a default retuned this
+	-- session shows its new value).
 	out.stats = (spec :: any).stats or {}
+	local statDefaults: { [string]: number } = {}
+	for name in pairs(StatsManager.getAllStats(entityId) or {}) do
+		local info = StatsManager.getBaseInfo(entityId, name :: any)
+		if info then
+			statDefaults[name] = info.default
+		end
+	end
+	out.statDefaults = statDefaults
 	out.slotsPerSet = LoadoutTypes.SLOTS_PER_SET
 	return out
 end

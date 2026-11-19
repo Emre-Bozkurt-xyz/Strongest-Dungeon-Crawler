@@ -24,9 +24,9 @@ function Dev.start(_ctx)
 	require(script.Parent.Scenarios).start()
 end
 
--- Once per player session (not per respawn). Skills, base stats and regeneration are session state
--- and are set up every time; the starter items and attribute point are saved, so only a new save
--- gets them. Then the player joins the scenario world (the first one boots it).
+-- Once per player session (not per respawn). Skills and regeneration are session state and are set
+-- up every time; the starter items and attribute point are saved, so only a new save gets them.
+-- Then the player joins the scenario world (the first one boots it).
 function Dev.onSessionStart(player: Player, _character: Model, grantStarterKit: boolean)
 	local registrar = require(script.Parent.Parent.Services.Registrar)
 	local statsManager = require(script.Parent.Parent.Stats.StatsManager)
@@ -53,10 +53,6 @@ function Dev.onSessionStart(player: Player, _character: Model, grantStarterKit: 
 		for attribute, amount in pairs(StarterKit.attributes) do
 			attributesManager.addToAttribute(player, attribute :: any, amount)
 		end
-	end
-
-	for stat, value in pairs(StarterKit.stats) do
-		statsManager.setBaseStat(playerId, stat :: any, value)
 	end
 
 	statsManager.addModifier(

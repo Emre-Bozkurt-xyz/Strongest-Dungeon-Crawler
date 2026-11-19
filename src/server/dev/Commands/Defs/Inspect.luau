@@ -1,7 +1,7 @@
 --!strict
--- `inspect`: one entity's live combat state as JSON-safe data -- every stat with its base value,
--- final value and the modifiers between them (and who added each), the status effects on it, and
--- the skill session it is in. The console's Inspect tab shows it; on the command line it prints a
+-- `inspect`: one entity's live combat state as JSON-safe data -- every stat with its default, the
+-- override in front of it (if any), the effective base, the final value and the modifiers between
+-- them (and who added each), the status effects on it, and the skill session it is in. The console's Inspect tab shows it; on the command line it prints a
 -- summary.
 
 local Support = require(script.Parent.Parent.CommandSupport)
@@ -57,9 +57,13 @@ local function statsOf(entityId: string): { any }
 		if type(name) ~= "string" or type(stat) ~= "table" or type(stat.getBaseValue) ~= "function" then
 			continue
 		end
+		local info = stats.getBaseInfo(entityId, name)
 		local entry: { [string]: any } = {
 			name = name,
 			base = round(stat:getBaseValue()),
+			default = round(if info then info.default else stat:getBaseValue()),
+			override = if info and info.override ~= nil then round(info.override) else nil,
+			ownsDefault = if info then info.ownsDefault else false,
 			final = round(stats.getStatValue(entityId, name)),
 			modifiers = {},
 		}
@@ -123,7 +127,7 @@ return {
 	{
 		name = "inspect",
 		group = "Debug",
-		summary = "Show an entity's stats (base, final, modifiers), status effects and skill session: me, or an NPC name or entity id",
+		summary = "Show an entity's stats (default, override, final, modifiers), status effects and skill session: me, or an NPC name or entity id",
 		args = {
 			{ name = "target", type = "string", default = "me" },
 		},
@@ -135,9 +139,13 @@ return {
 			local session = sessionOf(entityId)
 			local name = if model then model.Name else entityId
 			local modified = 0
+			local overridden: { string } = {}
 			for _, stat in ipairs(stats) do
 				if #stat.modifiers > 0 then
 					modified += 1
+				end
+				if stat.override ~= nil then
+					table.insert(overridden, `{stat.name} {stat.override} (default {stat.default})`)
 				end
 			end
 			local statusNames = {}
@@ -145,7 +153,9 @@ return {
 				table.insert(statusNames, `{status.id} x{status.stacks}`)
 			end
 			return {
-				message = `{name} ({entityId}): {#stats} stats, {modified} modified; statuses: {if #statusNames > 0
+				message = `{name} ({entityId}): {#stats} stats, {modified} modified; overrides: {if #overridden > 0
+					then table.concat(overridden, ", ")
+					else "none"}; statuses: {if #statusNames > 0
 					then table.concat(statusNames, ", ")
 					else "none"}; session: {if session then `{session.skillId} {session.state}` else "none"}`,
 				data = {

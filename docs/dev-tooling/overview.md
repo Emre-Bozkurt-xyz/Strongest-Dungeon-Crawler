@@ -15,6 +15,7 @@ Studio-gated `DevHooks` bootstrap entries (`src/server/dev/InitDev.luau`,
 | Characters | `src/server/dev/Characters/` (presets in `Presets/`, fields in `Types.luau`) |
 | Scenarios | `src/server/dev/Scenarios/` (definitions in `Defs/`) |
 | Dev session kit | `src/server/dev/StarterKit.luau` |
+| Game defaults tuned live | `src/server/dev/GameDefaults.luau` |
 | In-game console | `src/client/ui/dev/Console/` |
 
 ## The console
@@ -54,12 +55,21 @@ Ctrl+Up/Down walk it from anywhere.
 | Scenarios | scenarios, grouped by id prefix; dot = loaded | stage, character, source, what Play loads; Load / Reload (primary), Pin for play, Exit scenario; "On play" chips (last loaded, always default) |
 | Character | the character editor (see below); Presets swaps in the preset list: dot = applied, chip = saved / this session | preset list: Apply (primary), View source, Delete (saved presets) |
 | World | stages, then NPCs (thin health bar) | marker chips teleport (`tp`), show-markers switch, one-line spawn form, Despawn all; stage: Load map (primary), Unload; NPC: Hit (primary, amount set in the pane), Apply status, Inspect, Despawn (that kind) |
-| Debug | server and client flags in two columns of switches; Enter flips the selected one | tuning overrides (Edit, Reset, Reset all), set-a-value line with path suggestions |
+| Debug | server and client flags in two columns of switches; Enter flips the selected one | tuning overrides (Edit, Reset, Reset all), set-a-value line with path suggestions; Game defaults (below) |
 | Commands | every command, mono name + summary, grouped as the registry groups them; filter pinned above | the form built from the descriptor, the exact command line above Run (primary), Clear, result and data |
 | Log | Commands / Output switch; time, mono command, coloured result; a picked command runs again on Enter | Failed / Errors chip filters, Clear |
-| Inspect | target chips (you, each NPC) pinned above; Up/Down walks them | stats as base → final with modifiers indented under each, a filter and Modified chip; statuses and the skill session in the pane; Enter logs `inspect` |
+| Inspect | target chips (you, each NPC) pinned above; Up/Down walks them | stats as base → final with modifiers indented under each (an overridden base shows its default struck through, then the override in amber), a filter and Modified chip (modifiers or an override); overrides, statuses and the skill session in the pane; Enter logs `inspect` |
 
 While closed, client warnings and errors are counted in a badge at the right edge.
+
+### Game defaults (Debug tab)
+
+Every stat default in `StatsConfig.luau` (21 rows: pools, stats, resources), each with its value in an
+editable field; a filter narrows the list. Committing a field runs `defaults set`. A row changed this
+session is amber, shows the file's value and a Reset (`defaults reset <stat>`); Reset all at the
+section label resets every one. Export runs `defaults export` and shows the Luau in the selectable
+code view (select, Ctrl+A, Ctrl+C), with a close button; any later change clears it. The section says
+in plain words that the values are session-only.
 
 ### The Character tab
 
@@ -90,7 +100,9 @@ An editor over the whole live character; every change applies to you at once. Co
     search.
   - *Form and passives*: shape per weapon class, infusion, passives within the level's slots; locked
     choices stay listed, disabled, with what opens them.
-  - *Base stat overrides*: each override with its value and remove; an add-stat search.
+  - *Base stat overrides*: each override with its value, the default it stands in front of (the live
+    default, so one retuned this session shows its new value) and remove (back to that default); an
+    add-stat search that starts a new override at the stat's default.
 - **Save pane (pinned):** what was edited, a name (a new one by default), Save preset (primary),
   Revert, Copy source (the live build's Luau, selectable), Restore real save.
 
@@ -183,16 +195,28 @@ Usage strings are what `help` prints; `<x>` is required, `[x]` optional, `[x=1]`
 | `hit <npc> <amount>` (`npc`: a name, or an entity id from `npcs`) | — |
 | `status <npc> <effect> [params]` | — |
 | **Debug** | |
-| `inspect [target=me]` (`me`, an NPC name or an entity id) | `{ name, entityId, isPlayer, stats = { { name, base, final, current?, max?, modifiers = { { source, name, type, value } } } }, statuses = { { id, stacks, remaining } }, session? }` |
+| `inspect [target=me]` (`me`, an NPC name or an entity id) | `{ name, entityId, isPlayer, stats = { { name, default, override?, ownsDefault, base, final, current?, max?, modifiers = { { source, name, type, value } } } }, statuses = { { id, stacks, remaining } }, session? }` — `base` is the effective base (override, else default); `ownsDefault` is true when the entity's definition set the default |
 | `flag <name> <value>` / `flags` | `flags`: `{ [name] = boolean }` |
 | `cflag <name> <value>` / `cflags` (client) | `cflags`: `{ [name] = boolean }` |
 | `cooldowns` (client) | `{ cooldowns = { { key, remaining } } }` |
 | `help [command...]` (client: both realms) | `{ commands = { Descriptor } }` when listing |
 | **Tuning** | |
 | `tune [command...=help]` (client) | `{ lines }` |
+| `defaults [filter]` | `{ defaults = { DefaultRow }, changed, sessionOnly = true }` |
+| `defaults set <stat> <value>` | `DefaultRow & { inherited, overridden, ownDefault, clamped }` |
+| `defaults reset [stat]` (no stat: every changed one) | `{ reset = { stat } }` |
+| `defaults export` | `{ path, luau, changes = { { stat, kind, table, key, field = "baseValue", file, value, line } } }`; `{ luau = "", changes = {} }` when nothing is changed |
 
 `ScenarioInfo` is `{ id, title, description, stage?, character, source = "code"|"stage", current }`;
 `character` is a preset name, `"custom"` (inline spec) or `"keep"`.
+
+`DefaultRow` is `{ stat, kind = "pool"|"static"|"resource", file, value, changed, min, max }`: `file`
+is the base value written in `StatsConfig.luau`, `value` what new entities get now, `min`/`max` the
+stat's limits (a set value is clamped to them). In `defaults set`, `inherited` counts live entities
+whose default moved, `overridden` how many of those keep an override in front of it, and
+`ownDefault` the entities whose definition sets that stat and were left alone. `defaults export`'s
+`line` is the whole `StatsConfig` entry with the new value, to replace the entry under `key` in
+`table`; `luau` is every such line grouped by table, each after a comment with the file's value.
 
 `spawn` options are spawn options as a JSON object, e.g. `spawn Slime 3 {"respawnDelay": 5}`.
 `character show` turns item specs such as `{ "iron_sword", rarity = "magic" }` into JSON objects
@@ -280,6 +304,13 @@ return {
 }
 ```
 
+`stats` holds base overrides (StatsManager's override layer, see `docs/stats/overview.md`): applying
+a spec makes them exactly the overrides in effect, clearing any others; `character restore` (and
+`character revert` to the real save) clears them all, so every stat is back on its default as the
+default is then. `Characters.capture` (`character show`, `character save`, the editor's state)
+records exactly the overrides in effect, never a
+stat that sits on its default, so a preset follows later changes of `StatsConfig`.
+
 Applying a character sets your real save aside (`PlayerDataService` sandbox: nothing is written to
 the profile until you restore or leave) and rebuilds you from the spec. `character restore` or
 `scenario exit` returns to the real save as it was. The player attribute `DevCharacter` holds the
@@ -318,10 +349,11 @@ their exact rolls). Item specs in JSON write positional entries as `"1"`, `"2"`.
   `mastery.Fire.trunk`, `passives[1]`, `equipment.Main`, ...).
 - On the real save, the first edit captures the build as it is and moves you onto a sandbox copy of it
   before anything changes (`DevCharacter` = `"real save copy"`); the real profile is never written.
-- `level`/`xp`, `attributes`, `mastery`, `attuned` and `pools` are set on the live player in place
-  (`CharacterService.setXp`, `AttributesManager`, `MasteryService.setBranchXp`,
-  `AttunementService.assign`, pool writes). Anything else (`skills`, `bar`, `activeSet`, `equipment`,
-  `bag`, `capacity`, `shapes`, `infusion`, `passives`, `stats`) rebuilds you from the merged spec, which
+- `level`/`xp`, `attributes`, `mastery`, `attuned`, `pools` and `stats` are set on the live player in
+  place (`CharacterService.setXp`, `AttributesManager`, `MasteryService.setBranchXp`,
+  `AttunementService.assign`, pool writes, `StatsManager.setBaseOverride` / `clearBaseOverride`; a
+  `false` stat removes its override). Anything else (`skills`, `bar`, `activeSet`, `equipment`,
+  `bag`, `capacity`, `shapes`, `infusion`, `passives`) rebuilds you from the merged spec, which
   also clears cooldowns, statuses and the skill in progress, and rerolls the values of any item given
   without its exact meta.
 - Each player on a preset has a base (the preset, or the real save for a copy) and the build right after
@@ -359,6 +391,9 @@ the real save.
   passives = { { id, name, track } }, stats = { { name, default } }, capacity = { default, max } }
 ```
 
+`stats[].default` is the value in `StatsConfig.luau`; the schema is built once, so a live default is
+read from the state's `statDefaults`.
+
 `State` (`character state`, and the `state` of every editing command):
 
 ```
@@ -373,14 +408,39 @@ the real save.
   forms = { classes = { [classKey] = { selected?, default, options = { { id, name, locked? } } } },
             infusion = { selected, options = { { id, name, locked? } } },
             passives = { selected, used, slots, nextSlotLevel?, options = { { id, name, track, locked? } } } },
-  stats = { [stat] = base } }
+  stats = { [stat] = override }, statDefaults = { [stat] = default } }
 ItemRow = { itemId, name, count, rarity?, itemLevel?, affixes = { { id, tier, label } }, stackLimit }
 ```
 
 `locked` is why an option cannot be chosen ("needs Blunt trunk → 120 and Blunt attuned").
 
 The `starter` preset and the dev session's per-player kit (owned skills, starting items, Perception
-point, AttackSpeed base) both read `StarterKit.luau`; change the kit there.
+point) both read `StarterKit.luau`; change the kit there. The kit sets no base stats: a dev session
+plays on the game defaults, like a live one.
+
+## Game defaults
+
+`StatsConfig.luau` holds every stat's default base value; base stats are built from it each time an
+entity registers and are never saved (see `docs/stats/overview.md`). To try a new default without
+editing the file and restarting Play, change it live (`src/server/dev/GameDefaults.luau`, the
+`defaults` commands, the Debug tab's Game defaults section):
+
+- `defaults set <stat> <value>` lays a session value over the file's (clamped to the stat's limits;
+  the file's own value removes it). New registrations get it, and every live entity that inherits
+  the default moves to it at once, the client mirror included. An entity whose definition sets that
+  stat (an NPC spec's `configure`, or the Combat component's `damage`) is left alone, and so is an
+  override in front of the default (the default behind it still moves, so clearing the override lands
+  on the new value). A pool whose maximum moves keeps its current value within the new maximum; it is
+  never refilled.
+- `defaults reset [stat]` goes back to the file's values, `defaults` lists them all.
+- Session-only: nothing persists a tuned value, so it can never become a hidden setting that disagrees
+  with the file, and stopping Play discards it. To keep one, `defaults export` and replace the entries
+  it prints in `StatsConfig.luau`; the structured `changes` list says which entry, field and value.
+- `StatsConfig.setSessionDefault` refuses outside Studio, and the commands are dev commands
+  (`DevAccess.canUse` on the remote), so a live server only ever builds stats from the file.
+
+Players and NPCs share one defaults table; a definition that sets a stat (NPC specs today) is how an
+entity departs from it.
 
 ## Scenarios
 

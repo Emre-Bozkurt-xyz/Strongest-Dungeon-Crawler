@@ -5,13 +5,15 @@
 -- A spec (Types) describes a character; named ones are the modules in Presets, the preset's name
 -- being the module's. Applying one builds a save from a brand-new template plus the spec, puts it in
 -- place of the player's own (PlayerDataService sandbox) and rebuilds the player from it
--- (PlayerSession.reload), then sets what no save holds: owned skills, base stat overrides, starting
--- pools. Every apply starts from that clean template, never from the character before it, so the
--- same spec always gives the same character.
+-- (PlayerSession.reload), then sets what no save holds: owned skills, base stat overrides (exactly
+-- the spec's; StatsManager keeps each stat's default behind them), starting pools. Every apply starts
+-- from that clean template, never from the character before it, so the same spec always gives the
+-- same character.
 --
--- `restore` goes back to the real save, untouched since the first apply, and to the skills and base
--- stat values the player had before it. Anything earned while sandboxed is discarded, on restore or
--- on leaving the game; items dropped in the world are kept to the save they came from (Drops).
+-- `restore` goes back to the real save, untouched since the first apply, to the skills the player had
+-- before it, and to no base overrides: every stat back on its default. Anything earned while
+-- sandboxed is discarded, on restore or on leaving the game; items dropped in the world are kept to
+-- the save they came from (Drops).
 --
 -- Editing (`edit`): a patch is laid over the live build (Editor) and applied to the player at once.
 -- Each player on a preset has a session: the base it came from (a preset, or the real save when the
@@ -38,7 +40,6 @@ local PlayerDataSchema = require(Server.PlayerData.PlayerDataSchema)
 local PlayerSession = require(Server.PlayerData.PlayerSession)
 local Registrar = require(Server.Services.Registrar)
 local StatsManager = require(Server.Stats.StatsManager)
-local StatsConfig = require(Server.Stats.Config.StatsConfig)
 local AttributesManager = require(Server.Stats.AttributesManager)
 local SkillsManager = require(Server.SkillsFramework.SkillsManager)
 local SkillMetadataService = require(Server.SkillsFramework.SkillMetadataService)
@@ -83,9 +84,6 @@ local sessions: { [Player]: Session } = {}
 local currentName: { [Player]: string } = {}
 -- Owned skills before the first apply, given back on restore.
 local skillsBefore: { [Player]: { string } } = {}
--- Base value each overridden stat had before the first override of it, put back when no spec
--- overrides it any more.
-local baseBefore: { [Player]: { [string]: number } } = {}
 -- A change in progress; reload yields, and two at once would interleave.
 local busy: { [Player]: boolean } = {}
 
@@ -223,28 +221,17 @@ local function setOwnedSkills(entityId: string, wanted: { string })
 	end
 end
 
-local function baseValueOf(entityId: string, stat: string): number?
-	local instance = StatsManager.getStat(entityId, stat :: any) :: any
-	return if instance and instance.getBaseValue then instance:getBaseValue() else nil
-end
-
--- Override exactly `overrides`; every stat an earlier spec overrode and this one does not goes back
--- to its value from before.
-local function setBaseStats(player: Player, entityId: string, overrides: { [string]: number })
-	local before = baseBefore[player] or {}
-	for stat, value in pairs(before) do
+-- Makes `overrides` exactly the base overrides in effect: every other override is cleared, which
+-- puts that stat back on its default as the default is now.
+local function setBaseOverrides(entityId: string, overrides: { [string]: number })
+	for stat in pairs(StatsManager.getBaseOverrides(entityId)) do
 		if overrides[stat] == nil then
-			StatsManager.setBaseStat(entityId, stat :: any, value)
-			before[stat] = nil
+			StatsManager.clearBaseOverride(entityId, stat :: any)
 		end
 	end
 	for stat, value in pairs(overrides) do
-		if before[stat] == nil then
-			before[stat] = baseValueOf(entityId, stat)
-		end
-		StatsManager.setBaseStat(entityId, stat :: any, value)
+		StatsManager.setBaseOverride(entityId, stat :: any, value)
 	end
-	baseBefore[player] = if next(before) then before else nil
 end
 
 local function setPool(entityId: string, pool: string, value: number)
@@ -290,7 +277,7 @@ local function applyResolved(player: Player, entityId: string, spec: Spec, name:
 		return false, err
 	end
 	setOwnedSkills(entityId, spec.skills or {})
-	setBaseStats(player, entityId, spec.stats or {})
+	setBaseOverrides(entityId, spec.stats or {})
 	setPools(entityId, spec.pools or {})
 	SkillMetadataService.updateAllSkills(player)
 	currentName[player] = name
@@ -335,7 +322,8 @@ function Characters.apply(player: Player, specOrName: any): (boolean, string?)
 	return applied, message
 end
 
--- Back to the player's real save and their own skills and base stats. Already there: nothing to do.
+-- Back to the player's real save, their own skills and no base overrides. Already there: nothing to
+-- do.
 function Characters.restore(player: Player): (boolean, string?)
 	Holds.releaseAll(player)
 	if not PlayerDataService.isSandboxed(player) then
@@ -362,7 +350,7 @@ function Characters.restore(player: Player): (boolean, string?)
 			return false, err
 		end
 		setOwnedSkills(entityId, skillsBefore[player] or {})
-		setBaseStats(player, entityId, {})
+		setBaseOverrides(entityId, {})
 		SkillMetadataService.updateAllSkills(player)
 		return true, nil
 	end)
@@ -562,17 +550,9 @@ function Characters.capture(player: Player): Spec
 		spec.pools = pools
 	end
 
-	-- A stat counts as overridden when its base differs from a new character's, or when a spec set it
-	-- (even to that same value), so an override added in the editor stays listed and saved.
-	local stats: { [string]: number } = {}
-	local overridden = baseBefore[player] or {}
-	for stat, default in pairs(StatsConfig.createDefaultStats() :: any) do
-		local base = baseValueOf(entityId, stat)
-		local defaultBase = if type(default) == "table" and default.getBaseValue then default:getBaseValue() else nil
-		if base and defaultBase and (base ~= defaultBase or overridden[stat] ~= nil) then
-			stats[stat] = base
-		end
-	end
+	-- Exactly the overrides in effect; a stat on its default is never written down, so a captured
+	-- preset follows later changes of the default.
+	local stats = StatsManager.getBaseOverrides(entityId)
 	if next(stats) then
 		spec.stats = stats
 	end
@@ -882,7 +862,6 @@ function Characters.start()
 		Drops.release(player)
 		currentName[player] = nil
 		skillsBefore[player] = nil
-		baseBefore[player] = nil
 		busy[player] = nil
 		sessions[player] = nil
 	end)

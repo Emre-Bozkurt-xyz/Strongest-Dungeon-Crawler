@@ -99,10 +99,10 @@ function Testing.testBasicStatSetting(player: Player)
 	print("\n📊 Testing Basic Stat Setting...")
 
 	-- Test setting base values
-	StatsManager.setBaseStat(player, StatTypes.PoolStats.Health, 100)
-	StatsManager.setBaseStat(player, StatTypes.PoolStats.Mana, 150)
-	StatsManager.setBaseStat(player, StatTypes.PoolStats.Stamina, 80)
-	StatsManager.setBaseStat(player, StatTypes.StaticStats.MagicDamage, 15)
+	StatsManager.setBaseOverride(player, StatTypes.PoolStats.Health, 100)
+	StatsManager.setBaseOverride(player, StatTypes.PoolStats.Mana, 150)
+	StatsManager.setBaseOverride(player, StatTypes.PoolStats.Stamina, 80)
+	StatsManager.setBaseOverride(player, StatTypes.StaticStats.MagicDamage, 15)
 
 	wait(0.1) -- Allow deltas to process
 
@@ -250,9 +250,9 @@ function Testing.testRegenerationSystem(player: Player)
 	print("\n💚 Testing Regeneration System...")
 
 	-- Set regeneration rates
-	StatsManager.setBaseStat(player, StatTypes.StaticStats.HealthRegeneration, 5)
-	StatsManager.setBaseStat(player, StatTypes.StaticStats.ManaRegeneration, 3)
-	StatsManager.setBaseStat(player, StatTypes.StaticStats.StaminaRegeneration, 4)
+	StatsManager.setBaseOverride(player, StatTypes.StaticStats.HealthRegeneration, 5)
+	StatsManager.setBaseOverride(player, StatTypes.StaticStats.ManaRegeneration, 3)
+	StatsManager.setBaseOverride(player, StatTypes.StaticStats.StaminaRegeneration, 4)
 
 	-- Damage player to test regen
 	StatsManager.removeFromPool(player, StatTypes.PoolStats.Health, 20)
@@ -384,7 +384,7 @@ function Testing.testCombatLogCoverage(player: Player)
 	end
 
 	local desiredHealth = 140
-	StatsManager.setBaseStat(player, StatTypes.PoolStats.Health, desiredHealth)
+	StatsManager.setBaseOverride(player, StatTypes.PoolStats.Health, desiredHealth)
 	local currentHealth = healthStat:getCurrentValue()
 	if currentHealth < desiredHealth then
 		StatsManager.addToPool(player, StatTypes.PoolStats.Health, desiredHealth - currentHealth)
@@ -393,7 +393,7 @@ function Testing.testCombatLogCoverage(player: Player)
 	end
 
 	local desiredShield = 30
-	StatsManager.setBaseStat(player, StatTypes.PoolStats.ManaShield, desiredShield)
+	StatsManager.setBaseOverride(player, StatTypes.PoolStats.ManaShield, desiredShield)
 	local currentShield = shieldStat:getCurrentValue()
 	if currentShield < desiredShield then
 		StatsManager.addToPool(player, StatTypes.PoolStats.ManaShield, desiredShield - currentShield)

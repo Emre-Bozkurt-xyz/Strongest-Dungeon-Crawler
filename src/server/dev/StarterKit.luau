@@ -1,6 +1,6 @@
 --!strict
 -- What a dev session gives a player on top of their save: the skills they own, and for a brand-new
--- save the starting items, attribute point and AttackSpeed base. Read by the session-start hook
+-- save the starting items and attribute point. Read by the session-start hook
 -- (InitDev) and by the `starter` character preset, so the two cannot drift apart.
 --
 -- Items are written as character spec items (Characters/Types): an id, an optional stack count, and
@@ -25,8 +25,5 @@ StarterKit.items = {
 
 -- Added to the attribute's base, once per save.
 StarterKit.attributes = { Perception = 1 }
-
--- Base stat values set every session.
-StarterKit.stats = { AttackSpeed = 1 }
 
 return StarterKit

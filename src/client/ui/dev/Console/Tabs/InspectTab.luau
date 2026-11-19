@@ -1,6 +1,7 @@
 --!strict
 -- Inspect: one entity's live combat state from the `inspect` command -- stats as base -> final with
--- the modifiers that move them indented under each, status effects, the skill session. The player by
+-- the modifiers that move them indented under each (an overridden base shows its default struck
+-- through before the override), status effects, the skill session. The player by
 -- default; an NPC when picked here or with Inspect in the World tab.
 --
 -- The targets are chips pinned above the list (Up/Down walks them); the stats scroll; statuses and
@@ -45,9 +46,14 @@ local function signed(value: any): string
 	return fmt(value)
 end
 
+local function isChanged(stat: any): boolean
+	return #stat.modifiers > 0 or stat.override ~= nil
+end
+
 local function StatRow(props: { stat: any, layoutOrder: number })
 	local stat = props.stat
-	local modified = #stat.modifiers > 0
+	local modified = isChanged(stat)
+	local overridden = stat.override ~= nil
 	local final = if stat.current ~= nil then `{fmt(stat.current)} / {fmt(stat.max)}` else fmt(stat.final)
 	local children: { [string]: any } = {
 		Layout = Controls.list(Enum.FillDirection.Vertical, 0),
@@ -59,16 +65,29 @@ local function StatRow(props: { stat: any, layoutOrder: number })
 				fill = true,
 				layoutOrder = 1,
 			}),
+			-- An override shows the default it stands in front of, struck through, then its own value.
+			Default = if overridden
+				then e(Controls.Text, {
+					text = `<s>{fmt(stat.default)}</s>`,
+					richText = true,
+					mono = true,
+					size = size.monoSmall,
+					tone = "dim",
+					height = 24,
+					autoWidth = true,
+					layoutOrder = 2,
+				})
+				else nil,
 			Base = e(Controls.Text, {
-				text = fmt(stat.base),
+				text = fmt(if overridden then stat.override else stat.base),
 				mono = true,
 				size = size.monoSmall,
-				tone = "dim",
+				tone = if overridden then "warn" else "dim",
 				height = 24,
 				autoWidth = true,
-				layoutOrder = 2,
+				layoutOrder = 3,
 			}),
-			Arrow = e(Controls.Text, { text = "→", tone = "dim", size = size.secondary, height = 24, autoWidth = true, layoutOrder = 3 }),
+			Arrow = e(Controls.Text, { text = "→", tone = "dim", size = size.secondary, height = 24, autoWidth = true, layoutOrder = 4 }),
 			Final = e(Controls.Text, {
 				text = final,
 				mono = true,
@@ -77,7 +96,7 @@ local function StatRow(props: { stat: any, layoutOrder: number })
 				height = 24,
 				width = UDim.new(0, 92),
 				alignX = Enum.TextXAlignment.Right,
-				layoutOrder = 4,
+				layoutOrder = 5,
 			}),
 		}),
 	}
@@ -208,7 +227,7 @@ local function InspectTab(props: { snapshot: ConsoleStore.State, active: boolean
 		local rows: { [string]: any } = {}
 		for _, stat in ipairs(data.stats or {}) do
 			local passes = (needle == "" or string.find(string.lower(stat.name), needle, 1, true) ~= nil)
-				and (not modifiedOnly or #stat.modifiers > 0)
+				and (not modifiedOnly or isChanged(stat))
 			if passes then
 				shown += 1
 				rows[stat.name] = e(StatRow, { stat = stat, layoutOrder = 10 + shown })
@@ -239,6 +258,12 @@ local function InspectTab(props: { snapshot: ConsoleStore.State, active: boolean
 		for _, status in ipairs(data.statuses or {}) do
 			table.insert(statuses, `{status.id}{if status.stacks > 1 then ` ×{status.stacks}` else ""}  {fmt(status.remaining)}s`)
 		end
+		local overrides: { string } = {}
+		for _, stat in ipairs(data.stats or {}) do
+			if stat.override ~= nil then
+				table.insert(overrides, `{stat.name} {fmt(stat.override)} (default {fmt(stat.default)})`)
+			end
+		end
 		local session = data.session
 		local sessionText = if session
 			then `{session.skillId} · {session.state}{if session.combo
@@ -250,6 +275,7 @@ local function InspectTab(props: { snapshot: ConsoleStore.State, active: boolean
 			id = data.entityId,
 			rows = {
 				{ "Kind", if data.isPlayer then "player" else "NPC" },
+				{ "Overrides", if #overrides > 0 then table.concat(overrides, "\n") else "none", #overrides > 0 },
 				{ "Statuses", if #statuses > 0 then table.concat(statuses, "\n") else "none", #statuses > 0 },
 				{ "Skill", sessionText, session ~= nil },
 			},

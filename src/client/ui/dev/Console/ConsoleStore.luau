@@ -33,7 +33,7 @@ export type DevState = {
 	revision: number,
 }
 
-export type ListName = "scenarios" | "boot" | "presets" | "stages" | "markers" | "npcs" | "flags" | "cflags"
+export type ListName = "scenarios" | "boot" | "presets" | "stages" | "markers" | "npcs" | "flags" | "cflags" | "defaults"
 
 export type State = {
 	open: boolean,
@@ -109,6 +109,7 @@ local LIST_COMMANDS: { [string]: string } = {
 	npcs = "npcs",
 	flags = "flags",
 	cflags = "cflags",
+	defaults = "defaults",
 }
 
 local HISTORY_LIMIT = 100
@@ -437,7 +438,7 @@ function ConsoleStore.setLogView(view: string)
 	end
 end
 
-local ALL_LISTS: { ListName } = { "scenarios", "boot", "presets", "stages", "markers", "npcs", "flags", "cflags" }
+local ALL_LISTS: { ListName } = { "scenarios", "boot", "presets", "stages", "markers", "npcs", "flags", "cflags", "defaults" }
 ConsoleStore.ALL_LISTS = ALL_LISTS
 
 function ConsoleStore.setOpen(open: boolean)

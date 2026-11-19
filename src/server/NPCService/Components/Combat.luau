@@ -172,13 +172,12 @@ function Combat.new(npcModel: Model, config: CombatConfig): any
 	-- Initialize stats for this NPC if not already registered
 	-- Note: NPCManager.register already handles StatsManager.register with entityId
 	-- This call is a backup in case stats weren't initialized - use entityId not model
+	-- The spec's damage is part of the NPC's definition, so it becomes the stat's own default. With no
+	-- damage given the NPC keeps inheriting the game default.
 	local stats = StatsManager.register(entityId)
-	local baseDamage = config.damage or 10
 	local damageStat = stats[StatTypes.StaticStats.PhysicalDamage]
-	if damageStat and damageStat.setBaseValue then
-		damageStat:setBaseValue(baseDamage)
-	else
-		npcModel:SetAttribute("BaseDamage", baseDamage)
+	if config.damage ~= nil and damageStat and damageStat.setBaseValue then
+		damageStat:setBaseValue(config.damage)
 	end
 
 	local self = setmetatable({

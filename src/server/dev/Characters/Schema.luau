@@ -258,15 +258,12 @@ function Schema.build(): any
 		shapes[key] = list
 	end
 
+	-- The file's defaults: the schema is built once per server, so a default retuned this session is
+	-- read from the state's `statDefaults` instead.
 	local stats = {}
-	for name, stat in pairs(StatsConfig.createDefaultStats() :: any) do
-		if type(stat) == "table" and stat.getBaseValue then
-			table.insert(stats, { name = name, default = stat:getBaseValue() })
-		end
+	for _, name in ipairs(StatsConfig.names()) do
+		table.insert(stats, { name = name, default = StatsConfig.fileDefault(name) })
 	end
-	table.sort(stats, function(a, b)
-		return a.name < b.name
-	end)
 
 	local poolNames: { string } = {}
 	for _, pool in pairs(StatTypes.PoolStats) do

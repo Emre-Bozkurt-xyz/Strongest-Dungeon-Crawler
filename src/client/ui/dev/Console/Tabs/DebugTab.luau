@@ -1,6 +1,6 @@
 --!strict
--- Debug: server and client debug flags as two columns of switches, the client tuning overrides, and
--- a line to set any tuning value.
+-- Debug: server and client debug flags as two columns of switches, the client tuning overrides, a
+-- line to set any tuning value, and the game's stat defaults editable for the session.
 --
 -- Flags are read with `flags` / `cflags` and flipped with `flag` / `cflag`; they are the selectable
 -- rows, so Enter flips the selected one. Tuning is changed only through `tune set` / `tune reset`;
@@ -126,6 +126,180 @@ local function FlagColumn(props: {
 		BackgroundTransparency = 1,
 		LayoutOrder = props.layoutOrder,
 	}, children)
+end
+
+local EXPORT_KEY = "defaults:export"
+
+local function shortNumber(value: any): string
+	if type(value) ~= "number" then
+		return tostring(value)
+	end
+	if value % 1 == 0 then
+		return tostring(value)
+	end
+	return (string.gsub(string.format("%.4f", value), "%.?0+$", ""))
+end
+
+-- One default: name, the file's value and Reset when changed this session, the value to edit.
+local function DefaultRow(props: { row: any, snapshot: ConsoleStore.State, layoutOrder: number })
+	local row = props.row
+	local key = `defaults:{row.stat}`
+	local busy = props.snapshot.busy[key] == true
+	local function run(command: string)
+		ConsoleStore.clearResult(EXPORT_KEY)
+		ConsoleStore.run(command, { key = key, refresh = { "defaults" } })
+	end
+	return e(Controls.Line, { layoutOrder = props.layoutOrder, gap = 8 }, {
+		Name = e(Controls.Text, {
+			text = row.stat,
+			mono = true,
+			size = size.monoSmall,
+			tone = if row.changed then "warn" else "secondary",
+			height = 28,
+			fill = true,
+			layoutOrder = 1,
+		}),
+		File = if row.changed
+			then e(Controls.Text, {
+				text = `file {shortNumber(row.file)}`,
+				mono = true,
+				size = size.monoSmall,
+				tone = "dim",
+				height = 28,
+				autoWidth = true,
+				layoutOrder = 2,
+			})
+			else nil,
+		Reset = if row.changed
+			then e(Controls.Button, {
+				text = "Reset",
+				busy = busy,
+				layoutOrder = 3,
+				onActivated = function()
+					run(`defaults reset {row.stat}`)
+				end,
+			})
+			else nil,
+		Value = e(Controls.Field, {
+			value = shortNumber(row.value),
+			width = 84,
+			alignX = Enum.TextXAlignment.Right,
+			enabled = not busy,
+			layoutOrder = 4,
+			onCommit = function(text)
+				local value = tonumber(text)
+				if value and value ~= row.value then
+					run(`defaults set {row.stat} {value}`)
+				end
+			end,
+		}),
+	})
+end
+
+-- The game's stat defaults (StatsConfig), editable for this session: `defaults`, `defaults set`,
+-- `defaults reset`, `defaults export`.
+local function GameDefaults(props: { snapshot: ConsoleStore.State, layoutOrder: number })
+	local snapshot = props.snapshot
+	local filter, setFilter = React.useState("")
+	local data = snapshot.lists.defaults
+	local rows: { any } = if data and data.defaults then data.defaults else {}
+	local changed = if data then data.changed or 0 else 0
+
+	local children: { [string]: any } = {
+		Label = e(Controls.SectionLabel, {
+			text = if data then `Game defaults · {#rows} · {changed} changed` else "Game defaults",
+			layoutOrder = 1,
+			right = {
+				ResetAll = e(Controls.Button, {
+					text = "Reset all",
+					enabled = changed > 0,
+					busy = snapshot.busy["defaults:all"],
+					onActivated = function()
+						ConsoleStore.clearResult(EXPORT_KEY)
+						ConsoleStore.run("defaults reset", { key = "defaults:all", refresh = { "defaults" } })
+					end,
+				}),
+			},
+		}),
+		Note = e(Controls.Stack, { pad = true, layoutOrder = 2 }, {
+			Text = e(Controls.Text, {
+				text = "Session only. A change applies now to new spawns and to every live entity that inherits the default, and is gone when Play stops. To keep it, Export and paste it into StatsConfig.luau.",
+				tone = "secondary",
+				size = size.secondary,
+				wrap = true,
+			}),
+		}),
+		Tools = e(Controls.Line, { layoutOrder = 3, gap = 6, vertical = 8 }, {
+			Filter = e(Controls.Input, {
+				text = filter,
+				placeholder = "filter",
+				mono = false,
+				fill = true,
+				onChange = setFilter,
+				layoutOrder = 1,
+			}),
+			Export = e(Controls.Button, {
+				text = "Export",
+				enabled = changed > 0,
+				busy = snapshot.busy[EXPORT_KEY],
+				layoutOrder = 2,
+				onActivated = function()
+					ConsoleStore.run("defaults export", { key = EXPORT_KEY })
+				end,
+			}),
+		}),
+	}
+
+	if not data then
+		children.Empty = e(Controls.Empty, {
+			text = snapshot.listErrors.defaults or "Reading defaults…",
+			bad = snapshot.listErrors.defaults ~= nil,
+			layoutOrder = 4,
+		})
+	else
+		local needle = string.lower(filter)
+		local shown = 0
+		for _, row in ipairs(rows) do
+			if needle == "" or string.find(string.lower(row.stat), needle, 1, true) then
+				shown += 1
+				children[`d{shown}`] = e(DefaultRow, { row = row, snapshot = snapshot, layoutOrder = 10 + shown })
+			end
+		end
+		if shown == 0 then
+			children.NoMatch = e(Controls.Empty, { text = "No default matches.", layoutOrder = 10 })
+		end
+	end
+
+	local exported = snapshot.results[EXPORT_KEY]
+	if exported then
+		local luau = exported.data and exported.data.luau
+		children.Export = e(Controls.Stack, { pad = true, gap = 6, layoutOrder = 200 }, {
+			Head = e(Controls.Line, { inset = false, gap = 8, layoutOrder = 1 }, {
+				Text = e(Controls.Text, {
+					text = if type(luau) == "string" and luau ~= ""
+						then "Replace these entries in StatsConfig.luau (select, Ctrl+A, Ctrl+C)"
+						else exported.message,
+					tone = if exported.ok then "secondary" else "bad",
+					size = size.secondary,
+					wrap = true,
+					fill = true,
+					layoutOrder = 1,
+				}),
+				Close = e(Controls.IconButton, {
+					glyph = "close",
+					layoutOrder = 2,
+					onActivated = function()
+						ConsoleStore.clearResult(EXPORT_KEY)
+					end,
+				}),
+			}),
+			Code = if type(luau) == "string" and luau ~= ""
+				then e(Controls.CodeView, { text = luau, height = 260, layoutOrder = 2 })
+				else nil,
+		})
+	end
+
+	return e(Controls.Stack, { layoutOrder = props.layoutOrder }, children)
 end
 
 local function DebugTab(props: { snapshot: ConsoleStore.State })
@@ -312,6 +486,8 @@ local function DebugTab(props: { snapshot: ConsoleStore.State })
 			Line = e(Controls.Result, { result = snapshot.results.tune }),
 		})
 	end
+
+	children.Defaults = e(GameDefaults, { snapshot = snapshot, layoutOrder = 300 })
 
 	return e(Controls.TabLayout, {}, children)
 end

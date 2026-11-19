@@ -373,29 +373,152 @@ function StatsManager.cleanupPlayerStats(player: Player)
 	end
 end
 
--- Set base value for stats or pools
-function StatsManager.setBaseStat(entityId: string, statName: StatType, newValue: number)
+-- Base values. A stat's base is its default (the game default, or what the entity's definition set
+-- through `configure`) with an optional override in front (StatClass). Definitions write defaults;
+-- everything that changes a live entity's base for a session -- dev tooling, tests -- writes an
+-- override, so the default is never lost and clearing the override always lands on the default as it
+-- is now. There is deliberately no plain "set base" here: a write that does not say which layer it
+-- is would undo a rebalance of the default without trace.
+
+export type BaseInfo = {
+	default: number,
+	override: number?,
+	base: number,
+	-- Whether the entity's definition set the default (so a change of the game default passes it by).
+	ownsDefault: boolean,
+}
+
+local function statOf(entityId: string, statName: string): (any?, EntityStats?)
 	local stats = entityStats[entityId]
 	if not stats then
-		warn(`Attempted to set stat for entity {entityId} who has no stats initialized`)
-		return false
+		return nil, nil
 	end
+	return (stats :: any)[statName], stats
+end
 
-	local validatedValue = StatsConfig.validateStatValue(newValue)
-	local stat = (stats :: any)[statName]
-
-	if not stat then
-		warn(`Stat {statName} not found for entity {entityId}`)
-		return false
+-- Everything that follows a change of a stat's effective base: caches (all of them, since other
+-- stats can be computed from this one), a pool's current value kept within its new maximum (never
+-- refilled), and the player's mirror.
+local function afterBaseChange(entityId: string, stats: EntityStats, statName: string, stat: any)
+	StatsManager.invalidateAllCaches(entityId)
+	local isPlayer = Registrar.isPlayerEntity(entityId)
+	if isPlayer then
+		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.BASE_VALUE_CHANGED, statName, { baseValue = stat.baseValue })
 	end
-
-	stat:setBaseValue(validatedValue)
-	StatsMediator.invalidateStat(entityId, statName)
+	if StatTypeUtil.isPoolStat(stat) or StatTypeUtil.isResourceStat(stat) then
+		local before = stat:getCurrentValue()
+		local after = stat:setCurrentValue(before, stats)
+		if math.abs(after - before) > RESOURCE_DELTA_EPSILON and isPlayer then
+			sendStatDelta(entityId, StatTypeUtil.DeltaTypes.CURRENT_VALUE_CHANGED, statName, {
+				currentValue = after,
+				maxValue = stat:getMaxValue(stats),
+			})
+		end
+		if StatTypeUtil.isResourceStat(stat) then
+			propagateResourceEvents(entityId, statName, stat)
+		end
+	end
 	notifyIfPool(entityId, stats, statName)
-	if Registrar.isPlayerEntity(entityId) then
-		sendStatDelta(entityId, StatTypeUtil.DeltaTypes.BASE_VALUE_CHANGED, statName, { baseValue = validatedValue })
+end
+
+local function validBase(statName: string, value: number): number?
+	if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+		return nil
+	end
+	local min, max = StatsConfig.limitsOf(statName)
+	return math.clamp(value, min, max)
+end
+
+-- Overrides the base of one stat for this session, clamped to the stat's limits. False when the
+-- entity or stat does not exist or the value is not a finite number.
+function StatsManager.setBaseOverride(entityId: string, statName: StatType, value: number): boolean
+	local stat, stats = statOf(entityId, statName)
+	local validated = validBase(statName, value)
+	if not stat or not stats or validated == nil then
+		warn(`Cannot override base of {statName} on entity {entityId} with {tostring(value)}`)
+		return false
+	end
+	local before = stat.baseValue
+	stat:setOverride(validated)
+	if stat.baseValue ~= before then
+		afterBaseChange(entityId, stats, statName, stat)
 	end
 	return true
+end
+
+-- Removes an override, returning the stat to its default. False when there was none.
+function StatsManager.clearBaseOverride(entityId: string, statName: StatType): boolean
+	local stat, stats = statOf(entityId, statName)
+	if not stat or not stats then
+		return false
+	end
+	local before = stat.baseValue
+	if not stat:clearOverride() then
+		return false
+	end
+	if stat.baseValue ~= before then
+		afterBaseChange(entityId, stats, statName, stat)
+	end
+	return true
+end
+
+-- Every override on the entity, by stat name.
+function StatsManager.getBaseOverrides(entityId: string): { [string]: number }
+	local out: { [string]: number } = {}
+	for name, stat in pairs((entityStats[entityId] or {}) :: any) do
+		local override = if stat.getOverride then stat:getOverride() else nil
+		if override ~= nil then
+			out[name] = override
+		end
+	end
+	return out
+end
+
+function StatsManager.getBaseInfo(entityId: string, statName: StatType): BaseInfo?
+	local stat = statOf(entityId, statName)
+	if not stat or not stat.getDefaultValue then
+		return nil
+	end
+	return {
+		default = stat:getDefaultValue(),
+		override = stat:getOverride(),
+		base = stat:getBaseValue(),
+		ownsDefault = stat:ownsDefaultValue(),
+	}
+end
+
+export type DefaultChange = {
+	-- Entities whose default moved to the new value.
+	inherited: number,
+	-- Of those, how many keep an override in front of it (their base did not change).
+	overridden: number,
+	-- Entities whose definition set this stat's default, left alone.
+	ownDefault: number,
+}
+
+-- Moves every registered entity that still inherits the game default of `statName` onto `value`
+-- (dev tooling retuning a default mid-session; StatsConfig decides what new registrations get).
+function StatsManager.applyGameDefault(statName: StatType, value: number): DefaultChange
+	local change: DefaultChange = { inherited = 0, overridden = 0, ownDefault = 0 }
+	for entityId, stats in pairs(entityStats) do
+		local stat = (stats :: any)[statName]
+		if not stat or not stat.setInheritedDefault then
+			continue
+		end
+		local before = stat.baseValue
+		if not stat:setInheritedDefault(value) then
+			change.ownDefault += 1
+			continue
+		end
+		change.inherited += 1
+		if stat:getOverride() ~= nil then
+			change.overridden += 1
+		end
+		if stat.baseValue ~= before then
+			afterBaseChange(entityId, stats, statName, stat)
+		end
+	end
+	return change
 end
 
 local function preparePoolOperation(

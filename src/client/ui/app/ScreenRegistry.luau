@@ -70,6 +70,15 @@ if RunService:IsStudio() then
 		zIndex = 100,
 	})
 end
+-- The dev console follows DevAccess, the one place that decides whether dev tooling exists; when
+-- dev tooling is off it is never required, so nothing of it runs.
+if require(game:GetService("ReplicatedStorage").Shared.Dev.DevAccess).isEnabled() then
+	table.insert(entries, {
+		id = "DevConsole",
+		component = require(script.Parent.Parent.dev.Console),
+		zIndex = 110,
+	})
+end
 
 local ScreenRegistry = {}
 

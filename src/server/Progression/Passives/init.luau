@@ -366,7 +366,12 @@ function PassiveService.start()
 			scheduleRefresh(player)
 		end
 	end)
-	PlayerDataService.onLoaded(function(player)
+	-- A different save swapped in starts from nothing, as a join does: what the old one put into
+	-- effect is cleared before the new one applies.
+	PlayerDataService.onLoaded(function(player, _data, reloaded)
+		if reloaded then
+			release(player)
+		end
 		scheduleRefresh(player)
 	end)
 	Players.PlayerRemoving:Connect(release)

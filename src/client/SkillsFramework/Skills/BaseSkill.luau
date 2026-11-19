@@ -173,6 +173,17 @@ function BaseSkill:cancelLocalPrediction(reason: string?): boolean
 	return true
 end
 
+-- The skill was taken away and this instance is being dropped. Ends everything it has going
+-- locally -- a predicted cast, its animation, FX and marker listeners -- since nothing will deliver
+-- its end or cancel any more. Subclasses that hold more (connections, scheduled visuals) either
+-- release it in their cancelLocalPrediction even when no cast is in flight (HeldSkill's charge) or
+-- extend this.
+function BaseSkill:destroy()
+	self:cancelLocalPrediction("skill_removed")
+	self:_stopAllLocalLoopFX()
+	self:_disconnectMarkerListeners()
+end
+
 function BaseSkill:_attachSessionId(sessionId: string?)
 	if not sessionId or sessionId == "" then
 		return

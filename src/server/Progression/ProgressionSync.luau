@@ -51,13 +51,15 @@ function ProgressionSync.snapshot(player: Player): { [string]: any }?
 	return out
 end
 
--- Send the player their progression now.
-function ProgressionSync.publish(player: Player, events: { Event }?)
+-- Send the player their progression now. `fresh` marks a snapshot of a different save swapped in
+-- (PlayerSession.reload): where the player now is, not progress to announce.
+function ProgressionSync.publish(player: Player, events: { Event }?, fresh: boolean?)
 	local payload = ProgressionSync.snapshot(player)
 	if not payload then
 		return
 	end
 	payload.events = events
+	payload.fresh = if fresh then true else nil
 	dispatcher:emit("ProgressionUpdate", payload, { targets = { player } })
 end
 
@@ -87,8 +89,8 @@ function ProgressionSync.start()
 	end)
 
 	-- After the request above, which creates the channel this emits on.
-	PlayerDataService.onLoaded(function(player)
-		ProgressionSync.publish(player, nil)
+	PlayerDataService.onLoaded(function(player, _data, reloaded)
+		ProgressionSync.publish(player, nil, reloaded)
 	end)
 end
 

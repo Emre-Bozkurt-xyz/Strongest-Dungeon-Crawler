@@ -144,6 +144,12 @@ function BasicComboSkill:_bufferOrReject(reason: string?)
 	self:_runBufferedPress()
 end
 
+function BasicComboSkill:destroy()
+	self:_clearBufferedPress()
+	self:_stopComboIdle()
+	BaseSkill.destroy(self)
+end
+
 function BasicComboSkill:_stopComboIdle()
 	-- Clearing the token first invalidates any delayed start still in flight, so a scheduled idle
 	-- cannot resurrect itself after the combo it belonged to has ended.

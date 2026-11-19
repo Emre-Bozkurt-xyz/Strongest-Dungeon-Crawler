@@ -287,6 +287,16 @@ function CooldownService.forceClear(caster: Caster, key: string, _reason: string
 	return false
 end
 
+-- End every cooldown and the GCD at once. The client hears one reset rather than a clear per key,
+-- because it also drops the cooldowns it predicted locally, which no server clear would reach.
+function CooldownService.clearAll(caster: Caster, reason: string?)
+	skillCD[caster] = nil
+	gcdData[caster] = nil
+	if Registrar.isPlayerEntity(caster) then
+		emit(caster, { t = "cd_reset", reason = reason or "force" })
+	end
+end
+
 function CooldownService.adjust(
 	caster: Caster,
 	key: string,

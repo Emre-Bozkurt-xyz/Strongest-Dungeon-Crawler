@@ -179,6 +179,15 @@ local function spawnDrop(uid: string, position: Vector3, ownerEntityId: string?)
 	)
 end
 
+-- Rules over pickups that this module does not own (dev tooling keeps sandboxed saves' items apart
+-- from real ones). A veto returns the reason to refuse, or nil to allow.
+export type PickupVeto = (uid: string, entityId: string, drop: BasePart) -> string?
+local pickupVetoes: { PickupVeto } = {}
+
+function InventoryService.addPickupVeto(veto: PickupVeto)
+	table.insert(pickupVetoes, veto)
+end
+
 -- The reason travels back to the client, which tells the player why nothing happened.
 function InventoryService.pickupDrop(uid: string, entityId: string): (boolean, string?)
 	local drop = LootDropService.get(uid)
@@ -189,6 +198,12 @@ function InventoryService.pickupDrop(uid: string, entityId: string): (boolean, s
 	if not inst then
 		LootDropService.cleanup(uid)
 		return false, "drop_gone"
+	end
+	for _, veto in ipairs(pickupVetoes) do
+		local reason = veto(uid, entityId, drop)
+		if reason then
+			return false, reason
+		end
 	end
 	local ownerEntityId = drop:GetAttribute("OwnerEntityId")
 	local claimExpiresAt = drop:GetAttribute("ClaimExpiresAt")

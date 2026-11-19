@@ -12,6 +12,11 @@
 --     writes that state into the save just before every save and once more on `release`.
 --
 -- Keyed by player, never by entity id -- the character comes and goes, the save does not.
+--
+-- Sandbox (dev tooling): while a player is sandboxed, `get` returns a stand-in save instead of the
+-- profile's data, and nothing is written into the profile -- not by serializers on autosave, not on
+-- release. The profile keeps what it held when the sandbox was entered, so leaving the sandbox (or
+-- the game) brings back exactly that. PlayerSession.reload makes each swap and rebuilds live state.
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -27,7 +32,9 @@ local PlayerDataService = {}
 
 local store = ProfileStore.New(STORE_NAME, PlayerDataSchema.template())
 local profiles: { [Player]: any } = {}
-local loadedHandlers: { (Player, PlayerSaveData) -> () } = {}
+-- Stand-in saves of sandboxed players, returned by `get` in place of the profile's data.
+local sandboxes: { [Player]: PlayerSaveData } = {}
+local loadedHandlers: { (Player, PlayerSaveData, boolean?) -> () } = {}
 local serializers: { (Player, PlayerSaveData) -> () } = {}
 -- Threads waiting in waitForData, resumed with the save (or nil if the player left first).
 local waiting: { [Player]: { thread } } = {}
@@ -82,13 +89,15 @@ local function loadPlayer(player: Player)
 	profile.OnSave:Connect(function()
 		-- Only while this server still holds live state for them. After `release` the services
 		-- have been cleaned up, and serializing then would overwrite the save with empty state.
-		if profiles[player] == profile then
+		-- While sandboxed the live state is the stand-in's, which must never reach the profile.
+		if profiles[player] == profile and not sandboxes[player] then
 			runSerializers(player, profile.Data :: PlayerSaveData)
 		end
 	end)
 
 	profile.OnSessionEnd:Connect(function()
 		profiles[player] = nil
+		sandboxes[player] = nil
 		-- Also fires when another server takes the session over; this server must stop using it.
 		if isInGame(player) then
 			player:Kick("Your data was opened on another server. Please rejoin.")
@@ -108,10 +117,14 @@ local function loadPlayer(player: Player)
 	resumeWaiting(player, profile.Data :: PlayerSaveData)
 end
 
--- The player's live save, or nil until it has loaded (and after they leave).
+-- The player's live save, or nil until it has loaded (and after they leave). The stand-in while
+-- they are sandboxed.
 function PlayerDataService.get(player: Player): PlayerSaveData?
 	local profile = profiles[player]
-	return profile and profile.Data :: PlayerSaveData or nil
+	if not profile then
+		return nil
+	end
+	return sandboxes[player] or profile.Data :: PlayerSaveData
 end
 
 -- Yields until the player's save has loaded. Nil if they left, or it could not be loaded.
@@ -126,12 +139,26 @@ function PlayerDataService.waitForData(player: Player): PlayerSaveData?
 	return coroutine.yield()
 end
 
--- Called once per player when their save has loaded, including for players whose save loaded
--- before the handler was registered.
-function PlayerDataService.onLoaded(handler: (Player, PlayerSaveData) -> ())
+-- Called when a player's save has loaded, including for players whose save loaded before the
+-- handler was registered; and again, with `reloaded` true, each time PlayerSession.reload puts
+-- different data in its place. A handler is therefore "the player's save is now `data`": repair
+-- it, derive from it, tell the client.
+function PlayerDataService.onLoaded(handler: (player: Player, data: PlayerSaveData, reloaded: boolean?) -> ())
 	table.insert(loadedHandlers, handler)
-	for player, profile in pairs(profiles) do
-		task.spawn(handler, player, profile.Data :: PlayerSaveData)
+	for player in pairs(profiles) do
+		task.spawn(handler, player, PlayerDataService.get(player) :: PlayerSaveData, false)
+	end
+end
+
+-- Run every onLoaded handler again for the data `get` now returns. For PlayerSession.reload, once
+-- the live state has been rebuilt from it.
+function PlayerDataService.replayLoaded(player: Player)
+	local data = PlayerDataService.get(player)
+	if not data then
+		return
+	end
+	for _, handler in ipairs(loadedHandlers) do
+		task.spawn(handler, player, data, true)
 	end
 end
 
@@ -149,9 +176,35 @@ function PlayerDataService.release(player: Player)
 	if not profile then
 		return
 	end
-	runSerializers(player, profile.Data :: PlayerSaveData)
+	if not sandboxes[player] then
+		runSerializers(player, profile.Data :: PlayerSaveData)
+	end
+	sandboxes[player] = nil
 	profiles[player] = nil
 	profile:EndSession()
+end
+
+-- Make `data` what `get` returns for the player, keeping their profile as it is now; entering again
+-- while sandboxed only replaces the stand-in. Only as the swap of PlayerSession.reload, which first
+-- writes live state into the profile (so what they had is what they come back to) and holds back
+-- every write of live state until it has been rebuilt from `data`. False when their save has not
+-- loaded.
+function PlayerDataService.enterSandbox(player: Player, data: PlayerSaveData): boolean
+	if not profiles[player] then
+		return false
+	end
+	sandboxes[player] = data
+	return true
+end
+
+-- Go back to the profile's data, untouched since the sandbox was entered. Only as the swap of
+-- PlayerSession.reload, for the same reason as enterSandbox.
+function PlayerDataService.exitSandbox(player: Player)
+	sandboxes[player] = nil
+end
+
+function PlayerDataService.isSandboxed(player: Player): boolean
+	return sandboxes[player] ~= nil
 end
 
 function PlayerDataService.start()

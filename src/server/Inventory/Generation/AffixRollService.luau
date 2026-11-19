@@ -242,6 +242,65 @@ function AffixRollService.composeDisplayName(baseName: string, affixes: { ItemTy
 	return name
 end
 
+-- Roll the named affix for an item, at `tierNumber` or a weighted tier the item qualifies for. Nil
+-- with a reason when the affix does not exist, cannot appear on this item, or has no such tier here.
+-- For tooling that builds items to order; drops roll through `prepareMeta`.
+function AffixRollService.rollNamed(
+	def: ItemTypes.ItemDef,
+	itemLevel: number,
+	affixId: string,
+	tierNumber: number?
+): (ItemTypes.AffixInstance?, string?)
+	local affixDef: ItemTypes.AffixDef? = nil
+	for _, candidate in ipairs(AffixRegistry.list()) do
+		if candidate.id == affixId then
+			affixDef = candidate
+			break
+		end
+	end
+	if not affixDef then
+		return nil, `unknown affix '{affixId}'`
+	end
+	local context = AffixRegistry.getContext(def)
+	local rng = Random.new()
+	local tier: ItemTypes.AffixTierDef? = nil
+	if tierNumber then
+		for _, candidate in ipairs(affixDef.tiers) do
+			if candidate.tier == tierNumber then
+				tier = candidate
+				break
+			end
+		end
+		if not tier then
+			return nil, `affix '{affixId}' has no tier {tierNumber}`
+		end
+		if not AffixRegistry.tierAppliesToContext(tier, context) then
+			return nil, `affix '{affixId}' tier {tierNumber} grants nothing on '{def.id}' ({context})`
+		end
+	else
+		tier = pickTier(affixDef, itemLevel, context, rng)
+		if not tier then
+			return nil, `affix '{affixId}' cannot roll on '{def.id}' ({context}) at item level {itemLevel}`
+		end
+	end
+	local chosen = tier :: ItemTypes.AffixTierDef
+	local label = pickLabel(chosen, rng)
+	local mods: { ItemTypes.ModifierEntry } = {}
+	for modIndex, modDef in ipairs(resolveModifierDefs(chosen, context)) do
+		table.insert(mods, makeRolledModifier(affixDef.id, chosen.tier, modIndex, modDef, itemLevel, label, rng))
+	end
+	return {
+		id = affixDef.id,
+		kind = affixDef.kind,
+		label = label,
+		tier = chosen.tier,
+		modifiers = mods,
+		meta = {
+			context = context,
+		},
+	}, nil
+end
+
 function AffixRollService.prepareMeta(def: ItemTypes.ItemDef, meta: ItemTypes.ItemMeta?): ItemTypes.ItemMeta?
 	if def.category ~= "equipment" then
 		return meta

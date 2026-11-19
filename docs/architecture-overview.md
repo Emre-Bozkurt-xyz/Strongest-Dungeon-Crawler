@@ -83,8 +83,10 @@ The server startup does the following:
   on ReplicatedStorage; the client's `TimeSync` adds it to `GetServerTimeNow()` to read server time.
 - Initializes NPCManager and component updates via the bootstrap.
 
-Potential improvement
-- Dev/test setup is now in `src/server/dev/InitDev.luau`; keep expanding this to avoid production drift.
+Dev tooling
+- Dev-only setup starts from the `DevHooks` bootstrap entry (`src/server/dev/InitDev.luau`): the dev
+  command system, scenarios (stage + character + setup, loaded once per server) and the per-player
+  dev kit. Reference: `docs/dev-tooling/overview.md`.
 
 ### 3.2 Registrar (entity registry)
 Path: `src/server/Services/Registrar.luau`
@@ -416,9 +418,10 @@ Potential improvement
    - Skills use a mix of `task.delay`, `Timeline`, and SessionManager heartbeat.
    - Recommendation: pick a single scheduling model (Timeline or SessionManager) for skill timings.
 
-2. Bootstrap mixing production and test data
-   - `init.server.luau` hardcodes skill grants and test modifiers.
-   - Recommendation: move test setup into a dev-only feature flag or a Testing module.
+2. Dev kit standing in for progression
+   - Dev sessions grant every player a fixed skill list, starter items and regeneration modifiers
+     (`src/server/dev/InitDev.luau`, `StarterKit.luau`) because no system grants skills yet.
+   - Recommendation: remove the kit once skills are earned through progression.
 
 3. Duplicate or unused systems
    - `_ProjectileService.luau` and `SkillsFramework/ProjectileService.luau` coexist with Services/ProjectileService.

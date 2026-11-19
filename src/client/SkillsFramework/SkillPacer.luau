@@ -40,6 +40,17 @@ local function now(): number
 	return os.clock()
 end
 
+-- A cooldown reset means the character was rebuilt and the server ended its session, so cooldowns
+-- and GCDs still waiting to start, combos and the execution lock all belong to the old character.
+CooldownClient.onChanged(function(eventType: string)
+	if eventType == "reset" then
+		table.clear(states)
+		table.clear(pendingStepsBySkill)
+		table.clear(pendingAt)
+		activeSession = nil
+	end
+end)
+
 local function resolveStepDuration(
 	step: number,
 	totalSteps: number,

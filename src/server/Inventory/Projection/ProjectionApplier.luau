@@ -91,6 +91,9 @@ local function applyAttributeModifier(entityId: string, entry: ItemTypes.Modifie
 	return withSource
 end
 
+-- Removes the previous projection's stat and attribute modifiers. Granted skills are left for
+-- `apply` to reconcile: a skill is a live instance (on the client too, mid-cast perhaps), and
+-- removing and re-granting it on every recompute would throw that away for nothing.
 function ProjectionApplier.clear(entityId: string, previous: AppliedProjectionState?)
 	if not previous then
 		return
@@ -108,11 +111,53 @@ function ProjectionApplier.clear(entityId: string, previous: AppliedProjectionSt
 			end
 		end
 	end
-	for _, grant in ipairs(previous.grantedSkills) do
-		pcall(function()
-			SkillsManager.removeSkill(entityId, grant.skillName)
-		end)
+end
+
+-- The same grant: same skill, same override (overrides come from item definitions, so an unchanged
+-- grant is the same table).
+local function sameGrant(a: ItemTypes.SkillGrant, b: ItemTypes.SkillGrant): boolean
+	return a.skillName == b.skillName and rawequal(a.override, b.override)
+end
+
+-- Takes away the previous grants that are not wanted any more and grants the wanted ones that are
+-- new. Returns what this projection grants. A grant for a skill the entity already has in its own
+-- right is not made, so it is never taken away either.
+local function syncSkillGrants(
+	entityId: string,
+	previous: { ItemTypes.SkillGrant },
+	wanted: { ItemTypes.SkillGrant }
+): { ItemTypes.SkillGrant }
+	local kept: { [number]: boolean } = {}
+	for _, grant in ipairs(previous) do
+		local stillWanted = false
+		for index, want in ipairs(wanted) do
+			if not kept[index] and sameGrant(grant, want) then
+				kept[index] = true
+				stillWanted = true
+				break
+			end
+		end
+		if not stillWanted then
+			pcall(function()
+				SkillsManager.removeSkill(entityId, grant.skillName)
+			end)
+		end
 	end
+
+	local granted: { ItemTypes.SkillGrant } = {}
+	for index, grant in ipairs(wanted) do
+		if kept[index] and SkillsManager.getSkill(entityId, grant.skillName) then
+			table.insert(granted, grant)
+		elseif not SkillsManager.getSkill(entityId, grant.skillName) then
+			local ok = pcall(function()
+				SkillsManager.addSkill(entityId, grant.skillName, grant.override)
+			end)
+			if ok then
+				table.insert(granted, grant)
+			end
+		end
+	end
+	return granted
 end
 
 function ProjectionApplier.apply(
@@ -122,7 +167,8 @@ function ProjectionApplier.apply(
 	attributes: { ItemTypes.ModifierEntry },
 	skills: { ItemTypes.SkillGrant },
 	animationOverrides: { ItemTypes.AnimationOverrideEntry },
-	items: { ItemTypes.EquipmentProjectionItemStatus }
+	items: { ItemTypes.EquipmentProjectionItemStatus },
+	previous: AppliedProjectionState?
 ): AppliedProjectionState
 	local appliedStats: { ItemTypes.ModifierEntry } = {}
 	for i, entry in ipairs(stats) do
@@ -137,17 +183,7 @@ function ProjectionApplier.apply(
 		end
 	end
 
-	local granted: { ItemTypes.SkillGrant } = {}
-	for _, grant in ipairs(skills) do
-		if not SkillsManager.getSkill(entityId, grant.skillName) then
-			local ok = pcall(function()
-				SkillsManager.addSkill(entityId, grant.skillName, grant.override)
-			end)
-			if ok then
-				table.insert(granted, grant)
-			end
-		end
-	end
+	local granted = syncSkillGrants(entityId, if previous then previous.grantedSkills else {}, skills)
 
 	return {
 		entityId = entityId,

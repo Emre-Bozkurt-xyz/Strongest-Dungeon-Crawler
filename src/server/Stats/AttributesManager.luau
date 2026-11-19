@@ -252,11 +252,13 @@ end
 
 -- Apply the player's saved allocation: base values and unspent points. Bonuses from gear are not
 -- part of it; they come back with the equipment that grants them.
+--
+-- Restores onto fresh defaults, so a player restored a second time (PlayerSession.reload) keeps
+-- nothing of the allocation or gear bonuses they had. The version carries on: the client drops a
+-- full sync that is not newer than what it has.
 function AttributesManager.restoreSaved(player: Player, saved: { base: { [string]: number }?, availablePoints: number? })
-	-- PlayerAdded may have fired before this module loaded; the defaults must exist to restore onto.
-	if not playerAttributes[player] then
-		initializePlayerAttributes(player)
-	end
+	attrVersionByPlayer[player] = attrVersionByPlayer[player] or 0
+	playerAttributes[player] = AttributesConfig.createDefaultAttributes()
 	local attrs = playerAttributes[player]
 	if type(saved.base) == "table" then
 		for name, value in pairs(saved.base) do

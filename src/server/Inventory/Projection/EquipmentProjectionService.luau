@@ -121,7 +121,8 @@ function EquipmentProjectionService.recompute(entityId: string): ItemTypes.Equip
 	local version = (versionByEntity[entityId] or 0) + 1
 	versionByEntity[entityId] = version
 
-	local applied = ProjectionApplier.apply(entityId, version, aggregateStats, aggregateAttrs, aggregateSkills, aggregateAnim, items)
+	local applied =
+		ProjectionApplier.apply(entityId, version, aggregateStats, aggregateAttrs, aggregateSkills, aggregateAnim, items, previous :: any)
 	currentByEntity[entityId] = (applied :: any) :: ItemTypes.EquipmentProjectionSnapshot
 
 	if emitter then

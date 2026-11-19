@@ -120,7 +120,7 @@ local function exportStage(): string
 	return table.concat(lines, "\n")
 end
 
--- Re-renders whenever anything under UIMenu.stage changes, including from /tune in chat.
+-- Re-renders whenever anything under UIMenu.stage changes, including from the `tune` dev command.
 local function useStageRevision(): number
 	local revision, setRevision = React.useState(0)
 	React.useEffect(function()

@@ -278,38 +278,51 @@ function Service.get(path: string?): any
 	return def
 end
 
-function Service.set(path: string, value: any)
+-- False (with a warning) when the path names no Config value.
+function Service.set(path: string, value: any): boolean
 	assert(type(path) == "string" and path ~= "", "DevTuningService.set requires a dotted path")
 	local rawParts = splitPath(path)
 	local parts = resolvePathParts(Defaults, rawParts)
 	if not parts then
-		warn(string.format("[Tune] Unknown path '%s' (use '/tune paths' to inspect valid keys)", path))
-		return
+		warn(string.format("[Tune] Unknown path '%s' (use 'tune paths' to inspect valid keys)", path))
+		return false
 	end
 	assert(#parts > 0, "DevTuningService.set invalid path")
 	local node = ensurePath(overrides, parts)
 	node[parts[#parts]] = value
 	emitChanged(table.concat(parts, "."))
+	return true
 end
 
-function Service.reset(path: string?)
+-- False (with a warning) when the path names no Config value.
+function Service.reset(path: string?): boolean
 	if path == nil or path == "" then
 		overrides = {}
 		emitChanged("")
-		return
+		return true
 	end
 	local rawParts = splitPath(path)
 	local parts = resolvePathParts(Defaults, rawParts)
 	if not parts then
-		warn(string.format("[Tune] Unknown path '%s' (use '/tune paths' to inspect valid keys)", path))
-		return
+		warn(string.format("[Tune] Unknown path '%s' (use 'tune paths' to inspect valid keys)", path))
+		return false
 	end
 	clearPath(overrides, parts, 1)
 	emitChanged(table.concat(parts, "."))
+	return true
 end
 
 function Service.getOverrides(): { [string]: any }
 	return overrides
+end
+
+-- The override set at `path`, or nil when the path has none (it reads its default).
+function Service.getOverride(path: string): any
+	local parts = resolvePathParts(Defaults, splitPath(path))
+	if not parts then
+		return nil
+	end
+	return readPath(overrides, parts)
 end
 
 function Service.listCategories(): { string }
@@ -352,10 +365,21 @@ function Service.subscribe(pathPrefix: string?, callback: (string, any) -> ()): 
 	end
 end
 
-function Service.executeCommand(rawCommand: string): boolean
+-- Runs one tuning command line. Returns whether it succeeded and the lines it reported (also
+-- printed, prefixed [Tune]), so a caller such as the console can show them.
+function Service.executeCommand(rawCommand: string): (boolean, { string })
+	local lines: { string } = {}
+	local function say(line: string)
+		print("[Tune] " .. line)
+		table.insert(lines, line)
+	end
+	local function complain(line: string)
+		warn("[Tune] " .. line)
+		table.insert(lines, line)
+	end
 	if type(rawCommand) ~= "string" or rawCommand == "" then
-		warn("[Tune] Empty command")
-		return false
+		complain("Empty command")
+		return false, lines
 	end
 	local message = rawCommand
 	if string.sub(message, 1, 5) ~= "/tune" then
@@ -367,126 +391,129 @@ function Service.executeCommand(rawCommand: string): boolean
 	end
 	local cmd = string.lower(args[2] or "help")
 	if cmd == "help" then
-		print("[Tune] /tune get <path>")
-		print("[Tune] /tune set <path> <value>  (number|bool|Vector3 x,y,z)")
-		print("[Tune] /tune setmany <prefix> key=value key2=value2 ...")
-		print("[Tune] /tune nudge <path> <delta>")
-		print("[Tune] /tune reset [path]")
-		print("[Tune] /tune categories")
-		print("[Tune] /tune paths [category-or-prefix]")
-		print("[Tune] /tune dump")
-		print("[Tune] /tune export")
-		return true
+		say("tune get <path>")
+		say("tune set <path> <value>  (number|bool|Vector3 x,y,z)")
+		say("tune setmany <prefix> key=value key2=value2 ...")
+		say("tune nudge <path> <delta>")
+		say("tune reset [path]")
+		say("tune categories")
+		say("tune paths [category-or-prefix]")
+		say("tune dump")
+		say("tune export")
+		return true, lines
 	end
 	if cmd == "categories" or cmd == "cats" then
 		local categories = Service.listCategories()
-		print(string.format("[Tune] categories (%d): %s", #categories, table.concat(categories, ", ")))
-		return true
+		say(string.format("categories (%d): %s", #categories, table.concat(categories, ", ")))
+		return true, lines
 	end
 	if cmd == "paths" or cmd == "list" then
 		local filter = args[3]
 		local paths = Service.listPaths(filter)
-		print(
-			string.format(
-				"[Tune] paths%s (%d)",
-				if filter then (" for '" .. filter .. "'") else "",
-				#paths
-			)
-		)
+		say(string.format("paths%s (%d)", if filter then (" for '" .. filter .. "'") else "", #paths))
 		for _, path in ipairs(paths) do
-			print(string.format("[Tune] %s = %s", path, valueToString(Service.get(path))))
+			say(string.format("%s = %s", path, valueToString(Service.get(path))))
 		end
-		return true
+		return true, lines
 	end
 	if cmd == "get" then
 		local path = args[3]
 		if not path then
-			warn("[Tune] Missing path")
-			return false
+			complain("Missing path")
+			return false, lines
 		end
-		print(string.format("[Tune] %s = %s", path, valueToString(Service.get(path))))
-		return true
+		say(string.format("%s = %s", path, valueToString(Service.get(path))))
+		return true, lines
 	end
 	if cmd == "set" then
 		local path = args[3]
 		if not path then
-			warn("[Tune] Missing path")
-			return false
+			complain("Missing path")
+			return false, lines
 		end
 		local rawValue = table.concat(args, " ", 4)
 		if rawValue == "" then
-			warn("[Tune] Missing value")
-			return false
+			complain("Missing value")
+			return false, lines
 		end
 		local value = parseValue(rawValue)
-		Service.set(path, value)
-		print(string.format("[Tune] set %s = %s", path, valueToString(value)))
-		return true
+		if not Service.set(path, value) then
+			complain(string.format("Unknown path '%s'", path))
+			return false, lines
+		end
+		say(string.format("set %s = %s", path, valueToString(value)))
+		return true, lines
 	end
 	if cmd == "setmany" then
 		local prefix = args[3]
 		if not prefix then
-			warn("[Tune] Missing prefix path")
-			return false
+			complain("Missing prefix path")
+			return false, lines
 		end
 		local changed = 0
 		for i = 4, #args do
 			local pair = args[i]
 			local key, rawValue = string.match(pair, "^([^=]+)=(.+)$")
 			if not key or not rawValue then
-				warn(string.format("[Tune] Invalid pair '%s' (expected key=value)", pair))
+				complain(string.format("Invalid pair '%s' (expected key=value)", pair))
 			else
 				local value = parseValue(rawValue)
 				local fullPath = prefix .. "." .. key
-				Service.set(fullPath, value)
-				changed += 1
+				if Service.set(fullPath, value) then
+					changed += 1
+				else
+					complain(string.format("Unknown path '%s'", fullPath))
+				end
 			end
 		end
-		print(string.format("[Tune] setmany applied %d value(s) under %s", changed, prefix))
-		return true
+		say(string.format("setmany applied %d value(s) under %s", changed, prefix))
+		return true, lines
 	end
 	if cmd == "nudge" then
 		local path = args[3]
 		local rawDelta = args[4]
 		if not path then
-			warn("[Tune] Missing path")
-			return false
+			complain("Missing path")
+			return false, lines
 		end
 		if not rawDelta then
-			warn("[Tune] Missing delta")
-			return false
+			complain("Missing delta")
+			return false, lines
 		end
 		local delta = tonumber(rawDelta)
 		if delta == nil then
-			warn("[Tune] Delta must be numeric, e.g. +0.1 or -0.25")
-			return false
+			complain("Delta must be numeric, e.g. +0.1 or -0.25")
+			return false, lines
 		end
 		local cur = Service.get(path)
 		if type(cur) ~= "number" then
-			warn(string.format("[Tune] Cannot nudge non-number at %s (current=%s)", path, valueToString(cur)))
-			return false
+			complain(string.format("Cannot nudge non-number at %s (current=%s)", path, valueToString(cur)))
+			return false, lines
 		end
 		local nextValue = (cur :: number) + delta
 		Service.set(path, nextValue)
-		print(string.format("[Tune] nudge %s: %s -> %s", path, valueToString(cur), valueToString(nextValue)))
-		return true
+		say(string.format("nudge %s: %s -> %s", path, valueToString(cur), valueToString(nextValue)))
+		return true, lines
 	end
 	if cmd == "reset" then
 		local path = args[3]
-		Service.reset(path)
-		print(if path then string.format("[Tune] reset %s", path) else "[Tune] reset all overrides")
-		return true
+		if not Service.reset(path) then
+			complain(string.format("Unknown path '%s'", tostring(path)))
+			return false, lines
+		end
+		say(if path then string.format("reset %s", path) else "reset all overrides")
+		return true, lines
 	end
 	if cmd == "dump" then
-		print(string.format("[Tune] overrides = %s", valueToString(Service.getOverrides())))
-		return true
+		say(string.format("overrides = %s", valueToString(Service.getOverrides())))
+		return true, lines
 	end
 	if cmd == "export" then
 		local currentOverrides = Service.getOverrides()
 		local leafPaths = {}
 		collectLeafPaths(currentOverrides, "", leafPaths)
 		table.sort(leafPaths)
-		print("[Tune] export commands:")
+		say("export commands:")
 		for _, path in ipairs(leafPaths) do
 			local value = Service.get(path)
 			local valueRaw: string
@@ -496,14 +523,14 @@ function Service.executeCommand(rawCommand: string): boolean
 			else
 				valueRaw = tostring(value)
 			end
-			print(string.format("[Tune] set %s %s", path, valueRaw))
+			say(string.format("set %s %s", path, valueRaw))
 		end
-		print("[Tune] export luau table:")
-		print("local tuneOverrides = " .. toLuauLiteral(currentOverrides))
-		return true
+		say("export luau table:")
+		say("local tuneOverrides = " .. toLuauLiteral(currentOverrides))
+		return true, lines
 	end
-	warn("[Tune] Unknown command. Use /tune help")
-	return false
+	complain("Unknown command. Use tune help")
+	return false, lines
 end
 
 return Service

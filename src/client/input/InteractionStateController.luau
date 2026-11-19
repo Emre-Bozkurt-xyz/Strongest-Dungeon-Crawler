@@ -28,6 +28,9 @@ local rawModalOpen = false
 -- Full-screen overlays (the mastery canvas) open independently of the menu, each under its own name,
 -- so one closing never releases the input another still holds.
 local rawOverlays: { [string]: boolean } = {}
+-- Screen UI that takes the cursor and keeps input from gameplay without covering the screen (the dev
+-- console): modal like an overlay, but the HUD stays up beside it.
+local rawCaptures: { [string]: boolean } = {}
 local rawPrecisionFocusHeld = false
 local lastAppliedCursorUnlocked = nil :: boolean?
 
@@ -74,7 +77,7 @@ end
 
 local function deriveState(): State
 	local overlayOpen = next(rawOverlays) ~= nil
-	local modalOpen = rawModalOpen or overlayOpen
+	local modalOpen = rawModalOpen or overlayOpen or next(rawCaptures) ~= nil
 	local allowsModalInteraction = modalOpen
 	local allowsWorldPanelInteraction = (not modalOpen) and rawPrecisionFocusHeld
 	local cursorUnlocked = allowsModalInteraction or allowsWorldPanelInteraction
@@ -160,6 +163,21 @@ function InteractionStateController.setOverlayOpen(name: string, open: boolean)
 	end
 	rawPrecisionFocusHeld = false
 	recompute("overlay_open")
+end
+
+-- Take or give back the cursor and gameplay input for a named piece of screen UI, leaving the HUD
+-- as it is.
+function InteractionStateController.setInputCaptured(name: string, captured: boolean)
+	if (rawCaptures[name] == true) == captured then
+		return
+	end
+	if captured then
+		rawCaptures[name] = true
+	else
+		rawCaptures[name] = nil
+	end
+	rawPrecisionFocusHeld = false
+	recompute("input_capture")
 end
 
 function InteractionStateController.setPrecisionFocusHeld(held: boolean)

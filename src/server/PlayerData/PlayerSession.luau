@@ -12,6 +12,13 @@
 --
 -- Leaving writes the save first and only then lets services drop the player's state; in the other
 -- order the save would capture an inventory that had already been emptied.
+--
+-- Reload (dev tooling; it makes the PlayerDataService save swap under a live player itself):
+-- everything a session start restores is dropped and restored again from the save now in use, on
+-- the same body, and the services that read the save directly hear about it through
+-- PlayerDataService.onLoaded.
+-- Session-only state that no save holds -- owned skills, base stat values, dev setup -- is left to
+-- whoever granted it.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -27,6 +34,7 @@ local AttributesManager = require(Server.Stats.AttributesManager)
 local InventoryService = require(Server.Inventory.InventoryService)
 local EquipmentVisualService = require(Server.Inventory.EquipmentVisualService)
 local SessionManager = require(Server.SkillsFramework.SessionManager)
+local CooldownService = require(Server.SkillsFramework.CooldownService)
 local SkillMetadataService = require(Server.SkillsFramework.SkillMetadataService)
 local StatusEffectsService = require(Server.StatusEffects.StatusEffectsService)
 
@@ -85,16 +93,21 @@ local function startSession(player: Player, character: Model, hooks: Hooks)
 	end
 end
 
+-- What a body is in the middle of: its skill in progress and its status effects.
+local function endBodyState(entityId: string, reason: string)
+	local active = SessionManager.getActive(entityId)
+	if active then
+		SessionManager.cancel(active.id, reason)
+	end
+	StatusEffectsService.clearAll(entityId)
+end
+
 local function respawn(player: Player)
 	local entityId = Registrar.getPlayerId(player)
 	if not entityId then
 		return
 	end
-	local active = SessionManager.getActive(entityId)
-	if active then
-		SessionManager.cancel(active.id, "respawned")
-	end
-	StatusEffectsService.clearAll(entityId)
+	endBodyState(entityId, "respawned")
 	if StatsManager.isRegistered(entityId) then
 		refillPools(entityId)
 	end
@@ -143,6 +156,63 @@ local function writeLiveState(player: Player, data: PlayerDataService.PlayerSave
 	if attributes then
 		data.attributes = attributes
 	end
+end
+
+-- Rebuild the player's live state from what PlayerDataService.get returns, as a session start
+-- would, without a new character. `swap`, when given, changes which save is in use
+-- (PlayerDataService.enterSandbox / exitSandbox) and returns whether it did; reload calls it itself,
+-- at the one point where that is safe. Yields one frame, so the recomputes that changes defer
+-- (passives, gear requirements) have run before pools refill to their new maximums. False, with a
+-- reason, when the player's session has not been restored yet, the swap did not happen, or they
+-- left meanwhile.
+function PlayerSession.reload(player: Player, swap: (() -> boolean)?): (boolean, string?)
+	local entityId = Registrar.getPlayerId(player)
+	if not restored[player] or not PlayerDataService.get(player) or not entityId then
+		return false, "session not restored yet"
+	end
+
+	endBodyState(entityId, "reloaded")
+	CooldownService.clearAll(entityId, "reloaded")
+	local current = PlayerDataService.get(player)
+	if not restored[player] or not current then
+		return false, "player left"
+	end
+
+	-- Live state goes into the save it came from, then the write-back guard is off from before the
+	-- swap until live state has been rebuilt from the save in use after it. In between, live state
+	-- belongs to the other save: a save or a leave taken then, with the guard on, would write a
+	-- preset's character into the real profile. Because the guard is cleared here, before the swap
+	-- and in the same place, the ordering holds whatever yields in between.
+	if swap then
+		writeLiveState(player, current)
+	end
+	restored[player] = nil
+	if swap and not swap() then
+		-- Nothing was swapped: live state is still the save in use's.
+		restored[player] = if player.Parent == Players then true else nil
+		return false, "save not loaded"
+	end
+	local data = PlayerDataService.get(player)
+	if not data then
+		return false, "player left"
+	end
+	InventoryService.releasePlayer(entityId)
+	AttributesManager.restoreSaved(player, data.attributes)
+	InventoryService.initializePlayer(player, data.inventory)
+	restored[player] = true
+	-- Releasing equipment fires no slot events, so slots the new save leaves empty keep their old
+	-- visuals until rebuilt from what is equipped now.
+	EquipmentVisualService.refresh(entityId)
+
+	PlayerDataService.replayLoaded(player)
+
+	task.wait()
+	if player.Parent ~= Players or Registrar.getPlayerId(player) ~= entityId then
+		return false, "player left"
+	end
+	refillPools(entityId)
+	SkillMetadataService.updateAllSkills(player)
+	return true, nil
 end
 
 function PlayerSession.start(hooks: Hooks)

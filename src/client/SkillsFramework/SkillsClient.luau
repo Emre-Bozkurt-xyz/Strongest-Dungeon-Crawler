@@ -196,6 +196,34 @@ local function registerSkill(skillName: string, source: string): boolean
 	return true
 end
 
+-- Forget skills the server took away (gear that granted one came off, the character was rebuilt
+-- from another save). The server ends any session of theirs itself, but that end cannot reach an
+-- instance already forgotten, so the instance is torn down here and its pacing released.
+local function unregisterSkills(skillNames: { string })
+	local removed = false
+	for _, skillName in ipairs(skillNames) do
+		local skill = availableSkills[skillName]
+		if skill then
+			availableSkills[skillName] = nil
+			removed = true
+			if type(skill.destroy) == "function" then
+				local ok, err = pcall(skill.destroy, skill)
+				if not ok then
+					warn(`SkillsClient: tearing down '{skillName}' failed:`, err)
+				end
+			end
+			if SkillPacer.isActive(skillName) then
+				SkillPacer.cancelSkill(skillName)
+			end
+		end
+	end
+	if removed then
+		for _, callback in ipairs(knownChanged) do
+			task.spawn(callback)
+		end
+	end
+end
+
 -- update client state for active skills
 dispatcher:on("SkillsUpdate", function(payload: any, _meta: any?)
 	if type(payload) ~= "table" then
@@ -208,6 +236,16 @@ dispatcher:on("SkillsUpdate", function(payload: any, _meta: any?)
 			return
 		end
 		registerSkill(payload.data.skillName, "SkillsUpdate")
+	elseif payload.updateType == "skill_removed" then
+		if type(payload.data) == "table" and type(payload.data.skillName) == "string" then
+			unregisterSkills({ payload.data.skillName })
+		end
+	elseif payload.updateType == "all_skills_removed" then
+		local names: { string } = {}
+		for skillName in pairs(availableSkills) do
+			table.insert(names, skillName)
+		end
+		unregisterSkills(names)
 	end
 end)
 
@@ -251,7 +289,7 @@ function SkillsClient.known(): { string }
 	return names
 end
 
--- Called whenever a skill is added.
+-- Called whenever a skill is added or removed.
 function SkillsClient.onKnownChanged(callback: () -> ()): () -> ()
 	table.insert(knownChanged, callback)
 	return function()

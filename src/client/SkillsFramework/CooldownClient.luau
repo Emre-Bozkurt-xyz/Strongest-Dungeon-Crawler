@@ -217,10 +217,18 @@ end
 
 -- Event wiring (includes charges)
 dispatcherAny:on(EVENT_NAME, function(payload)
+	local t = payload and payload.t
+	-- The server rebuilt the character (dev character swap): nothing from before applies, predicted
+	-- or not, whichever cooldown source is in use.
+	if t == "cd_reset" then
+		table.clear(cooldowns)
+		table.clear(localCooldowns)
+		fire("reset", nil)
+		return
+	end
 	if not USE_SERVER_COOLDOWNS then
 		return
 	end
-	local t = payload and payload.t
 	if t == "cd_start" then
 		local key = payload.key
 		if key == "_GCD" then

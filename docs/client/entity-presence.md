@@ -53,8 +53,9 @@ the effect's glyph and colour (`EnemyBars/StatusLooks`, placeholders; unknown id
 `invulnerable` is hidden) and a stack count past the corner when above one. The square's white
 outline is the timer: whole when applied, the gap opening at the top and sweeping clockwise as it
 runs out, over a faint full track. Seconds-left text over the glyph was tried (`SHOW_SECONDS`) and
-hid the glyph at this size, so it is off. Statuses can be put on an NPC for testing with
-`ServerStorage.DevStatus:Fire(player, "Dummy", "Burn", { damagePerTick = 2, duration = 10 })`.
+hid the glyph at this size, so it is off. Statuses can be put on an NPC for testing with the dev command
+`status Dummy Burn {"damagePerTick": 2, "duration": 10}`, or by loading the `combat/status-marks`
+scenario (`docs/dev-tooling/overview.md`).
 
 ## Predicted melee reactions
 

@@ -432,6 +432,16 @@ function SkillsManager.getSkill(caster: Caster, skillName: string)
 	return skills[skillName]
 end
 
+-- Every skill the caster has, by name, sorted.
+function SkillsManager.getSkillNames(caster: Caster): { string }
+	local names: { string } = {}
+	for skillName in pairs(casterSkills[caster] or {}) do
+		table.insert(names, skillName)
+	end
+	table.sort(names)
+	return names
+end
+
 function SkillsManager.getSkillConfig(caster: Caster, skillName: string)
 	local skill = SkillsManager.getSkill(caster, skillName)
 	if skill and skill.config then

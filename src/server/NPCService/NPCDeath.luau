@@ -29,10 +29,14 @@ local FADE_TIME = 0.6
 local HEALTH = StatTypes.PoolStats.Health
 
 export type DeathListener = (entityId: string, model: Model) -> ()
+export type RespawnListener = (previous: Model, model: Model) -> ()
 
 local NPCDeath = {}
 
 local listeners: { DeathListener } = {}
+local respawnListeners: { RespawnListener } = {}
+-- Respawn timers by the NPC that died, kept so a respawn can be called off.
+local pendingRespawns: { [Model]: thread } = {}
 
 -- Called once per NPC death, after the killing hit has reached every hit listener.
 function NPCDeath.onDeath(listener: DeathListener)
@@ -59,15 +63,52 @@ local function scheduleRespawn(model: Model)
 	local areaLevel = model:GetAttribute("AreaLevel")
 	local rank = if model:GetAttribute("RankForced") == true then model:GetAttribute("Rank") else nil
 	local parent = model.Parent
-	task.delay(delay, function()
-		NPCSpawner.spawn(prefab, {
+	pendingRespawns[model] = task.delay(delay, function()
+		pendingRespawns[model] = nil
+		-- The area it belonged to has been removed (an unloaded map): there is nowhere to come back to.
+		if parent == nil or not parent:IsDescendantOf(game) then
+			return
+		end
+		local respawned = NPCSpawner.spawn(prefab, {
 			cframe = cframe,
 			respawnDelay = delay,
 			areaLevel = areaLevel,
 			rank = rank,
 			parent = parent,
 		})
+		if respawned then
+			for _, listener in ipairs(respawnListeners) do
+				task.spawn(listener, model, respawned)
+			end
+		end
 	end)
+end
+
+-- Called with the NPC that died and the one that replaced it, so whoever spawned the first can
+-- recognise the second.
+function NPCDeath.onRespawn(listener: RespawnListener)
+	table.insert(respawnListeners, listener)
+end
+
+-- Stops a respawn the NPC has pending (it died, and has not come back yet). The model may already
+-- be gone. False when nothing was pending.
+function NPCDeath.cancelRespawn(model: Model): boolean
+	local thread = pendingRespawns[model]
+	if not thread then
+		return false
+	end
+	pendingRespawns[model] = nil
+	task.cancel(thread)
+	return true
+end
+
+-- NPCs that died and are waiting to come back, including ones whose body is already removed.
+function NPCDeath.pendingRespawns(): { Model }
+	local models: { Model } = {}
+	for model in pairs(pendingRespawns) do
+		table.insert(models, model)
+	end
+	return models
 end
 
 local function die(entityId: string, model: Model)

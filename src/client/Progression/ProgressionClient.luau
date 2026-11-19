@@ -232,8 +232,8 @@ local function adopt(raw: any)
 	local previous = snapshot
 	snapshot = nextSnapshot
 	publish()
-	-- The first snapshot is where the player already is, not news.
-	if previous then
+	-- The first snapshot is where the player already is, not news; so is one of a save swapped in.
+	if previous and raw.fresh ~= true then
 		announce(previous, nextSnapshot, raw.events)
 	end
 end

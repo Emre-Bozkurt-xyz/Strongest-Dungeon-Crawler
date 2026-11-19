@@ -437,7 +437,7 @@ rather than replace the mechanism:
    the default of). `server/Forms/FormService` validates selections (`LoadoutSelectShape`), keeps
    them per class key in the save, and writes the selected, unlocked shape into the combat loadout
    snapshot (`basicAttackShape`), which both peers resolve from. Proven with `unarmed_rapid_jabs`
-   (needs Unarmed 1; `ServerStorage.DevSetMastery` stands in for mastery until step 3). No UI yet.
+   (needs Unarmed 1; the `mastery` dev command stands in for mastery until step 3). No UI yet.
 3. **Mastery service and the mastery page.** *Done (2026-10-26, verified in play;
    `docs/tasks/mastery-model-v2.md`):* the six launch tracks; trees as data
    (`shared/progression/MasteryTrees`, from `progression-launch-content.md`); XP saved per branch
